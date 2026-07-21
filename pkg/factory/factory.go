@@ -18,12 +18,35 @@ import (
 	"github.com/bborbe/cqrs/base"
 	libkafka "github.com/bborbe/kafka"
 	libtime "github.com/bborbe/time"
-	"github.com/bborbe/vault-cli/pkg/domain"
+	domain "github.com/bborbe/vault-cli/pkg/domain"
 
-	"github.com/bborbe/github-update-go-agent/pkg/prompts"
+	updatepkg "github.com/bborbe/github-update-go-agent/pkg"
+	"github.com/bborbe/github-update-go-agent/pkg/git"
 )
 
 const serviceName = "github-update-go-agent"
+
+// taskTypeGithubUpdateGo is the agent-lib TaskType literal for this agent's
+// domain task. No constant exists in agent-lib for this value, so we cast it
+// locally (mirrors github-dark-factory-agent). Keep the literal exactly
+// "github-update-go" — the watcher emits it verbatim and the CRD
+// trigger.task_type field must match.
+var taskTypeGithubUpdateGo = agentlib.TaskType("github-update-go")
+
+// planningTools is the planning phase's Claude tool scope: inspect-only —
+// no Edit/Write, no push (design § 4.3 planning).
+var planningTools = claudelib.AllowedTools{
+	"Read", "Grep", "Glob",
+	"Bash(git:*)", "Bash(go:*)", "Bash(make:*)",
+}
+
+// executionTools is the execution Claude sub-call's tool scope: file-edit +
+// go/make only — NO git, NO gh. Every git/PR side effect is the Go step's
+// (design § 7.0 capability removal).
+var executionTools = claudelib.AllowedTools{
+	"Read", "Grep", "Glob", "Edit", "Write",
+	"Bash(go:*)", "Bash(make:*)",
+}
 
 // CreateClaudeRunner constructs a ClaudeRunner pre-configured with tools,
 // model, working directory, and CLI environment.
@@ -41,6 +64,26 @@ func CreateClaudeRunner(
 		WorkingDirectory: agentDir,
 		Env:              env,
 	})
+}
+
+// CreateGitOps wires the os/exec GitOps seam.
+func CreateGitOps() git.GitOps {
+	return git.NewOSExecGitOps()
+}
+
+// CreateGhCli wires the os/exec gh CLI seam with the resolved GitHub token.
+func CreateGhCli(ghToken string) updatepkg.GhCli {
+	return updatepkg.NewOSExecGhCli(ghToken)
+}
+
+// CreateGateRunner wires the os/exec make gate runner.
+func CreateGateRunner() updatepkg.GateRunner {
+	return updatepkg.NewOSExecGateRunner()
+}
+
+// CreateClaudeProber wires the claude-auth preflight prober.
+func CreateClaudeProber(claudeConfigDir claudelib.ClaudeConfigDir) updatepkg.ClaudeProber {
+	return updatepkg.NewClaudeProber(claudeConfigDir)
 }
 
 // CreateSyncProducer creates a Kafka sync producer.
@@ -83,66 +126,84 @@ func CreateFileResultDeliverer(filePath string) agentlib.ResultDeliverer {
 	)
 }
 
-// CreateAgent assembles the full 3-phase claude agent. Single Claude step
-// shared across planning / in_progress / ai_review preserves the existing
-// CRD trigger.phases behavior — every phase runs Claude once and emits
-// done.
+// CreateAgent assembles the three distinct phases (design § 4.2):
+//
+//   - planning:  claude-auth + gh-token preflights + Claude planning step
+//     (clone @ ref, detect gate targets, classify findings) → ## Plan
+//   - execution: claude-auth preflight + custom Go step embedding the Claude
+//     update sub-call (clone+branch, update+repair, gate verify, commit,
+//     push --no-follow-tags, gh pr create --draft) → ## Result
+//   - ai_review: pure-Go verifier (PR state, fresh-worktree gate re-run,
+//     CHANGELOG, tag audit) → ## Review → human_review
 func CreateAgent(
 	claudeConfigDir claudelib.ClaudeConfigDir,
 	agentDir claudelib.AgentDir,
-	allowedTools claudelib.AllowedTools,
 	model claudelib.ClaudeModel,
+	ghToken string,
 	claudeEnv map[string]string,
-	envContext map[string]string,
+	gitOps git.GitOps,
+	ghCli updatepkg.GhCli,
+	gateRunner updatepkg.GateRunner,
+	claudeProber updatepkg.ClaudeProber,
 ) *agentlib.Agent {
-	return CreateAgentFromRunner(
-		CreateClaudeRunner(claudeConfigDir, agentDir, allowedTools, model, claudeEnv),
-		envContext,
+	claudeAuth := updatepkg.NewClaudeAuthStep(claudeProber)
+	ghTokenCheck := updatepkg.NewGHTokenCheckStep(ghToken)
+	planningRunner := CreateClaudeRunner(claudeConfigDir, agentDir, planningTools, model, claudeEnv)
+	planningStep := updatepkg.NewPlanningStep(planningRunner, gitOps, ghToken)
+	executionRunner := CreateClaudeRunner(
+		claudeConfigDir,
+		agentDir,
+		executionTools,
+		model,
+		claudeEnv,
 	)
-}
+	executionStep := updatepkg.NewExecutionStep(executionRunner, gitOps, ghCli, gateRunner, ghToken)
+	reviewStep := updatepkg.NewReviewStep(gitOps, ghCli, gateRunner, ghToken)
 
-// CreateAgentFromRunner builds the 3-phase claude agent given a pre-constructed
-// ClaudeRunner. Used by CreateAgentProvider to share one runner across the
-// domain agent and the healthcheck-Claude liveness agent.
-func CreateAgentFromRunner(
-	runner claudelib.ClaudeRunner,
-	envContext map[string]string,
-) *agentlib.Agent {
-	step := claudelib.NewAgentStep(claudelib.AgentStepConfig{
-		Name:          "claude-task",
-		Runner:        runner,
-		Instructions:  prompts.BuildInstructions(),
-		EnvContext:    envContext,
-		OutputSection: "## Result",
-		NextPhase:     "done",
-	})
 	return agentlib.NewAgent(
-		agentlib.NewPhase("planning", step),
-		agentlib.NewPhase(domain.TaskPhaseExecution, step),
-		agentlib.NewPhase("ai_review", step),
+		agentlib.NewPhase(domain.TaskPhasePlanning, claudeAuth, ghTokenCheck, planningStep),
+		agentlib.NewPhase(domain.TaskPhaseExecution, claudeAuth, executionStep),
+		agentlib.NewPhase(domain.TaskPhaseAIReview, reviewStep),
 	)
 }
 
-// CreateAgentProvider wires the per-task-type dispatch table for github-update-go-agent.
-// Returns lib.AgentProvider — main.go calls Get(ctx, taskType) to select the
-// appropriate *Agent. Pure plumbing; no conditional, no error.
+// CreateAgentProvider wires the per-task-type dispatch table.
+//   - task_type: github-update-go → the 3-phase domain agent
+//   - task_type: healthcheck / oauth-probe → shared liveness agent
 //
-// TaskTypeLLM routes to the existing 3-phase domain agent. TaskTypeHealthcheck
-// and TaskTypeOAuthProbe (transition alias) both route to the shared
-// healthcheck-Claude liveness agent, reusing the same ClaudeRunner.
+// Pure plumbing; no conditional, no error.
 func CreateAgentProvider(
 	claudeConfigDir claudelib.ClaudeConfigDir,
 	agentDir claudelib.AgentDir,
-	allowedTools claudelib.AllowedTools,
 	model claudelib.ClaudeModel,
+	ghToken string,
 	claudeEnv map[string]string,
-	envContext map[string]string,
+	gitOps git.GitOps,
+	ghCli updatepkg.GhCli,
+	gateRunner updatepkg.GateRunner,
+	claudeProber updatepkg.ClaudeProber,
 ) agentlib.AgentProvider {
-	runner := CreateClaudeRunner(claudeConfigDir, agentDir, allowedTools, model, claudeEnv)
-	domainAgent := CreateAgentFromRunner(runner, envContext)
-	livenessAgent := healthcheck.NewAgent(healthcheck.NewClaudeStep(runner))
+	domainAgent := CreateAgent(
+		claudeConfigDir,
+		agentDir,
+		model,
+		ghToken,
+		claudeEnv,
+		gitOps,
+		ghCli,
+		gateRunner,
+		claudeProber,
+	)
+	healthcheckRunner := CreateClaudeRunner(
+		claudeConfigDir,
+		agentDir,
+		claudelib.AllowedTools{},
+		model,
+		claudeEnv,
+	)
+	livenessAgent := healthcheck.NewAgent(healthcheck.NewClaudeStep(healthcheckRunner))
 	return agentlib.NewAgentProvider(serviceName, map[agentlib.TaskType]*agentlib.Agent{
-		agentlib.TaskTypeLLM:         domainAgent,
+		taskTypeGithubUpdateGo:       domainAgent,
 		agentlib.TaskTypeHealthcheck: livenessAgent,
 		agentlib.TaskTypeOAuthProbe:  livenessAgent,
 	})

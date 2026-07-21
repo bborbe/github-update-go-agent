@@ -2,17 +2,13 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// Command github-update-go-agent is the canonical AI-heavy agent: one Claude
-// invocation per phase, all logic in the prompt + allowed tools.
+// Command github-update-go-agent consumes github-update-go tasks and lands a
+// reviewable draft PR bringing a Go repo to the current toolchain +
+// dependencies with a green repo gate (design docs/design.md).
 //
 // This binary is the Kafka entry point — spawned as a K8s Job by
 // task/executor with TASK_CONTENT + TASK_ID + PHASE + KAFKA_BROKERS env.
 // For local CLI mode (file-based), see cmd/run-task/main.go.
-//
-// Reference implementation for AI-heavy agents using the agent framework
-// (lib.NewAgent + claude.NewAgentStep). Other agents (trade-analysis,
-// pr-reviewer) follow the same shape — copy this main.go and swap
-// prompts/tools.
 package main
 
 import (
@@ -36,11 +32,13 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/push"
 
+	updatepkg "github.com/bborbe/github-update-go-agent/pkg"
 	"github.com/bborbe/github-update-go-agent/pkg/factory"
+	"github.com/bborbe/github-update-go-agent/pkg/githubauth"
 )
 
 // agentName is the identity string used for Prometheus metric grouping and logging.
-const agentName = "claude-agent"
+const agentName = "github-update-go-agent"
 
 func main() {
 	app := &application{}
@@ -57,14 +55,8 @@ type application struct {
 	// Agent directory (contains .claude/ with CLAUDE.md and commands)
 	AgentDir claudelib.AgentDir `required:"false" arg:"agent-dir" env:"AGENT_DIR" usage:"Agent directory with .claude/ config" default:"agent"`
 
-	// Allowed tools (comma-separated)
-	AllowedToolsRaw string `required:"false" arg:"allowed-tools" env:"ALLOWED_TOOLS" usage:"Comma-separated list of allowed tools"`
-
 	// Task content from agent pipeline
 	TaskContent string `required:"true" arg:"task-content" env:"TASK_CONTENT" usage:"Raw task markdown from vault"`
-
-	// Environment context passed to prompt (comma-separated KEY=VALUE pairs)
-	EnvContextRaw string `required:"false" arg:"env-context" env:"ENV_CONTEXT" usage:"Comma-separated KEY=VALUE pairs for prompt context"`
 
 	// Environment variables passed to Claude CLI process (comma-separated KEY=VALUE pairs).
 	// Use this for ad-hoc / less-common env vars. The three load-bearing Anthropic provider
@@ -72,9 +64,8 @@ type application struct {
 	ClaudeEnvRaw string `required:"false" arg:"claude-env" env:"CLAUDE_ENV" usage:"Comma-separated KEY=VALUE pairs for Claude CLI environment"`
 
 	// Anthropic-compatible provider routing. Setting AnthropicBaseURL + AnthropicAuthToken
-	// routes the claude CLI to an alt-provider (e.g. MiniMax via https://api.minimax.io/anthropic).
-	// AnthropicModel drives both the `--model` CLI flag and the ANTHROPIC_MODEL env var seen by
-	// the claude subprocess. Non-empty values override the same keys in ClaudeEnvRaw.
+	// routes the claude CLI to an alt-provider. AnthropicModel drives both the `--model`
+	// CLI flag and the ANTHROPIC_MODEL env var seen by the claude subprocess.
 	AnthropicBaseURL   string                `required:"false" arg:"anthropic-base-url"   env:"ANTHROPIC_BASE_URL"   usage:"Anthropic-compatible API base URL"`
 	AnthropicAuthToken string                `required:"false" arg:"anthropic-auth-token" env:"ANTHROPIC_AUTH_TOKEN" usage:"Bearer token for ANTHROPIC_BASE_URL"                                  display:"password"`
 	AnthropicModel     claudelib.ClaudeModel `required:"false" arg:"anthropic-model"      env:"ANTHROPIC_MODEL"      usage:"Model name; also exposed to the claude subprocess as ANTHROPIC_MODEL"                    default:"sonnet"`
@@ -87,6 +78,21 @@ type application struct {
 
 	// Phase to run (framework requires explicit phase)
 	Phase domain.TaskPhase `required:"false" arg:"phase" env:"PHASE" usage:"Agent phase: planning | execution | ai_review" default:"execution"`
+
+	// GitHub token for authenticated clones + gh CLI calls. Used as the raw
+	// fallback credential when GitHub App creds are absent (local
+	// cmd/run-task path where the operator exports `gh auth token`).
+	GhToken string `required:"false" arg:"gh-token" env:"GH_TOKEN" usage:"GitHub token for clone + PR creation (raw fallback when App creds unset)" display:"length"`
+
+	// GitHub App authentication (design § 7.2). When APP_ID, INSTALLATION_ID,
+	// and a PEM (file or inline) are all set, the pod mints a short-lived
+	// installation access token at startup and forwards it to every git/gh
+	// subprocess as GH_TOKEN. The cluster pod sets these (GH_TOKEN is empty
+	// there); locally they are absent and the agent falls back to GhToken.
+	AppID          int64  `required:"false" arg:"app-id"          env:"APP_ID"          usage:"GitHub App ID (numeric); enables App auth when set with INSTALLATION_ID + PEM"`
+	InstallationID int64  `required:"false" arg:"installation-id" env:"INSTALLATION_ID" usage:"GitHub App Installation ID (numeric)"`
+	PEMKeyFile     string `required:"false" arg:"pem-key-file"    env:"PEM_KEY_FILE"    usage:"Path to the GitHub App private key (PEM file mounted from k8s Secret)"`
+	PEMKey         string `required:"false" arg:"pem-key"         env:"PEM_KEY"         usage:"GitHub App private key (PEM) as env var content; mutually exclusive with PEM_KEY_FILE" display:"length"`
 
 	// Kafka delivery (optional — only active when TASK_ID is set)
 	KafkaBrokers libkafka.Brokers        `required:"false" arg:"kafka-brokers" env:"KAFKA_BROKERS" usage:"Comma separated list of Kafka brokers"`
@@ -114,6 +120,15 @@ func (a *application) Run(ctx context.Context, _ libsentry.Client) error {
 
 	glog.V(2).Infof("github-update-go-agent started phase=%s", a.Phase)
 
+	// Resolve the GitHub credential (App IAT or raw GH_TOKEN fallback) and make
+	// it usable by every git/gh subprocess. See prepareAuth.
+	resolvedToken, err := a.prepareAuth(ctx)
+	if err != nil {
+		jobMetrics.RecordRun(agentlib.AgentStatusFailed)
+		jobMetrics.RecordDuration(time.Since(start))
+		return err
+	}
+
 	deliverer := delivery.NewNoopResultDeliverer()
 	if a.TaskID != "" {
 		if len(a.KafkaBrokers) == 0 {
@@ -138,27 +153,18 @@ func (a *application) Run(ctx context.Context, _ libsentry.Client) error {
 		)
 	}
 
-	claudeEnv := envparse.KeyValuePairs(a.ClaudeEnvRaw)
-	if claudeEnv == nil {
-		claudeEnv = map[string]string{}
-	}
-	if a.AnthropicBaseURL != "" {
-		claudeEnv["ANTHROPIC_BASE_URL"] = a.AnthropicBaseURL
-	}
-	if a.AnthropicAuthToken != "" {
-		claudeEnv["ANTHROPIC_AUTH_TOKEN"] = a.AnthropicAuthToken
-	}
-	if a.AnthropicModel != "" {
-		claudeEnv["ANTHROPIC_MODEL"] = a.AnthropicModel.String()
-	}
+	claudeEnv := a.buildClaudeEnv(resolvedToken)
 
 	provider := factory.CreateAgentProvider(
 		a.ClaudeConfigDir,
 		a.AgentDir,
-		claudelib.ParseAllowedTools(a.AllowedToolsRaw),
 		a.AnthropicModel,
+		resolvedToken,
 		claudeEnv,
-		envparse.KeyValuePairs(a.EnvContextRaw),
+		factory.CreateGitOps(),
+		factory.CreateGhCli(resolvedToken),
+		factory.CreateGateRunner(),
+		factory.CreateClaudeProber(a.ClaudeConfigDir),
 	)
 	agent, err := provider.Get(ctx, agentlib.TaskType(a.TaskType))
 	if err != nil {
@@ -176,4 +182,89 @@ func (a *application) Run(ctx context.Context, _ libsentry.Client) error {
 	jobMetrics.RecordRun(result.Status)
 	jobMetrics.RecordDuration(time.Since(start))
 	return agentlib.PrintResult(ctx, result)
+}
+
+// buildClaudeEnv assembles the Claude CLI subprocess env from the raw env
+// pairs plus the Anthropic provider-routing overrides. resolvedToken, when
+// non-empty, is threaded in as GH_TOKEN — the ClaudeRunner strips pod env to
+// an allowlist, so the token must be passed explicitly (os.Setenv in
+// prepareAuth covers other subprocess paths, not the Claude runner).
+func (a *application) buildClaudeEnv(resolvedToken string) map[string]string {
+	claudeEnv := envparse.KeyValuePairs(a.ClaudeEnvRaw)
+	if claudeEnv == nil {
+		claudeEnv = map[string]string{}
+	}
+	for k, v := range updatepkg.BuildEnv(
+		resolvedToken,
+		a.AnthropicBaseURL,
+		a.AnthropicAuthToken,
+		a.AnthropicModel.String(),
+	) {
+		claudeEnv[k] = v
+	}
+	return claudeEnv
+}
+
+// prepareAuth resolves the GitHub credential and makes it usable by every
+// git/gh subprocess: it exports GH_TOKEN (covering the repo gate targets,
+// which inherit os.Environ() for their module fetches) and installs git's
+// credential helper via `gh auth setup-git`. Returns the resolved token for
+// the GitOps URL injection / gh CLI seam / gh-token preflight wiring.
+func (a *application) prepareAuth(ctx context.Context) (string, error) {
+	resolvedToken, err := a.resolveAuth(ctx)
+	if err != nil {
+		return "", err
+	}
+	// resolvedToken is always non-empty here (resolveAuth errors otherwise), but
+	// guard defensively — an empty GH_TOKEN would mislead the gate subprocesses.
+	if resolvedToken != "" {
+		if err := os.Setenv("GH_TOKEN", resolvedToken); err != nil {
+			return "", errors.Wrap(ctx, err, "export GH_TOKEN")
+		}
+	}
+	if err := githubauth.NewGhAuthSetupGit(resolvedToken).Setup(ctx); err != nil {
+		return "", errors.Wrap(ctx, err, "gh auth setup-git")
+	}
+	return resolvedToken, nil
+}
+
+// resolveAuth resolves the GitHub credential forwarded to every git/gh
+// subprocess. It prefers GitHub App authentication: when APP_ID,
+// INSTALLATION_ID, and a PEM (file or inline) are all set, it mints a
+// short-lived installation access token via githubauth.Resolve. Otherwise it
+// falls back to the raw GH_TOKEN input — the local cmd/run-task path where
+// the operator exports `gh auth token`. When neither is configured it
+// returns a clear error, since the agent cannot clone or push without a
+// credential.
+func (a *application) resolveAuth(ctx context.Context) (string, error) {
+	mode := githubauth.ResolveAuthMode(a.AppID, a.InstallationID, a.PEMKeyFile, a.PEMKey)
+	if mode == githubauth.AuthModeGitHubApp {
+		// Startup auth must not be killed by the task's work deadline: mint on a
+		// fresh bounded context (keeps ctx values, drops the caller's
+		// deadline/cancel) so a near-deadline task can't fail the token mint.
+		mintCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
+		iat, err := githubauth.Resolve(mintCtx, githubauth.Config{
+			AppID:          a.AppID,
+			InstallationID: a.InstallationID,
+			PEMKeyFile:     a.PEMKeyFile,
+			PEMKey:         a.PEMKey,
+		})
+		if err != nil {
+			return "", errors.Wrap(ctx, err, "resolve github app auth")
+		}
+		glog.V(2).Infof(
+			"github-update-go-agent auth mode=github-app app_id=%d installation_id=%d",
+			a.AppID, a.InstallationID,
+		)
+		return iat, nil
+	}
+	if a.GhToken != "" {
+		glog.V(2).Infof("github-update-go-agent auth mode=gh-token (raw GH_TOKEN fallback)")
+		return a.GhToken, nil
+	}
+	return "", errors.Errorf(
+		ctx,
+		"github-update-go-agent auth: no credentials configured — set GitHub App creds (APP_ID, INSTALLATION_ID, PEM_KEY_FILE or PEM_KEY) or GH_TOKEN",
+	)
 }
