@@ -57,6 +57,7 @@ Update Go bborbe/demo
 // changelogMaster is the master CHANGELOG; changelogBranch adds only an
 // Unreleased bullet (the compliant shape).
 const changelogMaster = "# Changelog\n\n## Unreleased\n\n## v1.2.3\n\n- old release\n"
+
 const changelogBranch = "# Changelog\n\n## Unreleased\n\n- update Go to 1.26.5 and update dependencies\n\n## v1.2.3\n\n- old release\n"
 
 var _ = Describe("ReviewStep", func() {

@@ -198,7 +198,12 @@ var _ = Describe("ExecutionStep", func() {
 	Describe("red gate after claude", func() {
 		BeforeEach(func() {
 			gate.RunTargetReturnsOnCall(0, "", 0, nil)
-			gate.RunTargetReturnsOnCall(1, "trivy found CVE-X", 2, stderrors.New("make check failed"))
+			gate.RunTargetReturnsOnCall(
+				1,
+				"trivy found CVE-X",
+				2,
+				stderrors.New("make check failed"),
+			)
 		})
 
 		It("fails with the failing target + output tail; no commit, no push, no PR", func() {

@@ -303,4 +303,3 @@ func notesFor(notes []string) string {
 	}
 	return strings.Join(notes, "; ")
 }
-

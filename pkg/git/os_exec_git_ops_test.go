@@ -38,11 +38,11 @@ var _ = Describe("NewOSExecGitOps", func() {
 // isolation (pattern copied from github-releaser-agent).
 var _ = Describe("osExecGitOps boundary contracts", func() {
 	var (
-		ctx     context.Context
-		tmp     string
-		source  string
-		ops     git.GitOps
-		gitRun  func(dir string, args ...string) string
+		ctx      context.Context
+		tmp      string
+		source   string
+		ops      git.GitOps
+		gitRun   func(dir string, args ...string) string
 		firstSHA string
 	)
 
@@ -84,7 +84,7 @@ var _ = Describe("osExecGitOps boundary contracts", func() {
 	})
 
 	AfterEach(func() {
-		os.RemoveAll(tmp)
+		_ = os.RemoveAll(tmp)
 	})
 
 	It("CloneAtRef checks out the given SHA, not the branch tip", func() {
@@ -115,25 +115,28 @@ var _ = Describe("osExecGitOps boundary contracts", func() {
 		Expect(files).To(ConsistOf("MARKER.txt", "NEW.txt"))
 	})
 
-	It("Commit stages the explicit pathspec with the bot identity and CommittedFiles matches", func() {
-		dest := filepath.Join(tmp, "cloned-commit")
-		Expect(ops.CloneAtRef(ctx, source, "master", dest)).To(Succeed())
-		Expect(os.WriteFile(filepath.Join(dest, "MARKER.txt"), []byte("edit\n"), 0o600)).
-			To(Succeed())
-		Expect(os.WriteFile(filepath.Join(dest, "UNRELATED.txt"), []byte("skip\n"), 0o600)).
-			To(Succeed())
+	It(
+		"Commit stages the explicit pathspec with the bot identity and CommittedFiles matches",
+		func() {
+			dest := filepath.Join(tmp, "cloned-commit")
+			Expect(ops.CloneAtRef(ctx, source, "master", dest)).To(Succeed())
+			Expect(os.WriteFile(filepath.Join(dest, "MARKER.txt"), []byte("edit\n"), 0o600)).
+				To(Succeed())
+			Expect(os.WriteFile(filepath.Join(dest, "UNRELATED.txt"), []byte("skip\n"), 0o600)).
+				To(Succeed())
 
-		sha, err := ops.Commit(ctx, dest, "update go module dependencies", "MARKER.txt")
-		Expect(err).NotTo(HaveOccurred())
-		Expect(sha).NotTo(BeEmpty())
+			sha, err := ops.Commit(ctx, dest, "update go module dependencies", "MARKER.txt")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(sha).NotTo(BeEmpty())
 
-		author := gitRun(dest, "log", "-1", "--format=%an <%ae>")
-		Expect(author).To(Equal("Benjamin Borbe <bborbe@users.noreply.github.com>"))
+			author := gitRun(dest, "log", "-1", "--format=%an <%ae>")
+			Expect(author).To(Equal("Benjamin Borbe <bborbe@users.noreply.github.com>"))
 
-		committed, err := ops.CommittedFiles(ctx, dest)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(committed).To(Equal([]string{"MARKER.txt"}))
-	})
+			committed, err := ops.CommittedFiles(ctx, dest)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(committed).To(Equal([]string{"MARKER.txt"}))
+		},
+	)
 
 	It("Push pushes HEAD to the branch ref and NEVER pushes local tags (--no-follow-tags)", func() {
 		// Bare origin so push has a target.

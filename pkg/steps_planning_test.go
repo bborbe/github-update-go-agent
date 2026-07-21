@@ -6,16 +6,15 @@ package pkg_test
 
 import (
 	"context"
+	stderrors "errors"
 
 	agentlib "github.com/bborbe/agent"
 	claudelib "github.com/bborbe/agent/claude"
-	stderrors "errors"
-
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	pkg "github.com/bborbe/github-update-go-agent/pkg"
 	"github.com/bborbe/github-update-go-agent/mocks"
+	pkg "github.com/bborbe/github-update-go-agent/pkg"
 )
 
 const planningTaskMD = `---

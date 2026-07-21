@@ -15,14 +15,29 @@ import (
 )
 
 var _ = Describe("ResolveAuthMode", func() {
-	DescribeTable("picks the credential type",
+	DescribeTable(
+		"picks the credential type",
 		func(appID, installationID int64, pemFile, pemKey string, expected githubauth.AuthMode) {
 			Expect(
 				githubauth.ResolveAuthMode(appID, installationID, pemFile, pemKey),
 			).To(Equal(expected))
 		},
-		Entry("full app creds via file", int64(1), int64(2), "/pem", "", githubauth.AuthModeGitHubApp),
-		Entry("full app creds via content", int64(1), int64(2), "", "PEM", githubauth.AuthModeGitHubApp),
+		Entry(
+			"full app creds via file",
+			int64(1),
+			int64(2),
+			"/pem",
+			"",
+			githubauth.AuthModeGitHubApp,
+		),
+		Entry(
+			"full app creds via content",
+			int64(1),
+			int64(2),
+			"",
+			"PEM",
+			githubauth.AuthModeGitHubApp,
+		),
 		Entry("missing pem", int64(1), int64(2), "", "", githubauth.AuthModeNone),
 		Entry("missing installation", int64(1), int64(0), "/pem", "", githubauth.AuthModeNone),
 		Entry("missing app id", int64(0), int64(2), "/pem", "", githubauth.AuthModeNone),
