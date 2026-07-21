@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.2.4
 
 - fix: add `gcc` + `musl-dev` to the runtime image so repo gates can run `go test -race` (requires cgo) — dev run #4 (`bborbe/lock`) parked with `go: -race requires cgo; enable cgo by setting CGO_ENABLED=1` because the alpine runtime stage had no C toolchain; verified `go test -race` passes on alpine/musl with these two packages
 
