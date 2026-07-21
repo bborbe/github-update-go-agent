@@ -13,6 +13,9 @@ import "github.com/bborbe/github-update-go-agent/pkg/git"
 // Shapes (design § 4.3):
 //   - Outcome="opened"  — draft PR created; Branch/PRURL populated, GateExit=0
 //   - Outcome="adopted" — crash-window replay found the PR already open; adopted as-is
+//   - Outcome="no_update_needed" — the update sequence produced no effective
+//     change (workdir diff empty or CHANGELOG.md-only) once MVS settled; no
+//     commit/push/PR, workdir discarded (go-skeleton PR #51 guard)
 //   - Outcome="failed"  — any failure; ErrorCategory + Error populated
 //
 // Invariant (design § 4.4): Branch == "fix/update-go-" + ref[:7];
@@ -43,7 +46,8 @@ type ResultOutput struct {
 
 // Outcome values for ResultOutput.Outcome.
 const (
-	ResultOutcomeOpened  = "opened"
-	ResultOutcomeAdopted = "adopted"
-	ResultOutcomeFailed  = "failed"
+	ResultOutcomeOpened         = "opened"
+	ResultOutcomeAdopted        = "adopted"
+	ResultOutcomeNoUpdateNeeded = "no_update_needed"
+	ResultOutcomeFailed         = "failed"
 )
