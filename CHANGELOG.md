@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- chore: bump `github.com/bborbe/agent` to v0.79.0 (deliverer: `Status:Done` + empty `NextPhase` is now an in-place save, not task completion) — audited all 8 `AgentStatusDone` returns; every phase-terminal path (planning `no_update_needed`/`ready`, execution x3, review approved) already emits an explicit `NextPhase`, so no behavior change was required
+
 ## v0.2.1
 
 - fix: harden planning/execution prompts with an explicit command-discipline block — run gate commands (`make check`/`make precommit`) to completion in the foreground, never background them or end the turn with "waiting for the background run"; final message must be exactly the required JSON, no prose before/after
