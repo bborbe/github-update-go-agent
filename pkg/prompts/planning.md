@@ -67,9 +67,20 @@ The context sections appended after this prompt provide:
    or at least one vuln finding. All current and clean → `outcome:
    "no_update_needed"`, `has_work: false`.
 
+## Command discipline
+
+Run every `git`/`go`/`make` command to completion in the foreground and
+read its full output before moving on. NEVER background a command (no `&`,
+no `nohup`, no detached job) and NEVER end your turn with prose like "I'll
+wait for the background run to finish" or "pausing here for the check to
+complete" — there is no notification channel back to you, so a backgrounded
+command's result is simply lost and the run is treated as a parse failure.
+
 ## Output
 
-Respond with ONLY a single JSON object (no markdown fences, no prose):
+Your FINAL message MUST be exactly the JSON object below — nothing before
+it, nothing after it, no markdown fence, no closing remark. Respond with
+ONLY a single JSON object (no markdown fences, no prose):
 
 ```
 {
@@ -98,3 +109,6 @@ Field rules:
 - `vulns` empty array/omitted when the gate is clean.
 - `action` is exactly `fix` or `park` — nothing else.
 - Do NOT wrap the JSON in markdown code fences. Output raw JSON only.
+- Do not append any sentence after the JSON, and do not stop your turn
+  before producing it — a run that ends without this exact JSON as the
+  final message is a failure regardless of what work you actually did.

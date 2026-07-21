@@ -80,10 +80,22 @@ Execute in order, repairing as you go:
 6. **Compile/test breakage from a bump** — fix the calling code minimally to
    match the new API. Keep edits small and mechanical.
 
+## Command discipline
+
+Run `go`/`make` commands — especially the gate targets in step 7 — to
+completion in the foreground and read their full output. NEVER background
+a gate command (no `&`, no `nohup`, no detached job) and NEVER end your
+turn with prose like "I'll wait for the background run to finish" or
+"pausing here for the check to complete" — there is no notification
+channel back to you, so a backgrounded command's result is simply lost and
+the run is treated as a parse failure, not a pass.
+
 ## Output
 
-When every gate target is green, respond with ONLY a single JSON object
-(no markdown fences, no prose):
+Your FINAL message MUST be exactly the JSON object below — nothing before
+it, nothing after it, no markdown fence, no closing remark. When every gate
+target is green, respond with ONLY a single JSON object (no markdown
+fences, no prose):
 
 ```
 {
@@ -100,3 +112,6 @@ When every gate target is green, respond with ONLY a single JSON object
   the surrounding step re-runs the gates and will fail the task with the
   real output.
 - Do NOT wrap the JSON in markdown code fences. Output raw JSON only.
+- Do not append any sentence after the JSON, and do not stop your turn
+  before producing it — a run that ends without this exact JSON as the
+  final message is a failure regardless of what work you actually did.
