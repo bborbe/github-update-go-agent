@@ -224,6 +224,66 @@ var _ = Describe("ExecutionStep", func() {
 		})
 	})
 
+	Describe("no-effective-change guard", func() {
+		Context("only CHANGELOG.md changed (go-skeleton PR #51 incident)", func() {
+			BeforeEach(func() {
+				ops.ChangedFilesReturns([]string{"CHANGELOG.md"}, nil)
+			})
+
+			It("skips commit/push/PR and writes outcome=no_update_needed, routed to done", func() {
+				result, err := step.Run(ctx, md)
+				Expect(err).To(BeNil())
+				Expect(result.Status).To(Equal(agentlib.AgentStatusDone))
+				Expect(result.NextPhase).To(Equal("done"))
+				Expect(ops.CommitCallCount()).To(Equal(0))
+				Expect(ops.PushCallCount()).To(Equal(0))
+				Expect(gh.CreateDraftPRCallCount()).To(Equal(0))
+
+				out, rerr := agentlib.ExtractSection[pkg.ResultOutput](ctx, md, "## Result")
+				Expect(rerr).To(BeNil())
+				Expect(out.Outcome).To(Equal(pkg.ResultOutcomeNoUpdateNeeded))
+			})
+		})
+
+		Context("no changed files at all", func() {
+			BeforeEach(func() {
+				ops.ChangedFilesReturns([]string{}, nil)
+			})
+
+			It("skips commit/push/PR and writes outcome=no_update_needed, routed to done", func() {
+				result, err := step.Run(ctx, md)
+				Expect(err).To(BeNil())
+				Expect(result.Status).To(Equal(agentlib.AgentStatusDone))
+				Expect(result.NextPhase).To(Equal("done"))
+				Expect(ops.CommitCallCount()).To(Equal(0))
+				Expect(ops.PushCallCount()).To(Equal(0))
+				Expect(gh.CreateDraftPRCallCount()).To(Equal(0))
+
+				out, rerr := agentlib.ExtractSection[pkg.ResultOutput](ctx, md, "## Result")
+				Expect(rerr).To(BeNil())
+				Expect(out.Outcome).To(Equal(pkg.ResultOutcomeNoUpdateNeeded))
+			})
+		})
+
+		Context("real changes present alongside CHANGELOG.md", func() {
+			It("keeps current behavior — commit, push, and PR still happen", func() {
+				// ops.ChangedFilesReturns default from outer BeforeEach:
+				// []string{"go.mod", "go.sum", "CHANGELOG.md"}
+				result, err := step.Run(ctx, md)
+				Expect(err).To(BeNil())
+				Expect(result.Status).To(Equal(agentlib.AgentStatusDone))
+				Expect(result.NextPhase).To(Equal("ai_review"))
+				Expect(ops.CommitCallCount()).To(Equal(1))
+				Expect(ops.PushCallCount()).To(Equal(1))
+				Expect(gh.CreateDraftPRCallCount()).To(Equal(1))
+
+				out, rerr := agentlib.ExtractSection[pkg.ResultOutput](ctx, md, "## Result")
+				Expect(rerr).To(BeNil())
+				Expect(out.Outcome).To(Equal(pkg.ResultOutcomeOpened))
+			})
+		})
+	})
+
 	Describe("workflow-edit guard", func() {
 		BeforeEach(func() {
 			ops.ChangedFilesReturns(

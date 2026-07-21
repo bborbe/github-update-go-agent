@@ -88,10 +88,14 @@ func (s *executionStep) ShouldRun(_ context.Context, _ *agentlib.Markdown) (bool
 //  5. Claude sub-call (file-edit + go/make only) — update + repair + CHANGELOG.
 //  6. Deterministic gate re-run of the plan's gate targets → red = Failed
 //     with the failing target + output tail.
-//  7. Changed/committed-files guard — reject .github/workflows/** edits.
-//  8. Commit (explicit pathspec, bot identity) + Push (--no-follow-tags) +
+//  7. No-effective-change guard — changed files empty or ⊆ {CHANGELOG.md}
+//     (MVS no-op despite planning's has_work=true) → ## Result
+//     outcome=no_update_needed, Done/NextPhase done, workdir discarded; no
+//     commit/push/PR (go-skeleton PR #51 guard).
+//  8. Changed/committed-files guard — reject .github/workflows/** edits.
+//  9. Commit (explicit pathspec, bot identity) + Push (--no-follow-tags) +
 //     gh pr create --draft.
-//  9. ## Result → Done / NextPhase ai_review.
+//  10. ## Result → Done / NextPhase ai_review.
 func (s *executionStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentlib.Result, error) {
 	if reroute := s.replayGuard(ctx, md); reroute != nil {
 		return reroute, nil
@@ -302,8 +306,8 @@ func (s *executionStep) rerunGates(
 	return nil, nil
 }
 
-// commitPushAndOpenPR runs the guarded commit → push → draft-PR tail and
-// writes the successful ## Result.
+// commitPushAndOpenPR runs the no-effective-change guard, then the guarded
+// commit → push → draft-PR tail, and writes the successful ## Result.
 func (s *executionStep) commitPushAndOpenPR(
 	ctx context.Context,
 	md *agentlib.Markdown,
@@ -316,9 +320,8 @@ func (s *executionStep) commitPushAndOpenPR(
 	if err != nil {
 		return s.fail(ctx, md, result, git.ErrorCategoryUnknown, err)
 	}
-	if len(changed) == 0 {
-		return s.fail(ctx, md, result, git.ErrorCategoryUnknown,
-			errors.Errorf(ctx, "claude sub-call produced no file changes"))
+	if isNoEffectiveChange(changed) {
+		return s.noEffectiveChange(ctx, md, changed)
 	}
 	if offending := workflowPaths(changed); len(offending) > 0 {
 		return s.fail(ctx, md, result, git.ErrorCategoryUnexpectedDiff,
@@ -372,6 +375,36 @@ func (s *executionStep) commitPushAndOpenPR(
 	}, nil
 }
 
+// noEffectiveChange writes ## Result(outcome=no_update_needed) and routes to
+// done — the same terminal-success shape planning's own no-op path uses
+// (design guard for the go-skeleton PR #51 incident: planning's go-list scan
+// can classify has_work=true on stale INDIRECT deps that go get -u ./... +
+// go mod tidy no-op under MVS resolution; the only diff left in that run was
+// the CHANGELOG bullet Claude wrote describing dependency updates that don't
+// exist). Nothing is committed, pushed, or opened as a PR — the workdir
+// (and any CHANGELOG-only edit in it) is simply discarded by the caller's
+// deferred cleanup.
+func (s *executionStep) noEffectiveChange(
+	ctx context.Context,
+	md *agentlib.Markdown,
+	changed []string,
+) (*agentlib.Result, error) {
+	glog.V(2).Infof(
+		"execution: no effective change after claude sub-call (changed=%v) — discarding workdir",
+		changed,
+	)
+	output := ResultOutput{Outcome: ResultOutcomeNoUpdateNeeded}
+	section, err := agentlib.MarshalSectionTyped(ctx, "## Result", output)
+	if err != nil {
+		return nil, errors.Wrap(ctx, err, "marshal ## Result section (no_update_needed)")
+	}
+	md.ReplaceSection(section)
+	return &agentlib.Result{
+		Status:    agentlib.AgentStatusDone,
+		NextPhase: domain.TaskPhaseDone.String(),
+	}, nil
+}
+
 // fail writes a ## Result(outcome=failed) section with the supplied
 // error_category + redacted error string, and returns Status=Failed for
 // controller retry (resume cursor = execution; the step never writes
@@ -401,6 +434,22 @@ func (s *executionStep) fail(
 		Status:  agentlib.AgentStatusFailed,
 		Message: msg,
 	}, nil
+}
+
+// isNoEffectiveChange reports whether changed is empty or a subset of
+// {CHANGELOG.md} — i.e. go get -u ./... + go mod tidy produced nothing under
+// MVS resolution and the only diff left is the CHANGELOG bullet the Claude
+// sub-call writes to describe the (nonexistent) update. This is the
+// go-skeleton PR #51 guard: a plan that classified has_work=true off
+// go-list's INDIRECT-deps view must not turn into a draft PR containing only
+// a fabricated CHANGELOG entry.
+func isNoEffectiveChange(changed []string) bool {
+	for _, p := range changed {
+		if p != changelogFileName {
+			return false
+		}
+	}
+	return true
 }
 
 // workflowPaths returns the paths under .github/workflows/ (forbidden set).
