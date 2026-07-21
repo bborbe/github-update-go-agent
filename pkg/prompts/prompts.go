@@ -2,26 +2,31 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// Package prompts provides embedded prompt fragments for the Claude agent.
+// Package prompts provides embedded prompt modules for the Claude-backed
+// phases: planning (inspect + classify) and execution (update + repair).
+// The ai_review phase is pure Go and has no prompt.
 package prompts
 
 import (
 	_ "embed"
-
-	claudelib "github.com/bborbe/agent/claude"
 )
 
-//go:embed workflow.md
-var workflow string
+//go:embed planning.md
+var planning string
 
-//go:embed output-format.md
-var outputFormat string
+//go:embed execution.md
+var execution string
 
-// BuildInstructions assembles the full agent prompt from embedded modules.
-// Each section is wrapped in XML tags for clear separation.
-func BuildInstructions() claudelib.Instructions {
-	return claudelib.Instructions{
-		{Name: "workflow", Content: workflow},
-		{Name: "output-format", Content: outputFormat},
-	}
+// PlanningPrompt returns the planning-phase prompt module. The planning
+// step appends the workdir, target Go version, and task content as context
+// sections.
+func PlanningPrompt() string {
+	return planning
+}
+
+// ExecutionPrompt returns the execution-phase prompt module. The execution
+// step appends the workdir, target Go version, and ## Plan JSON as context
+// sections.
+func ExecutionPrompt() string {
+	return execution
 }
