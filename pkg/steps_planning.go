@@ -6,7 +6,6 @@ package pkg
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -283,20 +282,6 @@ func targetGoVersion() string {
 	return strings.TrimPrefix(runtime.Version(), "go")
 }
 
-// jsonFenceRegexp extracts a fenced JSON block when the LLM ignores the
-// raw-JSON-only instruction and wraps its output anyway.
-var jsonFenceRegexp = regexp.MustCompile("(?s)```(?:json)?\\s*\\n(.*?)\\n```")
-
-// parseJSONResponse parses an LLM response into T, tolerating an optional
-// markdown fence around the JSON object.
-func parseJSONResponse[T any](ctx context.Context, response string) (*T, error) {
-	raw := strings.TrimSpace(response)
-	if matches := jsonFenceRegexp.FindStringSubmatch(raw); len(matches) >= 2 {
-		raw = matches[1]
-	}
-	var out T
-	if err := json.Unmarshal([]byte(raw), &out); err != nil {
-		return nil, errors.Wrapf(ctx, err, "unmarshal llm json response")
-	}
-	return &out, nil
-}
+// parseJSONResponse and its supporting jsonFenceRegexp/lastJSONBlock live in
+// llmjson.go — shared by planning (PlanOutput) and execution
+// (executionReport) so a single fix covers both LLM sub-call parse sites.
