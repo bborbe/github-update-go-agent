@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- fix: add `gcc` + `musl-dev` to the runtime image so repo gates can run `go test -race` (requires cgo) — dev run #4 (`bborbe/lock`) parked with `go: -race requires cgo; enable cgo by setting CGO_ENABLED=1` because the alpine runtime stage had no C toolchain; verified `go test -race` passes on alpine/musl with these two packages
+
 ## v0.2.3
 
 - fix: prose-tolerant LLM JSON extraction — `parseJSONResponse` now tries three strategies (raw JSON, fenced ` ```json ` block, LAST balanced `{...}` block in the text) instead of feeding the whole response straight to `json.Unmarshal`; fixes dev run #2 where the planning Claude/MiniMax sub-call ended its final message with a prose paragraph followed by the correct JSON object on its own line, and failed with `parse planning output: unmarshal llm json response: invalid character 'T' looking for beginning of value` even after prompt hardening ("final message must be exactly JSON") — prompt hardening reduces but cannot eliminate this LLM behavior, so the parser now tolerates it; ported the 3-strategy approach from `github-releaser-agent` `pkg/prompts.ParseBumpVerdict`; extracted into shared `pkg/llmjson.go` used by both planning (`PlanOutput`) and execution (`executionReport`) sub-call parsing
