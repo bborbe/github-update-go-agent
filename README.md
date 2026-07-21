@@ -1,14 +1,12 @@
-# Agent Claude
+# GitHub Update Go Agent
 
-**Reference implementation / copy-paste template** for Claude-based agents. Not a production agent itself — use this as the starting point when building a new domain-specific agent.
+Pattern B agent that consumes `github-update-go` tasks and lands a **draft PR** bringing a Go repo to current toolchain + dependencies with zero open fixable vulnerabilities and a green repo gate (`make precommit` / `make check`). Claude-driven planning + execution (update sequence + repair-to-green), pure-Go ai_review verifier. Unfixable findings park the task for the operator — the agent never auto-suppresses, never tags, never readies or merges the PR.
 
-Generic, domain-agnostic Claude Code runner. Receives a task from the agent pipeline, spawns `claude --print` with configurable tools and instructions, and returns a structured JSON result.
-
-New agents are created by swapping instructions (agent `.claude/CLAUDE.md`) and `ALLOWED_TOOLS` — no Go code changes needed.
+Full design: [docs/design.md](docs/design.md). Built from the [bborbe/agent-claude](https://github.com/bborbe/agent-claude) template.
 
 ## How It Works
 
-1. Agent pipeline ([[task/controller]] → Kafka → [[task/executor]]) spawns a K8s Job with the `agent-claude` image.
+1. Agent pipeline ([[task/controller]] → Kafka → [[task/executor]]) spawns a K8s Job with the `github-update-go-agent` image.
 2. The Job receives `TASK_CONTENT`, `TASK_ID`, `BRANCH`, `ALLOWED_TOOLS`, `MODEL`, etc. via env vars.
 3. `main.go` assembles the prompt via `lib/claude` (embedded `workflow.md` + `output-format.md` + task content).
 4. Runs `claude --print --output-format stream-json` with the allowed tools.
@@ -41,7 +39,7 @@ To add a domain-specific agent that reuses this binary:
 
 ### Config CRD env pattern
 
-The `Config` CRD's `spec.env` map becomes pod env vars, which `main.go` consumes via struct tags. Example from `k8s/agent-claude.yaml`:
+The `Config` CRD's `spec.env` map becomes pod env vars, which `main.go` consumes via struct tags. Example from `k8s/github-update-go-agent.yaml`:
 
 ```yaml
 spec:
@@ -81,8 +79,8 @@ Skips K8s, task controller, task executor, git writeback. Useful for iterating o
 ## Links
 
 Admin endpoints:
-- Dev: <https://dev.quant.benjamin-borbe.de/admin/agent-claude/setloglevel/3>
-- Prod: <https://prod.quant.benjamin-borbe.de/admin/agent-claude/setloglevel/3>
+- Dev: <https://dev.quant.benjamin-borbe.de/admin/github-update-go-agent/setloglevel/3>
+- Prod: <https://prod.quant.benjamin-borbe.de/admin/github-update-go-agent/setloglevel/3>
 
 ## Related
 

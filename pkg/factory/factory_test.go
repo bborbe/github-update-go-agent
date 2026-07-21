@@ -13,7 +13,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/bborbe/agent-claude/pkg/factory"
+	"github.com/bborbe/github-update-go-agent/pkg/factory"
 )
 
 var _ = Describe("CreateAgentProvider", func() {
@@ -78,7 +78,7 @@ var _ = Describe("CreateAgentProvider", func() {
 		})
 
 		It("error message contains the binary name", func() {
-			Expect(err.Error()).To(ContainSubstring("agent-claude"))
+			Expect(err.Error()).To(ContainSubstring("github-update-go-agent"))
 		})
 
 		It("error message contains the sorted accepted-types list", func() {
