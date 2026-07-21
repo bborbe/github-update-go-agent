@@ -59,17 +59,19 @@ type planningStep struct {
 	runner  claudelib.ClaudeRunner
 	ops     git.GitOps
 	ghToken string
+	scope   InstallationScope
 }
 
 // NewPlanningStep wires the planning step with its Claude runner (inspection
-// LLM), the GitOps seam (clone at ref), and the GitHub token (HTTPS auth URL
-// transformation).
+// LLM), the GitOps seam (clone at ref), the GitHub token (HTTPS auth URL
+// transformation), and the installation-scope allowlist check.
 func NewPlanningStep(
 	runner claudelib.ClaudeRunner,
 	ops git.GitOps,
 	ghToken string,
+	scope InstallationScope,
 ) agentlib.Step {
-	return &planningStep{runner: runner, ops: ops, ghToken: ghToken}
+	return &planningStep{runner: runner, ops: ops, ghToken: ghToken, scope: scope}
 }
 
 // Name implements agentlib.Step.
@@ -97,6 +99,16 @@ func (s *planningStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentli
 	if missingField != "" {
 		glog.V(2).Infof("planning: missing frontmatter field=%s — escalating", missingField)
 		return needsInput("required frontmatter field missing: " + missingField), nil
+	}
+
+	// Allowlist preflight (F9): the App installation's repository selection is
+	// the per-stage allowlist. A repo outside it parks here — before clone and
+	// the full update run — instead of failing at push ten minutes later.
+	if s.scope.Allows(ctx, repo) == ScopeDenied {
+		glog.V(2).Infof("planning: repo %s not in App installation — parking", repo)
+		return needsInput("repo " + repo + " is not in the GitHub App installation's " +
+			"repository list (per-stage allowlist) — add it to the installation or " +
+			"route the task to a stage whose App covers it"), nil
 	}
 
 	workdir := setupWorkdir(md, repo)
