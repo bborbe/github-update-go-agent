@@ -1,0 +1,12 @@
+
+[[IgnoredVulns]]
+id = "GO-2026-5064"
+reason = "containerd indirect dep, no upstream fix, not reachable per govulncheck"
+
+[[IgnoredVulns]]
+id = "GO-2026-5338"
+reason = "containerd indirect dep, no upstream fix, not reachable per govulncheck"
+
+[[IgnoredVulns]]
+id = "GO-2026-5622"
+reason = "containerd indirect dep, no upstream fix, not reachable per govulncheck"
