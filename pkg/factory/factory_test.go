@@ -27,10 +27,13 @@ var _ = Describe("CreateAgentProvider", func() {
 		provider = factory.CreateAgentProvider(
 			claudelib.ClaudeConfigDir(""),
 			claudelib.AgentDir("agent"),
-			claudelib.AllowedTools{},
 			claudelib.ClaudeModel("sonnet"),
+			"gh-token",
 			map[string]string{},
-			map[string]string{},
+			factory.CreateGitOps(),
+			factory.CreateGhCli("gh-token"),
+			factory.CreateGateRunner(),
+			factory.CreateClaudeProber(""),
 		)
 	})
 
@@ -38,8 +41,8 @@ var _ = Describe("CreateAgentProvider", func() {
 		Expect(provider).NotTo(BeNil())
 	})
 
-	It("Get returns the domain agent for TaskTypeLLM", func() {
-		agent, err := provider.Get(ctx, agentlib.TaskTypeLLM)
+	It("Get returns the domain agent for task_type github-update-go", func() {
+		agent, err := provider.Get(ctx, agentlib.TaskType("github-update-go"))
 		Expect(err).To(BeNil())
 		Expect(agent).NotTo(BeNil())
 	})
@@ -82,7 +85,7 @@ var _ = Describe("CreateAgentProvider", func() {
 		})
 
 		It("error message contains the sorted accepted-types list", func() {
-			Expect(err.Error()).To(ContainSubstring("[healthcheck llm oauth-probe]"))
+			Expect(err.Error()).To(ContainSubstring("[github-update-go healthcheck oauth-probe]"))
 		})
 	})
 })
@@ -127,10 +130,13 @@ var _ = Describe("CreateAgent", func() {
 		agent := factory.CreateAgent(
 			"",
 			"",
-			nil,
+			"",
 			"",
 			nil,
-			nil,
+			factory.CreateGitOps(),
+			factory.CreateGhCli(""),
+			factory.CreateGateRunner(),
+			factory.CreateClaudeProber(""),
 		)
 		Expect(agent).NotTo(BeNil())
 	})
