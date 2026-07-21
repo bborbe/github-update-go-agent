@@ -36,6 +36,7 @@ var _ = Describe("PlanningStep", func() {
 		ctx    context.Context
 		runner *mocks.ClaudeRunnerMock
 		ops    *mocks.GitOps
+		scope  *mocks.InstallationScope
 		step   agentlib.Step
 		md     *agentlib.Markdown
 	)
@@ -44,7 +45,9 @@ var _ = Describe("PlanningStep", func() {
 		ctx = context.Background()
 		runner = &mocks.ClaudeRunnerMock{}
 		ops = &mocks.GitOps{}
-		step = pkg.NewPlanningStep(runner, ops, "tok")
+		scope = &mocks.InstallationScope{}
+		scope.AllowsReturns(pkg.ScopeAllowed)
+		step = pkg.NewPlanningStep(runner, ops, "tok", scope)
 		var err error
 		md, err = agentlib.ParseMarkdown(ctx, planningTaskMD)
 		Expect(err).To(BeNil())
@@ -54,6 +57,29 @@ var _ = Describe("PlanningStep", func() {
 		should, err := step.ShouldRun(ctx, md)
 		Expect(err).To(BeNil())
 		Expect(should).To(BeTrue())
+	})
+
+	Describe("installation-scope allowlist preflight", func() {
+		It("parks NeedsInput before clone when the repo is outside the installation", func() {
+			scope.AllowsReturns(pkg.ScopeDenied)
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusNeedsInput))
+			Expect(result.Message).To(ContainSubstring("bborbe/demo"))
+			Expect(result.Message).To(ContainSubstring("allowlist"))
+			Expect(ops.CloneAtRefCallCount()).To(Equal(0))
+		})
+
+		It(
+			"proceeds on unknown verdict (PAT fallback / API error — never treat as denial)",
+			func() {
+				scope.AllowsReturns(pkg.ScopeUnknown)
+				runner.RunReturns(nil, stderrors.New("stop here"))
+				_, err := step.Run(ctx, md)
+				Expect(err).To(BeNil())
+				Expect(ops.CloneAtRefCallCount()).To(Equal(1))
+			},
+		)
 	})
 
 	Describe("missing required frontmatter", func() {
