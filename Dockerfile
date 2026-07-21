@@ -13,7 +13,8 @@ FROM ${DOCKER_REGISTRY}/alpine:3.23 AS alpine
 # gates real Go repos in-pod, so it needs git + make + gh + jq/column plus
 # the full Go toolchain. Most scanners/linters run via `go run tool@version`
 # from the repo's Makefile — only trivy must be a system binary.
-RUN apk --no-cache add ca-certificates curl bash git github-cli make jq util-linux nodejs npm \
+# gcc + musl-dev: repo gates run `go test -race`, which requires cgo.
+RUN apk --no-cache add ca-certificates curl bash git github-cli make jq util-linux nodejs npm gcc musl-dev \
  && npm install -g --omit=dev --no-optional @anthropic-ai/claude-code \
  && npm cache clean --force \
  && apk del npm \
