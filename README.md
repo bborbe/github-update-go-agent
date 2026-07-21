@@ -76,6 +76,23 @@ go run . \
 
 Skips K8s, task controller, task executor, git writeback. Useful for iterating on prompts.
 
+For the in-repo local test harness (`cmd/run-task`, dummy task + Makefile
+targets), see `cmd/run-task/README.md` — it documents two gotchas that break
+local runs silently:
+
+- `-claude-config-dir` / `CLAUDE_CONFIG_DIR` must point at a separately
+  logged-in config dir, e.g. `-claude-config-dir=$HOME/.claude-agent`. An
+  empty/default value — or one inherited from the shell as `$HOME/.claude` —
+  switches the `claude` CLI from macOS Keychain credential lookup to
+  config-dir lookup and fails with `Not logged in`.
+- Unset session `ANTHROPIC_BASE_URL`, `ANTHROPIC_MODEL`, `ANTHROPIC_AUTH_TOKEN`
+  before invoking locally
+  (`unset ANTHROPIC_BASE_URL ANTHROPIC_MODEL ANTHROPIC_AUTH_TOKEN`). All
+  three are CLI flags with an env-var fallback (`main.go`,
+  `cmd/run-task/main.go`), so a value already exported in your shell (e.g.
+  from another project's alt-provider routing) silently overrides the
+  intended provider/model for this run.
+
 ## Links
 
 Admin endpoints:
