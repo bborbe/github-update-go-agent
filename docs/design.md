@@ -119,7 +119,7 @@ Human reviews + readies the draft (runbook [[Update or Fix GitHub Go Repositorie
 | Phase | Supported | Step impl | Purpose |
 |---|---|---|---|
 | `planning` | yes | preflights (claude-auth, gh-token — lift from dark-factory-agent) + `claude.NewAgentStep` w/ planning prompt | clone, detect gate targets, run scanners, classify findings (fix / park), write `## Plan` |
-| `execution` | yes | preflight (claude-auth) + `claude.NewAgentStep` w/ execution prompt | run update sequence, **repair breakage to green** (bounded), commit, push, draft PR, write `## Result` |
+| `execution` | yes | preflight (claude-auth) + **custom Go step embedding Claude** (pr-reviewer CheckoutExecutionStep / releaser GitOps shape) | Go: clone+branch via `GitOps` seam → Claude (workdir-scoped, **no git/gh tools**): update sequence + repair-to-green + CHANGELOG bullet → Go: gate verify, committed-files guard, commit (bot identity via `-c`), push `--no-follow-tags`, `gh pr create --draft`, `## Result` |
 | `ai_review` | yes | custom pure-Go `VerifyStep` | independently verify PR + gate + scanners, write `## Review`, route `human_review` |
 
 ## 4.3 Per-phase decisions
@@ -145,7 +145,7 @@ Human reviews + readies the draft (runbook [[Update or Fix GitHub Go Repositorie
 | Input | frontmatter + `## Plan` (via `ExtractSection[PlanOutput]`) |
 | Output | `ResultOutput{outcome, branch, pr_url, gate_exit int, deps_updated int, vulns_fixed []string}` → `## Result` |
 | Side effects | worktree @ ref; `git switch -c fix/update-go-<sha:7>`; **update sequence per D2** (go-directive bump targeting image toolchain (D5) → excludes/replaces → `go get -u ./...` + `go mod tidy` → targeted `go get <pkg>@<fixed>` per plan → OSV/indirect cleanup) → **repair to green (bounded)**: Claude may edit code to fix compile/test breakage *caused by the bumps* (never unrelated refactors) → CHANGELOG bullet under `## Unreleased` → run ALL detected gate targets to exit 0 → commit (no attribution) → `git push --no-follow-tags -u origin <branch>` → `gh pr create --draft` |
-| Allowed tools | `Read, Grep, Glob, Edit, Write, Bash(git:*), Bash(go:*), Bash(make:*), Bash(gh pr create:*), Bash(gh pr view:*)` — no `gh pr ready/merge`, no `git tag` |
+| Allowed tools (Claude sub-call only) | `Read, Grep, Glob, Edit, Write, Bash(go:*), Bash(make:*)` — **no git, no gh**: all git/PR side effects are the Go step's (releaser-lifted `GitOps` seam: `injectToken`/HTTPS-normalize/`RedactToken`, per-invocation `-c` bot identity, explicit `add -- <paths>`, committed-files guard incl. no-`.github/workflows`, push `--no-follow-tags`, `gh pr create --draft`) |
 | Model | Sonnet |
 | Prompt module | `pkg/prompts/execution.md` — the slash command's execution section incl. the release-agent integration block (`## Unreleased` only, never tag) + repair-scope bounds |
 | Duration | 5–20 min (repo test suites) |
@@ -198,9 +198,10 @@ Executor: one Job per (task, phase). Fleet sweeps parallelize across tasks — b
 # 7. Safety
 
 ## 7.0 Consent gates (capability removal)
-- No tag can leak: agent never runs `git tag`; the only push helper hardcodes `--no-follow-tags` (learning #2).
-- No ready/merge: GitHub client is read-only for PR state; PR creation via `gh pr create --draft` only; no code path invokes `gh pr ready`/`gh pr merge` (structural, mirrors dark-factory-agent).
-- No workflow edits: App lacks Workflows permission (D3) — push touching `.github/workflows/` fails at origin.
+- **Claude has no git/gh capability at all** (execution refinement, 2026-07-21): the LLM's tool scope is file-edit + go/make only; every git/PR side effect lives in the pure-Go step around the `GitOps` seam — never-tag/never-push/never-ready is structural for the LLM, not prompt-enforced.
+- No tag can leak: no code path calls `Tag`; the only push helper hardcodes `--no-follow-tags` + pushes `HEAD:refs/heads/<branch>` (learning #2; releaser's `Tag`/`--atomic` shape deliberately NOT ported).
+- No ready/merge: PR creation via `gh pr create --draft` only; no code path invokes `gh pr ready`/`gh pr merge` (mirrors dark-factory-agent).
+- No workflow edits: committed-files guard rejects `.github/workflows/**` before push (releaser `guardCommittedFiles` shape) AND the App lacks Workflows permission (D3) — belt + suspenders.
 
 ## 7.1 Error handling
 Per platform doctrine (spec 039): agent emits `Status: failed`/`needs_input` + message; **controller** owns the envelope (clear `assignee`, set `previous_assignee: github-update-go-agent`, append `## Failure`; phase+status untouched). Agent never writes `## Failure`, never mutates assignee/status, never emits `NextPhase: human_review` on failure. Concrete scenarios:
