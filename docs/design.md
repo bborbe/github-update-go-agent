@@ -211,7 +211,12 @@ Per platform doctrine (spec 039): agent emits `Status: failed`/`needs_input` + m
 - Retry cap: default 3/phase (controller-owned).
 
 ## 7.2 Security
-- **App auth (7.2a/7.2b):** App pair `Ben's Go Updater [Dev]`/`[Prod]` — Contents R/W, Pull requests R/W, Metadata R, no Workflows, webhook off; dev installed on canary repo only, prod on `bborbe/*`. PEM in Teamvault; App ID / Installation ID in CRD env. Ephemeral Job mints IAT once at startup: `resolveAuth` (lift from `github-dark-factory-agent` `main.go:264` — `githubapp.MintIAT` on `context.WithTimeout(WithoutCancel(ctx), 30s)`), then `os.Setenv("GH_TOKEN", …)` + `githubauth.NewGhAuthSetupGit(...)` with allowlisted subprocess env (`GH_TOKEN`,`HOME`,`PATH`). Raw `GH_TOKEN` accepted only for local `cmd/run-task`.
+- **App auth (7.2a/7.2b):** App pair per stage — Contents R/W, Pull requests R/W, Metadata R, no Workflows, webhook off; dev installed on canary repo only, prod on `bborbe/*`.
+
+  | Stage | App | App ID | Installation ID | PEM |
+  |---|---|---|---|---|
+  | dev | `Ben's Go Updater Dev` (created 2026-07-21; installed on `bborbe/go-skeleton` only) | `4355227` | `148020867` | [TeamVault VOzzoO](https://teamvault.benjamin-borbe.de/secrets/VOzzoO/) |
+  | prod | `Ben's Go Updater` — create at prod-deploy time | — | — | — | PEM in Teamvault; App ID / Installation ID in CRD env. Ephemeral Job mints IAT once at startup: `resolveAuth` (lift from `github-dark-factory-agent` `main.go:264` — `githubapp.MintIAT` on `context.WithTimeout(WithoutCancel(ctx), 30s)`), then `os.Setenv("GH_TOKEN", …)` + `githubauth.NewGhAuthSetupGit(...)` with allowlisted subprocess env (`GH_TOKEN`,`HOME`,`PATH`). Raw `GH_TOKEN` accepted only for local `cmd/run-task`.
 - **Arbitrary code execution is inherent:** the gate runs the target repo's Makefile in-pod with `GH_TOKEN` in env. Acceptable: own repos at master HEAD only. Future hardening: NetworkPolicy egress ([[Improve Agent Security]]).
 - No secrets in task bodies or PR bodies; token scrubbed from errors (lift `scrubToken`).
 - **Claude auth:** OAuth config on PVC mounted at `CLAUDE_CONFIG_DIR` = image `HOME/.claude` (`/home/claude/.claude`, agent-claude template); `oauth-probe` task type + [[Agent - Refresh Claude OAuth Login]] runbook apply; `GH_TOKEN` threaded into the Claude subprocess env (allowlisted) so `gh pr create` works inside the step.
