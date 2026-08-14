@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- security: bump `golang.org/x/mod` from `v0.37.0` to `v0.40.0` — clears GO-2026-6179 (transparency-log tile verification bypass in `sumdb/tlog`) and GO-2026-6180 (unrelated unauthenticated hashes accepted in `sumdb` Lookup), both flagged by `make vulncheck`
+- chore: bump go directive from `1.26.5` to `1.26.6` — clears 4 stdlib advisories flagged by `osv-scanner` (GO-2026-5026, GO-2026-5972, GO-2026-6090, GO-2026-6218), all fixed in 1.26.6. `make precommit` was red on master before this change
+
 ## v0.3.0
 
 - feat: installation-scope allowlist preflight (F9) — planning now checks the repo against the GitHub App installation's repository list (`gh api /installation/repositories`) before cloning and parks NeedsInput naming the allowlist when the repo is outside it; previously an out-of-scope task (dev App is repo-scoped by design) burned a full update run and only failed at `git push` (dev runs on bborbe/lock and bborbe/argument, 2026-07-21); unknown verdicts (local GH_TOKEN PAT fallback, API errors) never deny — the check fails open and push remains the enforcement backstop
