@@ -1,8 +1,13 @@
 ---
-status: approved
+status: completed
 spec: [001-configurable-pr-target]
+summary: ai_review now compares observed PR draft-ness against configured PRTarget instead of unconditionally requiring draft; checkPR returns bool match verdict, pr_draft in ReviewChecks unchanged (raw observed), mismatch note names both observed and configured state, factory forwards prTarget through production wiring to NewReviewStep, four pairing test cases added plus ViewPR error path and production-wiring factory test
+execution_id: github-update-go-agent-pr-target-exec-003-spec-001-review-target-match
+dark-factory-version: dev
 created: "2026-08-15T09:10:00Z"
 queued: "2026-08-15T08:16:38Z"
+started: "2026-08-15T08:32:41Z"
+completed: "2026-08-15T08:39:39Z"
 branch: dark-factory/configurable-pr-target
 ---
 

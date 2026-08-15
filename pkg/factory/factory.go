@@ -133,8 +133,8 @@ func CreateFileResultDeliverer(filePath string) agentlib.ResultDeliverer {
 //   - execution: claude-auth preflight + custom Go step embedding the Claude
 //     update sub-call (clone+branch, update+repair, gate verify, commit,
 //     push --no-follow-tags, gh pr create) → ## Result
-//   - ai_review: pure-Go verifier (PR state, fresh-worktree gate re-run,
-//     CHANGELOG, tag audit) → ## Review → human_review
+//   - ai_review: pure-Go verifier (PR state checked against configured
+//     PRTarget, fresh-worktree gate re-run, CHANGELOG, tag audit) → ## Review → human_review
 func CreateAgent(
 	claudeConfigDir claudelib.ClaudeConfigDir,
 	agentDir claudelib.AgentDir,
@@ -171,7 +171,7 @@ func CreateAgent(
 		ghToken,
 		prTarget,
 	)
-	reviewStep := updatepkg.NewReviewStep(gitOps, ghCli, gateRunner, ghToken)
+	reviewStep := updatepkg.NewReviewStep(gitOps, ghCli, gateRunner, ghToken, prTarget)
 
 	return agentlib.NewAgent(
 		agentlib.NewPhase(domain.TaskPhasePlanning, claudeAuth, ghTokenCheck, planningStep),

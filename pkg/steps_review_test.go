@@ -75,7 +75,7 @@ var _ = Describe("ReviewStep", func() {
 		ops = &mocks.GitOps{}
 		gh = &mocks.GhCli{}
 		gate = &mocks.GateRunner{}
-		step = pkg.NewReviewStep(ops, gh, gate, "tok")
+		step = pkg.NewReviewStep(ops, gh, gate, "tok", pkg.PRTargetDraft)
 		var err error
 		md, err = agentlib.ParseMarkdown(ctx, reviewTaskMD)
 		Expect(err).To(BeNil())
@@ -115,6 +115,7 @@ var _ = Describe("ReviewStep", func() {
 			Expect(review.Checks.VulnsClear).To(BeTrue())
 			Expect(review.Checks.ChangelogUnreleased).To(BeTrue())
 			Expect(review.Checks.NoNewTag).To(BeTrue())
+			Expect(review.Notes).NotTo(ContainSubstring("draft-ness mismatch"))
 		})
 
 		It("verifies the fresh worktree at the branch, not the ref", func() {
@@ -142,18 +143,82 @@ var _ = Describe("ReviewStep", func() {
 		})
 	})
 
-	Describe("PR no longer draft", func() {
+	Describe("target draft, PR is ready", func() {
 		BeforeEach(func() {
 			gh.ViewPRReturns("OPEN", false, nil)
 		})
 
-		It("rejects with pr_draft false", func() {
+		It("rejects with mismatch note naming observed and configured state", func() {
 			result, err := step.Run(ctx, md)
 			Expect(err).To(BeNil())
 			Expect(result.Status).To(Equal(agentlib.AgentStatusFailed))
 			review, err := agentlib.ExtractSection[pkg.ReviewOutput](ctx, md, "## Review")
 			Expect(err).To(BeNil())
+			Expect(review.Approved).To(BeFalse())
 			Expect(review.Checks.PRDraft).To(BeFalse())
+			Expect(review.Notes).To(ContainSubstring("observed draft=false"))
+			Expect(review.Notes).To(ContainSubstring("configured target=draft"))
+		})
+	})
+
+	Describe("target ready, PR is ready", func() {
+		BeforeEach(func() {
+			gh.ViewPRReturns("OPEN", false, nil)
+			step = pkg.NewReviewStep(ops, gh, gate, "tok", pkg.PRTargetReady)
+		})
+
+		It("approves and routes human_review with no mismatch note", func() {
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusDone))
+			Expect(result.NextPhase).To(Equal("human_review"))
+			review, err := agentlib.ExtractSection[pkg.ReviewOutput](ctx, md, "## Review")
+			Expect(err).To(BeNil())
+			Expect(review.Approved).To(BeTrue())
+			Expect(review.Notes).NotTo(ContainSubstring("draft-ness mismatch"))
+		})
+
+		It("pr_draft reports raw observed value (false) while Approved is true", func() {
+			_, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			review, err := agentlib.ExtractSection[pkg.ReviewOutput](ctx, md, "## Review")
+			Expect(err).To(BeNil())
+			Expect(review.Checks.PRDraft).To(BeFalse())
+			Expect(review.Approved).To(BeTrue())
+		})
+	})
+
+	Describe("target ready, PR is draft", func() {
+		BeforeEach(func() {
+			// gh already returns true from the outer BeforeEach
+			step = pkg.NewReviewStep(ops, gh, gate, "tok", pkg.PRTargetReady)
+		})
+
+		It("rejects with mismatch note naming observed and configured state", func() {
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusFailed))
+			review, err := agentlib.ExtractSection[pkg.ReviewOutput](ctx, md, "## Review")
+			Expect(err).To(BeNil())
+			Expect(review.Approved).To(BeFalse())
+			Expect(review.Notes).To(ContainSubstring("observed draft=true"))
+			Expect(review.Notes).To(ContainSubstring("configured target=ready"))
+		})
+	})
+
+	Describe("ViewPR error", func() {
+		BeforeEach(func() {
+			gh.ViewPRReturns("", false, stderrors.New("boom"))
+		})
+
+		It("rejects with Failed status and gh pr view failed note", func() {
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusFailed))
+			review, err := agentlib.ExtractSection[pkg.ReviewOutput](ctx, md, "## Review")
+			Expect(err).To(BeNil())
+			Expect(review.Approved).To(BeFalse())
+			Expect(review.Notes).To(ContainSubstring("gh pr view failed"))
 		})
 	})
 
