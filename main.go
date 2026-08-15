@@ -84,6 +84,10 @@ type application struct {
 	// cmd/run-task path where the operator exports `gh auth token`).
 	GhToken string `required:"false" arg:"gh-token" env:"GH_TOKEN" usage:"GitHub token for clone + PR creation (raw fallback when App creds unset)" display:"length"`
 
+	// PRTarget selects how the agent opens pull requests: draft (default)
+	// or ready. Unset behaves exactly as the previous release: drafts only.
+	PRTarget string `required:"false" arg:"pr-target" env:"PR_TARGET" usage:"Pull request target at creation: draft (default) | ready"`
+
 	// GitHub App authentication (design § 7.2). When APP_ID, INSTALLATION_ID,
 	// and a PEM (file or inline) are all set, the pod mints a short-lived
 	// installation access token at startup and forwards it to every git/gh
@@ -103,6 +107,11 @@ type application struct {
 }
 
 func (a *application) Run(ctx context.Context, _ libsentry.Client) error {
+	prTarget, err := updatepkg.ParsePRTarget(ctx, a.PRTarget)
+	if err != nil {
+		return err
+	}
+
 	registry := prometheus.NewRegistry()
 	jobMetrics := libmetrics.NewJobMetrics(registry, libtime.NewCurrentDateTime())
 	pusher := push.New(a.PushgatewayURL, libmetrics.BuildJobMetricsName(agentName)).
@@ -129,29 +138,13 @@ func (a *application) Run(ctx context.Context, _ libsentry.Client) error {
 		return err
 	}
 
-	deliverer := delivery.NewNoopResultDeliverer()
-	if a.TaskID != "" {
-		if len(a.KafkaBrokers) == 0 {
-			jobMetrics.RecordRun(agentlib.AgentStatusFailed)
-			jobMetrics.RecordDuration(time.Since(start))
-			return errors.Errorf(ctx, "KAFKA_BROKERS must be set when TASK_ID is set")
-		}
-		syncProducer, err := factory.CreateSyncProducer(ctx, a.KafkaBrokers)
-		if err != nil {
-			jobMetrics.RecordRun(agentlib.AgentStatusFailed)
-			jobMetrics.RecordDuration(time.Since(start))
-			return errors.Wrap(ctx, err, "create sync producer")
-		}
-		defer func() {
-			if err := syncProducer.Close(); err != nil {
-				glog.Warningf("close sync producer failed: %v", err)
-			}
-		}()
-		deliverer = factory.CreateKafkaResultDeliverer(
-			syncProducer, a.TopicPrefix, a.TaskID, a.TaskContent,
-			libtime.NewCurrentDateTime(),
-		)
+	deliverer, closeDeliverer, err := a.createResultDeliverer(ctx)
+	if err != nil {
+		jobMetrics.RecordRun(agentlib.AgentStatusFailed)
+		jobMetrics.RecordDuration(time.Since(start))
+		return err
 	}
+	defer closeDeliverer()
 
 	claudeEnv := a.buildClaudeEnv(resolvedToken)
 
@@ -165,6 +158,7 @@ func (a *application) Run(ctx context.Context, _ libsentry.Client) error {
 		factory.CreateGhCli(resolvedToken),
 		factory.CreateGateRunner(),
 		factory.CreateClaudeProber(a.ClaudeConfigDir),
+		prTarget,
 	)
 	agent, err := provider.Get(ctx, agentlib.TaskType(a.TaskType))
 	if err != nil {
@@ -182,6 +176,33 @@ func (a *application) Run(ctx context.Context, _ libsentry.Client) error {
 	jobMetrics.RecordRun(result.Status)
 	jobMetrics.RecordDuration(time.Since(start))
 	return agentlib.PrintResult(ctx, result)
+}
+
+// createResultDeliverer builds the Kafka-backed result deliverer when
+// TASK_ID is set, and the no-op deliverer otherwise. The returned close
+// func shuts down the sync producer (no-op when none was created).
+func (a *application) createResultDeliverer(
+	ctx context.Context,
+) (agentlib.ResultDeliverer, func(), error) {
+	if a.TaskID == "" {
+		return delivery.NewNoopResultDeliverer(), func() {}, nil
+	}
+	if len(a.KafkaBrokers) == 0 {
+		return nil, func() {}, errors.Errorf(ctx, "KAFKA_BROKERS must be set when TASK_ID is set")
+	}
+	syncProducer, err := factory.CreateSyncProducer(ctx, a.KafkaBrokers)
+	if err != nil {
+		return nil, func() {}, errors.Wrap(ctx, err, "create sync producer")
+	}
+	deliverer := factory.CreateKafkaResultDeliverer(
+		syncProducer, a.TopicPrefix, a.TaskID, a.TaskContent,
+		libtime.NewCurrentDateTime(),
+	)
+	return deliverer, func() {
+		if err := syncProducer.Close(); err != nil {
+			glog.Warningf("close sync producer failed: %v", err)
+		}
+	}, nil
 }
 
 // buildClaudeEnv assembles the Claude CLI subprocess env from the raw env

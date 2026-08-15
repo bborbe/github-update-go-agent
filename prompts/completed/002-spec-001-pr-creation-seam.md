@@ -1,8 +1,13 @@
 ---
-status: approved
+status: completed
 spec: [001-configurable-pr-target]
+summary: Parameterized the PR creation seam with PRTarget (draft|ready), threaded PR_TARGET setting through both binaries, factory, and execution step
+execution_id: github-update-go-agent-pr-target-exec-002-spec-001-pr-creation-seam
+dark-factory-version: dev
 created: "2026-08-15T01:30:00Z"
 queued: "2026-08-15T08:16:38Z"
+started: "2026-08-15T08:25:30Z"
+completed: "2026-08-15T08:32:40Z"
 branch: dark-factory/configurable-pr-target
 ---
 

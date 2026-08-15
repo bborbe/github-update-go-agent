@@ -13,6 +13,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	updatepkg "github.com/bborbe/github-update-go-agent/pkg"
 	"github.com/bborbe/github-update-go-agent/pkg/factory"
 )
 
@@ -34,6 +35,7 @@ var _ = Describe("CreateAgentProvider", func() {
 			factory.CreateGhCli("gh-token"),
 			factory.CreateGateRunner(),
 			factory.CreateClaudeProber(""),
+			updatepkg.PRTargetDraft,
 		)
 	})
 
@@ -137,6 +139,7 @@ var _ = Describe("CreateAgent", func() {
 			factory.CreateGhCli(""),
 			factory.CreateGateRunner(),
 			factory.CreateClaudeProber(""),
+			updatepkg.PRTargetDraft,
 		)
 		Expect(agent).NotTo(BeNil())
 	})

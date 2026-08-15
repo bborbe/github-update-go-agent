@@ -18,17 +18,23 @@ import (
 //counterfeiter:generate -o ../mocks/gh_cli.go --fake-name GhCli . GhCli
 
 // GhCli is the seam between the steps and the gh binary. Three methods
-// cover the agent's entire PR surface: create a DRAFT PR, adopt an
-// already-open PR by head branch (crash-window replay guard), and view
-// PR state for the ai_review checks.
+// cover the agent's entire PR surface: create a PR at a configurable target
+// (draft or ready-for-review), adopt an already-open PR by head branch
+// (crash-window replay guard), and view PR state for the ai_review checks.
 //
-// Deliberately absent (design § 7.0): no Ready, no Merge — the agent
-// never flips a draft and never merges; the human does.
+// The creation target is chosen per deployment; the agent itself only opens
+// PRs and never changes their draft/ready state after creation. Deliberately
+// absent: no Ready, no Merge — the agent never flips the draft flag of an
+// already-open pull request and never merges; the human does.
 type GhCli interface {
-	// CreateDraftPR opens a DRAFT pull request from head against base,
-	// running gh inside workdir so the repo is inferred from the git
-	// remote. Returns the PR URL.
-	CreateDraftPR(ctx context.Context, workdir, base, head, title, body string) (string, error)
+	// CreatePR opens a pull request from head against base, running gh
+	// inside workdir so the repo is inferred from the git remote. target
+	// selects draft or ready-for-review at creation time. Returns the PR URL.
+	CreatePR(
+		ctx context.Context,
+		workdir, base, head, title, body string,
+		target PRTarget,
+	) (string, error)
 
 	// FindOpenPRByHead returns the URL of an open PR whose head is the
 	// given branch, or "" when none exists. repo is "owner/name".
@@ -63,35 +69,38 @@ func (g *osExecGhCli) cmdEnv() []string {
 	return env
 }
 
-func (g *osExecGhCli) CreateDraftPR(
+// prCreateArgs builds the argv for `gh pr create`. --draft is included
+// only when the target is draft; a ready target omits the flag entirely.
+func prCreateArgs(base, head, title, body string, target PRTarget) []string {
+	args := []string{"pr", "create"}
+	if target.IsDraft() {
+		args = append(args, "--draft")
+	}
+	args = append(args, "--base", base, "--head", head, "--title", title, "--body", body)
+	return args
+}
+
+func (g *osExecGhCli) CreatePR(
 	ctx context.Context,
 	workdir, base, head, title, body string,
+	target PRTarget,
 ) (string, error) {
-	// gh pr create --draft --base <base> --head <head> --title <title> --body <body>
-	// --draft is hardcoded: the agent opens drafts only; the human promotes.
 	// #nosec G204 -- binary is hardcoded gh; workdir is os.TempDir-rooted; head is the deterministic branch name
-	cmd := exec.CommandContext(
-		ctx,
-		"gh", "pr", "create",
-		"--draft",
-		"--base", base,
-		"--head", head,
-		"--title", title,
-		"--body", body,
-	)
+	cmd := exec.CommandContext(ctx, "gh", prCreateArgs(base, head, title, body, target)...)
 	cmd.Dir = workdir
 	cmd.Env = g.cmdEnv()
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", errors.Errorf(
 			ctx,
-			"gh pr create --draft: %s",
+			"gh pr create (target=%s): %s",
+			target,
 			strings.TrimSpace(string(out)),
 		)
 	}
 	// gh prints the PR URL as the last non-empty stdout line.
 	url := lastNonEmptyLine(string(out))
-	glog.V(2).Infof("gh pr create --draft succeeded: url=%s head=%s", url, head)
+	glog.V(2).Infof("gh pr create (target=%s) succeeded: url=%s head=%s", target, url, head)
 	return url, nil
 }
 

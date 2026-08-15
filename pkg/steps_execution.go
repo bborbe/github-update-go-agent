@@ -26,7 +26,7 @@ import (
 // of pushing a duplicate (design § 5.3).
 const branchPrefix = "fix/update-go-"
 
-// prTitle is the fixed draft-PR title (Stage-1 contract).
+// prTitle is the fixed PR title (Stage-1 contract).
 const prTitle = "update go module dependencies"
 
 // workflowsPrefix is the forbidden commit path. The committed-files guard
@@ -48,25 +48,34 @@ type executionReport struct {
 // Go step embedding one Claude sub-call. All git/gh side effects are the Go
 // step's — the Claude sub-call has NO git and NO gh tools (design § 7.0).
 type executionStep struct {
-	runner  claudelib.ClaudeRunner
-	ops     git.GitOps
-	gh      GhCli
-	gate    GateRunner
-	ghToken string
+	runner   claudelib.ClaudeRunner
+	ops      git.GitOps
+	gh       GhCli
+	gate     GateRunner
+	ghToken  string
+	prTarget PRTarget
 }
 
 // NewExecutionStep wires the execution step with its four seams: the Claude
 // runner (update + repair sub-call), the GitOps seam (clone/branch/commit/
-// push), the gh CLI seam (draft PR create + adopt), and the gate runner
-// (deterministic green-gate re-run).
+// push), the gh CLI seam (PR create + adopt), and the gate runner
+// (deterministic green-gate re-run). prTarget selects draft or ready.
 func NewExecutionStep(
 	runner claudelib.ClaudeRunner,
 	ops git.GitOps,
 	gh GhCli,
 	gate GateRunner,
 	ghToken string,
+	prTarget PRTarget,
 ) agentlib.Step {
-	return &executionStep{runner: runner, ops: ops, gh: gh, gate: gate, ghToken: ghToken}
+	return &executionStep{
+		runner:   runner,
+		ops:      ops,
+		gh:       gh,
+		gate:     gate,
+		ghToken:  ghToken,
+		prTarget: prTarget,
+	}
 }
 
 // Name implements agentlib.Step.
@@ -94,7 +103,7 @@ func (s *executionStep) ShouldRun(_ context.Context, _ *agentlib.Markdown) (bool
 //     commit/push/PR (go-skeleton PR #51 guard).
 //  8. Changed/committed-files guard — reject .github/workflows/** edits.
 //  9. Commit (explicit pathspec, bot identity) + Push (--no-follow-tags) +
-//     gh pr create --draft.
+//     gh pr create with the configured target.
 //  10. ## Result → Done / NextPhase ai_review.
 func (s *executionStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentlib.Result, error) {
 	if reroute := s.replayGuard(ctx, md); reroute != nil {
@@ -307,7 +316,7 @@ func (s *executionStep) rerunGates(
 }
 
 // commitPushAndOpenPR runs the no-effective-change guard, then the guarded
-// commit → push → draft-PR tail, and writes the successful ## Result.
+// commit → push → PR tail, and writes the successful ## Result.
 func (s *executionStep) commitPushAndOpenPR(
 	ctx context.Context,
 	md *agentlib.Markdown,
@@ -350,9 +359,10 @@ func (s *executionStep) commitPushAndOpenPR(
 	}
 
 	vulnsFixed := intersectFixVulns(plan, report)
-	prURL, err := s.gh.CreateDraftPR(
+	prURL, err := s.gh.CreatePR(
 		ctx, workdir, "master", branch, prTitle,
 		buildPRBody(plan, report, vulnsFixed),
+		s.prTarget,
 	)
 	if err != nil {
 		return s.fail(ctx, md, result, git.ErrorCategoryUnknown, err)
@@ -368,7 +378,7 @@ func (s *executionStep) commitPushAndOpenPR(
 	}
 	md.ReplaceSection(section)
 
-	glog.V(2).Infof("execution: draft PR opened %s branch=%s", prURL, branch)
+	glog.V(2).Infof("execution: PR opened (target=%s) %s branch=%s", s.prTarget, prURL, branch)
 	return &agentlib.Result{
 		Status:    agentlib.AgentStatusDone,
 		NextPhase: domain.TaskPhaseAIReview.String(),
