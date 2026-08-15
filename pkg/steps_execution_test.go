@@ -64,7 +64,7 @@ var _ = Describe("ExecutionStep", func() {
 		ops = &mocks.GitOps{}
 		gh = &mocks.GhCli{}
 		gate = &mocks.GateRunner{}
-		step = pkg.NewExecutionStep(runner, ops, gh, gate, "tok")
+		step = pkg.NewExecutionStep(runner, ops, gh, gate, "tok", pkg.PRTargetDraft)
 		var err error
 		md, err = agentlib.ParseMarkdown(ctx, executionTaskMD)
 		Expect(err).To(BeNil())
@@ -76,7 +76,7 @@ var _ = Describe("ExecutionStep", func() {
 		ops.ChangedFilesReturns([]string{"go.mod", "go.sum", "CHANGELOG.md"}, nil)
 		ops.CommitReturns("abc1234", nil)
 		ops.CommittedFilesReturns([]string{"go.mod", "go.sum", "CHANGELOG.md"}, nil)
-		gh.CreateDraftPRReturns("https://github.com/bborbe/demo/pull/42", nil)
+		gh.CreatePRReturns("https://github.com/bborbe/demo/pull/42", nil)
 	})
 
 	Describe("replay guard", func() {
@@ -97,7 +97,7 @@ var _ = Describe("ExecutionStep", func() {
 			Expect(result.NextPhase).To(Equal("ai_review"))
 			Expect(ops.CloneAtRefCallCount()).To(Equal(0))
 			Expect(ops.PushCallCount()).To(Equal(0))
-			Expect(gh.CreateDraftPRCallCount()).To(Equal(0))
+			Expect(gh.CreatePRCallCount()).To(Equal(0))
 		})
 	})
 
@@ -156,10 +156,11 @@ var _ = Describe("ExecutionStep", func() {
 			_, _, pushBranch := ops.PushArgsForCall(0)
 			Expect(pushBranch).To(Equal("fix/update-go-6d1f27f"))
 
-			_, _, base, head, title, _ := gh.CreateDraftPRArgsForCall(0)
+			_, _, base, head, title, _, gotTarget := gh.CreatePRArgsForCall(0)
 			Expect(base).To(Equal("master"))
 			Expect(head).To(Equal("fix/update-go-6d1f27f"))
 			Expect(title).To(Equal("update go module dependencies"))
+			Expect(gotTarget).To(Equal(pkg.PRTargetDraft))
 		})
 
 		It("re-runs every planned gate target", func() {
@@ -195,6 +196,19 @@ var _ = Describe("ExecutionStep", func() {
 		})
 	})
 
+	Describe("PRTargetReady passes ready target to the seam", func() {
+		BeforeEach(func() {
+			step = pkg.NewExecutionStep(runner, ops, gh, gate, "tok", pkg.PRTargetReady)
+		})
+
+		It("calls CreatePR with PRTargetReady", func() {
+			_, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			_, _, _, _, _, _, gotTarget := gh.CreatePRArgsForCall(0)
+			Expect(gotTarget).To(Equal(pkg.PRTargetReady))
+		})
+	})
+
 	Describe("red gate after claude", func() {
 		BeforeEach(func() {
 			gate.RunTargetReturnsOnCall(0, "", 0, nil)
@@ -214,7 +228,7 @@ var _ = Describe("ExecutionStep", func() {
 			Expect(result.Message).To(ContainSubstring("trivy found CVE-X"))
 			Expect(ops.CommitCallCount()).To(Equal(0))
 			Expect(ops.PushCallCount()).To(Equal(0))
-			Expect(gh.CreateDraftPRCallCount()).To(Equal(0))
+			Expect(gh.CreatePRCallCount()).To(Equal(0))
 
 			out, rerr := agentlib.ExtractSection[pkg.ResultOutput](ctx, md, "## Result")
 			Expect(rerr).To(BeNil())
@@ -237,7 +251,7 @@ var _ = Describe("ExecutionStep", func() {
 				Expect(result.NextPhase).To(Equal("done"))
 				Expect(ops.CommitCallCount()).To(Equal(0))
 				Expect(ops.PushCallCount()).To(Equal(0))
-				Expect(gh.CreateDraftPRCallCount()).To(Equal(0))
+				Expect(gh.CreatePRCallCount()).To(Equal(0))
 
 				out, rerr := agentlib.ExtractSection[pkg.ResultOutput](ctx, md, "## Result")
 				Expect(rerr).To(BeNil())
@@ -257,7 +271,7 @@ var _ = Describe("ExecutionStep", func() {
 				Expect(result.NextPhase).To(Equal("done"))
 				Expect(ops.CommitCallCount()).To(Equal(0))
 				Expect(ops.PushCallCount()).To(Equal(0))
-				Expect(gh.CreateDraftPRCallCount()).To(Equal(0))
+				Expect(gh.CreatePRCallCount()).To(Equal(0))
 
 				out, rerr := agentlib.ExtractSection[pkg.ResultOutput](ctx, md, "## Result")
 				Expect(rerr).To(BeNil())
@@ -275,7 +289,7 @@ var _ = Describe("ExecutionStep", func() {
 				Expect(result.NextPhase).To(Equal("ai_review"))
 				Expect(ops.CommitCallCount()).To(Equal(1))
 				Expect(ops.PushCallCount()).To(Equal(1))
-				Expect(gh.CreateDraftPRCallCount()).To(Equal(1))
+				Expect(gh.CreatePRCallCount()).To(Equal(1))
 
 				out, rerr := agentlib.ExtractSection[pkg.ResultOutput](ctx, md, "## Result")
 				Expect(rerr).To(BeNil())

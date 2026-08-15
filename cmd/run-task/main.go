@@ -66,11 +66,20 @@ type application struct {
 	// token is accepted per design § 7.2.
 	GhToken string `required:"true" arg:"gh-token" env:"GH_TOKEN" usage:"GitHub token for clone + PR creation" display:"length"`
 
+	// PRTarget selects how the agent opens pull requests: draft (default)
+	// or ready. Unset behaves exactly as the previous release: drafts only.
+	PRTarget string `required:"false" arg:"pr-target" env:"PR_TARGET" usage:"Pull request target at creation: draft (default) | ready"`
+
 	// Task file for local development
 	TaskFilePath string `required:"true" arg:"task-file" env:"TASK_FILE" usage:"Path to the markdown task file"`
 }
 
 func (a *application) Run(ctx context.Context, _ libsentry.Client) error {
+	prTarget, err := updatepkg.ParsePRTarget(ctx, a.PRTarget)
+	if err != nil {
+		return err
+	}
+
 	taskContent, err := os.ReadFile(
 		a.TaskFilePath,
 	) // #nosec G304 -- filePath from trusted CLI input
@@ -110,6 +119,7 @@ func (a *application) Run(ctx context.Context, _ libsentry.Client) error {
 		factory.CreateGhCli(a.GhToken),
 		factory.CreateGateRunner(),
 		factory.CreateClaudeProber(a.ClaudeConfigDir),
+		prTarget,
 	)
 
 	result, err := agent.Run(ctx, a.Phase, string(taskContent), deliverer)

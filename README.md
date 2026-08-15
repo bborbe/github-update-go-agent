@@ -1,6 +1,6 @@
 # GitHub Update Go Agent
 
-Pattern B agent that consumes `github-update-go` tasks and lands a **draft PR** bringing a Go repo to current toolchain + dependencies with zero open fixable vulnerabilities and a green repo gate (`make precommit` / `make check`). Claude-driven planning + execution (update sequence + repair-to-green), pure-Go ai_review verifier. Unfixable findings park the task for the operator — the agent never auto-suppresses, never tags, never readies or merges the PR.
+Pattern B agent that consumes `github-update-go` tasks and lands a pull request bringing a Go repo to current toolchain + dependencies with zero open fixable vulnerabilities and a green repo gate (`make precommit` / `make check`) — draft by default, ready for review when the deployment sets `PR_TARGET: ready`. Claude-driven planning + execution (update sequence + repair-to-green), pure-Go ai_review verifier. Unfixable findings park the task for the operator — the agent never auto-suppresses, never tags, never merges, and never changes the state of a pull request that already exists.
 
 Full design: [docs/design.md](docs/design.md). Built from the [bborbe/agent-claude](https://github.com/bborbe/agent-claude) template.
 
@@ -20,6 +20,7 @@ Full design: [docs/design.md](docs/design.md). Built from the [bborbe/agent-clau
 | `BRANCH` | yes | — | `dev`/`prod` — used as Kafka topic prefix |
 | `TASK_ID` | no | — | Required when publishing results via Kafka |
 | `MODEL` | no | `sonnet` | `sonnet` or `opus` |
+| `PR_TARGET` | no | `draft` | `draft` or `ready` — how the agent opens pull requests. Unset behaves exactly as before: drafts only |
 | `ALLOWED_TOOLS` | no | — | Comma-separated Claude tool allowlist (e.g. `Read,Grep,Bash`) |
 | `AGENT_DIR` | no | `agent` | Directory containing `.claude/CLAUDE.md` guardrails |
 | `CLAUDE_CONFIG_DIR` | no | — | Claude Code OAuth config directory (PVC mount) |

@@ -6,13 +6,19 @@ package factory_test
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 
 	agentlib "github.com/bborbe/agent"
 	claudelib "github.com/bborbe/agent/claude"
+	delivery "github.com/bborbe/agent/delivery"
 	libkafka "github.com/bborbe/kafka"
+	domain "github.com/bborbe/vault-cli/pkg/domain"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"github.com/bborbe/github-update-go-agent/mocks"
+	updatepkg "github.com/bborbe/github-update-go-agent/pkg"
 	"github.com/bborbe/github-update-go-agent/pkg/factory"
 )
 
@@ -34,6 +40,7 @@ var _ = Describe("CreateAgentProvider", func() {
 			factory.CreateGhCli("gh-token"),
 			factory.CreateGateRunner(),
 			factory.CreateClaudeProber(""),
+			updatepkg.PRTargetDraft,
 		)
 	})
 
@@ -137,7 +144,160 @@ var _ = Describe("CreateAgent", func() {
 			factory.CreateGhCli(""),
 			factory.CreateGateRunner(),
 			factory.CreateClaudeProber(""),
+			updatepkg.PRTargetDraft,
 		)
 		Expect(agent).NotTo(BeNil())
+	})
+})
+
+const reviewTaskMD = `---
+task_type: github-update-go
+assignee: github-update-go-agent
+phase: ai_review
+status: in_progress
+repo: bborbe/demo
+clone_url: git@github.com:bborbe/demo.git
+ref: 6d1f27fabcdef12345678901234567890abcdef1
+task_identifier: test-task-1
+---
+
+Update Go bborbe/demo
+
+## Plan
+
+` + "```json" + `
+{
+  "outcome": "ready",
+  "has_work": true,
+  "dep_updates_expected": true,
+  "gate_targets": ["precommit"]
+}
+` + "```" + `
+
+## Result
+
+` + "```json" + `
+{
+  "outcome": "opened",
+  "branch": "fix/update-go-6d1f27f",
+  "pr_url": "https://github.com/bborbe/demo/pull/42",
+  "gate_exit": 0
+}
+` + "```" + `
+`
+
+// changelogMaster is the master CHANGELOG; changelogBranch adds only an
+// Unreleased bullet (the compliant shape).
+const changelogMaster = "# Changelog\n\n## Unreleased\n\n## v1.2.3\n\n- old release\n"
+
+const changelogBranch = "# Changelog\n\n## Unreleased\n\n- update Go to 1.26.5 and update dependencies\n\n## v1.2.3\n\n- old release\n"
+
+var _ = Describe("CreateAgent with PRTargetReady", func() {
+	var ctx context.Context
+
+	BeforeEach(func() {
+		ctx = context.Background()
+	})
+
+	Describe("approves a non-draft PR through the production wiring", func() {
+		var (
+			agent *agentlib.Agent
+			ops   *mocks.GitOps
+			gh    *mocks.GhCli
+			gate  *mocks.GateRunner
+		)
+
+		BeforeEach(func() {
+			ops = &mocks.GitOps{}
+			gh = &mocks.GhCli{}
+			gate = &mocks.GateRunner{}
+
+			// non-draft PR
+			gh.ViewPRReturns("OPEN", false, nil)
+			ops.CloneAtRefStub = func(_ context.Context, _, _, workdir string) error {
+				if err := os.MkdirAll(workdir, 0o750); err != nil {
+					return err
+				}
+				return os.WriteFile(
+					filepath.Join(workdir, "CHANGELOG.md"),
+					[]byte(changelogBranch),
+					0o600,
+				)
+			}
+			ops.ShowFileReturns([]byte(changelogMaster), nil)
+			gate.RunTargetReturns("", 0, nil)
+			ops.RevListReturns([]string{"deadbeef1", "deadbeef2"}, nil)
+			ops.LsRemoteTagsReturns([]string{"1111111", "2222222"}, nil)
+
+			agent = factory.CreateAgent(
+				"", "", "", "tok", nil,
+				ops, gh, gate,
+				factory.CreateClaudeProber(""),
+				updatepkg.PRTargetReady,
+			)
+		})
+
+		It("returns Done + human_review for a matching non-draft PR", func() {
+			result, err := agent.Run(
+				ctx,
+				domain.TaskPhaseAIReview,
+				reviewTaskMD,
+				delivery.NewNoopResultDeliverer(),
+			)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusDone))
+			Expect(result.NextPhase).To(Equal("human_review"))
+		})
+	})
+
+	Describe("declines a non-draft PR when target is draft", func() {
+		var (
+			agent *agentlib.Agent
+			ops   *mocks.GitOps
+			gh    *mocks.GhCli
+			gate  *mocks.GateRunner
+		)
+
+		BeforeEach(func() {
+			ops = &mocks.GitOps{}
+			gh = &mocks.GhCli{}
+			gate = &mocks.GateRunner{}
+
+			// non-draft PR
+			gh.ViewPRReturns("OPEN", false, nil)
+			ops.CloneAtRefStub = func(_ context.Context, _, _, workdir string) error {
+				if err := os.MkdirAll(workdir, 0o750); err != nil {
+					return err
+				}
+				return os.WriteFile(
+					filepath.Join(workdir, "CHANGELOG.md"),
+					[]byte(changelogBranch),
+					0o600,
+				)
+			}
+			ops.ShowFileReturns([]byte(changelogMaster), nil)
+			gate.RunTargetReturns("", 0, nil)
+			ops.RevListReturns([]string{"deadbeef1", "deadbeef2"}, nil)
+			ops.LsRemoteTagsReturns([]string{"1111111", "2222222"}, nil)
+
+			agent = factory.CreateAgent(
+				"", "", "", "tok", nil,
+				ops, gh, gate,
+				factory.CreateClaudeProber(""),
+				updatepkg.PRTargetDraft,
+			)
+		})
+
+		It("returns Failed for a mismatched non-draft PR under draft target", func() {
+			result, err := agent.Run(
+				ctx,
+				domain.TaskPhaseAIReview,
+				reviewTaskMD,
+				delivery.NewNoopResultDeliverer(),
+			)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusFailed))
+			Expect(result.NextPhase).To(Equal(""))
+		})
 	})
 })

@@ -29,24 +29,29 @@ var versionHeaderRegexp = regexp.MustCompile(`(?m)^## v?\d+\.\d+\.\d+`)
 // reviewStep implements agentlib.Step for the ai_review phase — a PURE-GO
 // verifier (design D1): every check is derived from independent re-execution
 // on a fresh worktree, never copied from ## Result, and a non-LLM verifier
-// cannot rubber-stamp.
+// cannot rubber-stamp. The step carries the configured PRTarget so it can
+// compare the observed draft-ness against the configured target rather than
+// unconditionally requiring draft.
 type reviewStep struct {
-	ops     git.GitOps
-	gh      GhCli
-	gate    GateRunner
-	ghToken string
+	ops      git.GitOps
+	gh       GhCli
+	gate     GateRunner
+	ghToken  string
+	prTarget PRTarget
 }
 
 // NewReviewStep wires the ai_review verifier with its GitOps seam (fresh
 // clone + tag/rev inspection), gh CLI seam (PR state), gate runner
-// (independent gate re-run), and the GitHub token.
+// (independent gate re-run), the GitHub token, and the configured PRTarget
+// the step compares observed draft-ness against.
 func NewReviewStep(
 	ops git.GitOps,
 	gh GhCli,
 	gate GateRunner,
 	ghToken string,
+	prTarget PRTarget,
 ) agentlib.Step {
-	return &reviewStep{ops: ops, gh: gh, gate: gate, ghToken: ghToken}
+	return &reviewStep{ops: ops, gh: gh, gate: gate, ghToken: ghToken, prTarget: prTarget}
 }
 
 // Name implements agentlib.Step.
@@ -59,7 +64,8 @@ func (s *reviewStep) ShouldRun(_ context.Context, _ *agentlib.Markdown) (bool, e
 
 // Run executes the verification pipeline (design § 4.3 ai_review):
 //  1. Read ## Plan + ## Result (fatal error if either missing).
-//  2. pr_open + pr_draft — `gh pr view` must report OPEN + draft.
+//  2. pr_open + draft matches target — `gh pr view` must report OPEN and the
+//     observed draft-ness must match the configured PRTarget.
 //  3. Fresh worktree at the branch; re-run every planned gate target → exit 0
 //     (gate_green; vulns_clear — the gate wraps the scanners).
 //  4. changelog_unreleased — CHANGELOG has an ## Unreleased bullet and no
@@ -87,7 +93,7 @@ func (s *reviewStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentlib.
 	}
 
 	checks := ReviewChecks{}
-	s.checkPR(ctx, result, &checks, &notes)
+	draftMatches := s.checkPR(ctx, result, &checks, &notes)
 
 	cloneURL, _ := md.Frontmatter.String("clone_url")
 	ref, _ := md.Frontmatter.String("ref")
@@ -110,7 +116,7 @@ func (s *reviewStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentlib.
 		s.checkNoNewTag(ctx, workdir, authedURL, ref, &checks, &notes)
 	}
 
-	approved := checks.PROpen && checks.PRDraft && checks.GateGreen &&
+	approved := checks.PROpen && draftMatches && checks.GateGreen &&
 		checks.VulnsClear && checks.ChangelogUnreleased && checks.NoNewTag
 	output := ReviewOutput{
 		Approved: approved,
@@ -148,28 +154,35 @@ func (s *reviewStep) finish(
 	}, nil
 }
 
-// checkPR verifies the PR is OPEN and still a draft (the agent never
-// readies; a non-draft here means someone else flipped it — surfaced for
-// the operator, and per the check contract the review fails closed).
+// checkPR verifies the PR is OPEN and that its observed draft-ness matches
+// the configured target. checks.PRDraft keeps reporting the RAW observed
+// draft-ness — the match decision lives in the returned verdict, the
+// approval flag and the notes, so the serialized pr_draft key does not
+// change meaning for downstream consumers. A mismatch means the PR is not
+// in the state the agent created it in (someone flipped it) — surfaced for
+// the operator, and per the check contract the review fails closed.
 func (s *reviewStep) checkPR(
 	ctx context.Context,
 	result *ResultOutput,
 	checks *ReviewChecks,
 	notes *[]string,
-) {
+) bool {
 	state, isDraft, err := s.gh.ViewPR(ctx, result.PRURL)
 	if err != nil {
 		*notes = append(*notes, "gh pr view failed: "+err.Error())
-		return
+		return false
 	}
 	checks.PROpen = state == "OPEN"
 	checks.PRDraft = isDraft
 	if !checks.PROpen {
 		*notes = append(*notes, "pr state is "+state+", expected OPEN")
 	}
-	if !checks.PRDraft {
-		*notes = append(*notes, "pr is not a draft")
+	draftMatches := isDraft == s.prTarget.IsDraft()
+	if !draftMatches {
+		*notes = append(*notes, "pr draft-ness mismatch: observed draft="+
+			strconv.FormatBool(isDraft)+", configured target="+s.prTarget.String())
 	}
+	return draftMatches
 }
 
 // checkGates independently re-runs every planned gate target on the fresh

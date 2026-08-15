@@ -107,7 +107,7 @@ Body = operator-readable header only; never a data source.
 | Scanner binaries in image (trivy, osv-scanner, govulncheck) | hard (baked) | image-build-time failure, not runtime |
 
 ## 3.5 Downstream consumers
-Human reviews + readies the draft (runbook [[Update or Fix GitHub Go Repositories]] step 3) → `pr-review-agent` (step 4) → human merge (step 5) → `github-releaser-agent` versions + tags on merge (step 6). Parked tasks surface via `assignee == ""` operator inbox.
+Human reviews + promotes the draft (runbook [[Update or Fix GitHub Go Repositories]] step 3) → `pr-review-agent` (step 4) → human merge (step 5) → `github-releaser-agent` versions + tags on merge (step 6).  When `PR_TARGET: ready` the pull request opens ready for review and reaches `pr-review-agent` without step 3.  Parked tasks surface via `assignee == ""` operator inbox.
 
 # 4. Behavior
 
@@ -119,7 +119,7 @@ Human reviews + readies the draft (runbook [[Update or Fix GitHub Go Repositorie
 | Phase | Supported | Step impl | Purpose |
 |---|---|---|---|
 | `planning` | yes | preflights (claude-auth, gh-token — lift from dark-factory-agent) + `claude.NewAgentStep` w/ planning prompt | clone, detect gate targets, run scanners, classify findings (fix / park), write `## Plan` |
-| `execution` | yes | preflight (claude-auth) + **custom Go step embedding Claude** (pr-reviewer CheckoutExecutionStep / releaser GitOps shape) | Go: clone+branch via `GitOps` seam → Claude (workdir-scoped, **no git/gh tools**): update sequence + repair-to-green + CHANGELOG bullet → Go: gate verify, committed-files guard, commit (bot identity via `-c`), push `--no-follow-tags`, `gh pr create --draft`, `## Result` |
+| `execution` | yes | preflight (claude-auth) + **custom Go step embedding Claude** (pr-reviewer CheckoutExecutionStep / releaser GitOps shape) | Go: clone+branch via `GitOps` seam → Claude (workdir-scoped, **no git/gh tools**): update sequence + repair-to-green + CHANGELOG bullet → Go: gate verify, committed-files guard, commit (bot identity via `-c`), push `--no-follow-tags`, `gh pr create` (`--draft` only when the target is draft), `## Result` |
 | `ai_review` | yes | custom pure-Go `VerifyStep` | independently verify PR + gate + scanners, write `## Review`, route `human_review` |
 
 ## 4.3 Per-phase decisions
@@ -144,15 +144,15 @@ Human reviews + readies the draft (runbook [[Update or Fix GitHub Go Repositorie
 |---|---|
 | Input | frontmatter + `## Plan` (via `ExtractSection[PlanOutput]`) |
 | Output | `ResultOutput{outcome, branch, pr_url, gate_exit int, deps_updated int, vulns_fixed []string}` → `## Result` |
-| Side effects | worktree @ ref; `git switch -c fix/update-go-<sha:7>`; **update sequence per D2** (go-directive bump targeting image toolchain (D5) → excludes/replaces → `go get -u ./...` + `go mod tidy` → targeted `go get <pkg>@<fixed>` per plan → OSV/indirect cleanup) → **repair to green (bounded)**: Claude may edit code to fix compile/test breakage *caused by the bumps* (never unrelated refactors) → CHANGELOG bullet under `## Unreleased` → run ALL detected gate targets to exit 0 → commit (no attribution) → `git push --no-follow-tags -u origin <branch>` → `gh pr create --draft` |
-| Allowed tools (Claude sub-call only) | `Read, Grep, Glob, Edit, Write, Bash(go:*), Bash(make:*)` — **no git, no gh**: all git/PR side effects are the Go step's (releaser-lifted `GitOps` seam: `injectToken`/HTTPS-normalize/`RedactToken`, per-invocation `-c` bot identity, explicit `add -- <paths>`, committed-files guard incl. no-`.github/workflows`, push `--no-follow-tags`, `gh pr create --draft`) |
+| Side effects | worktree @ ref; `git switch -c fix/update-go-<sha:7>`; **update sequence per D2** (go-directive bump targeting image toolchain (D5) → excludes/replaces → `go get -u ./...` + `go mod tidy` → targeted `go get <pkg>@<fixed>` per plan → OSV/indirect cleanup) → **repair to green (bounded)**: Claude may edit code to fix compile/test breakage *caused by the bumps* (never unrelated refactors) → CHANGELOG bullet under `## Unreleased` → run ALL detected gate targets to exit 0 → commit (no attribution) → `git push --no-follow-tags -u origin <branch>` → `gh pr create` (`--draft` only when the target is draft) |
+| Allowed tools (Claude sub-call only) | `Read, Grep, Glob, Edit, Write, Bash(go:*), Bash(make:*)` — **no git, no gh**: all git/PR side effects are the Go step's (releaser-lifted `GitOps` seam: `injectToken`/HTTPS-normalize/`RedactToken`, per-invocation `-c` bot identity, explicit `add -- <paths>`, committed-files guard incl. no-`.github/workflows`, push `--no-follow-tags`, `gh pr create` (`--draft` only when the target is draft)) |
 | Model | Sonnet |
 | Prompt module | `pkg/prompts/execution.md` — the slash command's execution section incl. the release-agent integration block (`## Unreleased` only, never tag) + repair-scope bounds |
 | Duration | 5–20 min (repo test suites) |
 | Next on success | `ai_review` |
 | Failure | gate red after pipeline → `failed` with tail of failing output (resume cursor = execution); push/PR fail → `failed` |
 | Preconditions | `## Plan` exists with `has_work: true` |
-| Postconditions | draft PR open; `## Result` present; no tag created anywhere |
+| Postconditions | PR open (draft by default; ready when `PR_TARGET: ready`); `## Result` present; no tag created anywhere |
 
 **ai_review**
 | Decision | Value |
@@ -175,10 +175,10 @@ Per goal: no watcher service, no auto-merge/ready, no auto-suppress, no NPM/Pyth
 # 5. Data Contract
 
 ## 5.1 Inputs
-Task frontmatter (Kafka `TASK_CONTENT`); target repo via git clone (App IAT over HTTPS); repo Makefile (gate detection); scanner outputs (parsed for finding id + fixed-version); `go list -u -m` output.
+Task frontmatter (Kafka `TASK_CONTENT`); target repo via git clone (App IAT over HTTPS); repo Makefile (gate detection); scanner outputs (parsed for finding id + fixed-version); `go list -u -m` output; `PR_TARGET` (`draft` default | `ready`) from Job environment, selecting the pull-request target at creation time.
 
 ## 5.2 Outputs
-Branch + draft PR on target repo; task body sections; `AgentResult` JSON on stdout (executor round-trips to frontmatter via Kafka).
+Branch + PR on target repo (draft by default; ready when `PR_TARGET: ready`); task body sections; `AgentResult` JSON on stdout (executor round-trips to frontmatter via Kafka).
 
 ## 5.3 Idempotency
 `ShouldRun` always true; replay guard inside `Run` (dark-factory pattern): existing `## <Section>` → re-route without redoing side effects. Execution crash-window guard: branch name is deterministic — if `gh pr list --head fix/update-go-<sha:7>` finds an open PR, adopt it and write `## Result` instead of re-pushing. Same task replayed → same branch, same PR, no duplicates.
@@ -198,9 +198,9 @@ Executor: one Job per (task, phase). Fleet sweeps parallelize across tasks — b
 # 7. Safety
 
 ## 7.0 Consent gates (capability removal)
-- **Claude has no git/gh capability at all** (execution refinement, 2026-07-21): the LLM's tool scope is file-edit + go/make only; every git/PR side effect lives in the pure-Go step around the `GitOps` seam — never-tag/never-push/never-ready is structural for the LLM, not prompt-enforced.
+- **Claude has no git/gh capability at all** (execution refinement, 2026-07-21): the LLM's tool scope is file-edit + go/make only; every git/PR side effect lives in the pure-Go step around the `GitOps` seam — never-tag/never-push is structural for the LLM, not prompt-enforced; the pull-request target (`draft` or `ready`) is a deployment setting resolved in Go before the LLM runs, so the LLM cannot influence it either way.
 - No tag can leak: no code path calls `Tag`; the only push helper hardcodes `--no-follow-tags` + pushes `HEAD:refs/heads/<branch>` (learning #2; releaser's `Tag`/`--atomic` shape deliberately NOT ported).
-- No ready/merge: PR creation via `gh pr create --draft` only; no code path invokes `gh pr ready`/`gh pr merge` (mirrors dark-factory-agent).
+- No merge, no flip: the agent still cannot merge and still cannot change the draft-ness of an already-open pull request — no code path invokes `gh pr ready`/`gh pr merge` (mirrors dark-factory-agent).  PR creation target is chosen once, at creation time, from `PR_TARGET` (`draft` default, `ready` opt-in).  **reversed 2026-08-15**: the draft-only rule recorded here is now operator-configurable; the merge and flip prohibitions stand.
 - No workflow edits: committed-files guard rejects `.github/workflows/**` before push (releaser `guardCommittedFiles` shape) AND the App lacks Workflows permission (D3) — belt + suspenders.
 
 ## 7.1 Error handling
@@ -232,7 +232,7 @@ Own public/private repos; no third-party data; no LLM provider involved (D1).
 
 ## 8.1 Per-phase
 - planning: `## Plan` valid `PlanOutput` JSON on a real repo; park path fires on synthetic `Fixed: N/A` finding
-- execution: draft PR open, gate exit 0 on branch, CHANGELOG bullet under `## Unreleased`, `git ls-remote --tags` unchanged
+- execution: PR open (draft by default; ready when `PR_TARGET: ready`), gate exit 0 on branch, CHANGELOG bullet under `## Unreleased`, `git ls-remote --tags` unchanged
 - ai_review: `## Review` all-true on the happy path; seeded broken check (e.g. deleted PR) → `approved: false` + park
 
 ## 8.2 Overall

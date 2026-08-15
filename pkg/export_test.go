@@ -10,6 +10,7 @@ import "context"
 var (
 	NormalizeCloneURLToHTTPS = normalizeCloneURLToHTTPS
 	InjectToken              = injectToken
+	PRCreateArgs             = prCreateArgs
 )
 
 // LLMJSONProbe is the typed shape pkg_test uses to exercise
