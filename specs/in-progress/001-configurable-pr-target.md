@@ -1,8 +1,9 @@
 ---
-status: prompted
+status: verifying
 approved: "2026-08-14T23:22:14Z"
 generating: "2026-08-14T23:23:44Z"
 prompted: "2026-08-15T07:31:15Z"
+verifying: "2026-08-15T08:44:46Z"
 branch: dark-factory/configurable-pr-target
 ---
 

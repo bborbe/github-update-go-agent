@@ -1,5 +1,10 @@
 /.update-logs/
+/.dark-factory.lock
 /.dark-factory.log
+/prompts/.dark-factory.lock
+/prompts/**/*.md.lock
+/prompts/log/
+/specs/log/
 /.claude/
 /CLAUDE.md
 /.mcp-*
