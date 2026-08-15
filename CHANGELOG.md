@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- fix: bump the Dockerfile build stage from `golang:1.26.5` to `golang:1.26.6` — v0.3.1 raised the `go.mod` directive to `1.26.6` but left the base image behind, so every image build since has failed at `go build` with `go.mod requires go >= 1.26.6 (running go 1.26.5; GOTOOLCHAIN=local)`. Nothing surfaced it because the image publish is a manual step: v0.3.1 and v0.4.0 both cut git tags with no corresponding Docker image, and the breakage only appeared at mirror time as `docker.io/bborbe/github-update-go-agent:v0.4.0: not found`
+
 ## v0.4.0
 
 - feat: add PR_TARGET setting (draft | ready, default draft) selecting whether the agent opens draft or ready-for-review pull requests; GhCli.CreateDraftPR renamed to CreatePR and parameterized on the target
