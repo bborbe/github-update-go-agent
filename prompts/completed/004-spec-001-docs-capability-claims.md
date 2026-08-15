@@ -1,8 +1,13 @@
 ---
-status: approved
+status: completed
 spec: [001-configurable-pr-target]
+summary: Corrected all never-ready capability claims in README, design doc, and review_output.go; documented PR_TARGET in README env vars table and design doc §5.1; added dated reversal marker in §7.0
+execution_id: github-update-go-agent-pr-target-exec-004-spec-001-docs-capability-claims
+dark-factory-version: dev
 created: "2026-08-15T09:10:00Z"
 queued: "2026-08-15T08:16:38Z"
+started: "2026-08-15T08:39:40Z"
+completed: "2026-08-15T08:44:46Z"
 branch: dark-factory/configurable-pr-target
 ---
 

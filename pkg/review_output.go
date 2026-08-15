@@ -10,7 +10,11 @@ package pkg
 type ReviewChecks struct {
 	// PROpen — `gh pr view` reports state OPEN.
 	PROpen bool `json:"pr_open"`
-	// PRDraft — `gh pr view` reports isDraft true (the agent never readies).
+	// PRDraft — the raw isDraft value reported by `gh pr view`.  The review
+	// compares this against the configured PR_TARGET (draft default, ready
+	// opt-in); a mismatch is surfaced in the notes and causes approval to
+	// fail.  This field always reports what was observed — the match verdict
+	// lives in the approval flag and the notes, not here.
 	PRDraft bool `json:"pr_draft"`
 	// GateGreen — every planned gate target re-ran to exit 0 on a fresh
 	// worktree at the branch.
