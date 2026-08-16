@@ -52,19 +52,23 @@ type executionStep struct {
 	ops      git.GitOps
 	gh       GhCli
 	gate     GateRunner
+	bulk     BulkUpdater
 	ghToken  string
 	prTarget PRTarget
 }
 
-// NewExecutionStep wires the execution step with its four seams: the Claude
-// runner (update + repair sub-call), the GitOps seam (clone/branch/commit/
-// push), the gh CLI seam (PR create + adopt), and the gate runner
-// (deterministic green-gate re-run). prTarget selects draft or ready.
+// NewExecutionStep wires the execution step with its five seams: the Claude
+// runner (repair + CHANGELOG sub-call), the GitOps seam (clone/branch/commit/
+// push), the gh CLI seam (PR create + adopt), the gate runner (deterministic
+// green-gate re-run), and the bulk updater (deterministic `go get -u ./...` +
+// `go mod tidy`, run in Go so the model cannot background it). prTarget
+// selects draft or ready.
 func NewExecutionStep(
 	runner claudelib.ClaudeRunner,
 	ops git.GitOps,
 	gh GhCli,
 	gate GateRunner,
+	bulk BulkUpdater,
 	ghToken string,
 	prTarget PRTarget,
 ) agentlib.Step {
@@ -73,6 +77,7 @@ func NewExecutionStep(
 		ops:      ops,
 		gh:       gh,
 		gate:     gate,
+		bulk:     bulk,
 		ghToken:  ghToken,
 		prTarget: prTarget,
 	}
@@ -141,7 +146,15 @@ func (s *executionStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentl
 		return s.fail(ctx, md, result, git.ClassifyError(err), err)
 	}
 
-	report, claudeErr := s.runUpdate(ctx, workdir, plan)
+	// Deterministic bulk update BEFORE the model call. Running it here is what
+	// stops the model backgrounding a long `go get` and then blocking on
+	// TaskOutput until the Job deadline kills it (see BulkUpdater).
+	bulkResult, bulkErr := s.bulk.Run(ctx, workdir)
+	if bulkErr != nil {
+		return s.fail(ctx, md, result, git.ErrorCategoryUnknown, bulkErr)
+	}
+
+	report, claudeErr := s.runUpdate(ctx, workdir, plan, bulkResult)
 	if claudeErr != nil {
 		return s.fail(ctx, md, result, git.ErrorCategoryUnknown, claudeErr)
 	}
@@ -258,13 +271,32 @@ func (s *executionStep) extractFrontmatter(
 	return repo, cloneURL, ref, nil
 }
 
-// runUpdate issues the workdir-scoped Claude sub-call (update sequence +
-// repair-to-green + CHANGELOG bullet). The sub-call has NO git and NO gh
+// bulkUpdateSection renders the deterministic bulk-update outcome for the
+// prompt. Fail-closed: when the sequence did not run, the model is told so
+// explicitly and instructed to run it itself in the foreground, rather than
+// being left to assume the deps are current.
+func bulkUpdateSection(bulk BulkUpdateResult) string {
+	if bulk.Ran {
+		return "## Bulk update — ALREADY DONE\n\n" +
+			"`go get -u ./...` and `go mod tidy` have ALREADY been run for you in " +
+			"this workdir. **Skip update-sequence step 3.** Do not re-run them and " +
+			"do not background anything. Output:\n\n```\n" + bulk.Output + "\n```"
+	}
+	return "## Bulk update — DID NOT RUN\n\n" +
+		"The deterministic bulk update FAILED, so the dependency graph is NOT " +
+		"updated: " + bulk.FailDetail + "\n\nRun update-sequence step 3 yourself, " +
+		"in the FOREGROUND. Output so far:\n\n```\n" + bulk.Output + "\n```"
+}
+
+// runUpdate issues the workdir-scoped Claude sub-call (targeted vuln fixes +
+// repair-to-green + CHANGELOG bullet). The bulk dependency update already ran
+// deterministically in Go before this call. The sub-call has NO git and NO gh
 // tools — its tool scope is file-edit + go/make only.
 func (s *executionStep) runUpdate(
 	ctx context.Context,
 	workdir string,
 	plan *PlanOutput,
+	bulk BulkUpdateResult,
 ) (*executionReport, error) {
 	planJSON, err := agentlib.MarshalSectionTyped(ctx, "## Plan", *plan)
 	if err != nil {
@@ -273,6 +305,7 @@ func (s *executionStep) runUpdate(
 	prompt := prompts.ExecutionPrompt() +
 		"\n\n## Workdir\n\n" + workdir +
 		"\n\n## Target Go\n\n" + targetGoVersion() +
+		"\n\n" + bulkUpdateSection(bulk) +
 		"\n\n" + planJSON.Heading + "\n\n" + planJSON.Body
 	runResult, err := s.runner.Run(ctx, prompt)
 	if err != nil {

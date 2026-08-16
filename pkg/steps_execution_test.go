@@ -54,6 +54,7 @@ var _ = Describe("ExecutionStep", func() {
 		ops    *mocks.GitOps
 		gh     *mocks.GhCli
 		gate   *mocks.GateRunner
+		bulk   *mocks.BulkUpdater
 		step   agentlib.Step
 		md     *agentlib.Markdown
 	)
@@ -64,7 +65,9 @@ var _ = Describe("ExecutionStep", func() {
 		ops = &mocks.GitOps{}
 		gh = &mocks.GhCli{}
 		gate = &mocks.GateRunner{}
-		step = pkg.NewExecutionStep(runner, ops, gh, gate, "tok", pkg.PRTargetDraft)
+		bulk = &mocks.BulkUpdater{}
+		bulk.RunReturns(pkg.BulkUpdateResult{Ran: true, Output: "ok"}, nil)
+		step = pkg.NewExecutionStep(runner, ops, gh, gate, bulk, "tok", pkg.PRTargetDraft)
 		var err error
 		md, err = agentlib.ParseMarkdown(ctx, executionTaskMD)
 		Expect(err).To(BeNil())
@@ -198,7 +201,7 @@ var _ = Describe("ExecutionStep", func() {
 
 	Describe("PRTargetReady passes ready target to the seam", func() {
 		BeforeEach(func() {
-			step = pkg.NewExecutionStep(runner, ops, gh, gate, "tok", pkg.PRTargetReady)
+			step = pkg.NewExecutionStep(runner, ops, gh, gate, bulk, "tok", pkg.PRTargetReady)
 		})
 
 		It("calls CreatePR with PRTargetReady", func() {

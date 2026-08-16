@@ -168,6 +168,7 @@ func CreateAgent(
 		gitOps,
 		ghCli,
 		gateRunner,
+		updatepkg.NewBulkUpdater(),
 		ghToken,
 		prTarget,
 	)
