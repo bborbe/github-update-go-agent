@@ -45,8 +45,11 @@ Execute in order, repairing as you go:
    only clear when the directive moves.
 2. **Respect existing excludes/replaces**: read go.mod's existing `exclude` /
    `replace` blocks and keep them intact unless a fix requires changing them.
-3. **Bulk update**: `go -C <workdir> get -u ./...` then
-   `go -C <workdir> mod tidy`.
+3. **Bulk update** — **normally ALREADY DONE for you.** The agent runs
+   `go -C <workdir> get -u ./...` and `go -C <workdir> mod tidy` in Go before
+   this call; see the `## Bulk update` section below for the outcome. If it
+   says ALREADY DONE, skip this step entirely. Only if it says DID NOT RUN do
+   you run those two commands yourself, in the foreground.
 4. **Targeted vuln fixes**: for each plan vuln with `action: "fix"`:
    `go -C <workdir> get <package>@<fixed_version>` then `go mod tidy`.
 5. **Vendor**: if the repo has a vendor/ directory or the Makefile runs
@@ -84,11 +87,26 @@ Execute in order, repairing as you go:
 
 Run `go`/`make` commands — especially the gate targets in step 7 — to
 completion in the foreground and read their full output. NEVER background
-a gate command (no `&`, no `nohup`, no detached job) and NEVER end your
-turn with prose like "I'll wait for the background run to finish" or
-"pausing here for the check to complete" — there is no notification
-channel back to you, so a backgrounded command's result is simply lost and
-the run is treated as a parse failure, not a pass.
+a command. That means **all** of these, not just the shell forms:
+
+- no `&`, no `nohup`, no detached job;
+- **no `run_in_background: true` on Bash** — the harness's own backgrounding
+  counts and is the form that has actually caused outages;
+- **no `TaskOutput`**, blocking or otherwise. If you ever find yourself
+  calling `TaskOutput` a second time for the same `task_id`, you are in the
+  failure mode described below — stop and report instead of waiting again.
+
+And NEVER end your turn with prose like "I'll wait for the background run to
+finish" or "pausing here for the check to complete" — there is no
+notification channel back to you, so a backgrounded command's result is
+simply lost and the run is treated as a parse failure, not a pass.
+
+Why this is stated so bluntly: on 2026-08-16 an execution run put `go get -u
+./...` in a harness background task, blocked on `TaskOutput` for 600s, timed
+out, and re-issued the identical blocking call on the same `task_id`. Three
+rounds consumed the Job's entire 1800s budget and it was killed having
+produced nothing (`bborbe/ip`; also `bborbe/run`, `bborbe/beactive`). A
+longer deadline does not help — waiting again is the bug.
 
 ## Output
 

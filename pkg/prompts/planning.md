@@ -70,11 +70,18 @@ The context sections appended after this prompt provide:
 ## Command discipline
 
 Run every `git`/`go`/`make` command to completion in the foreground and
-read its full output before moving on. NEVER background a command (no `&`,
-no `nohup`, no detached job) and NEVER end your turn with prose like "I'll
-wait for the background run to finish" or "pausing here for the check to
-complete" — there is no notification channel back to you, so a backgrounded
-command's result is simply lost and the run is treated as a parse failure.
+read its full output before moving on. NEVER background a command — not with
+`&`, `nohup` or a detached job, and **not with the harness's own
+`run_in_background: true` on Bash, and never via `TaskOutput`**. The harness
+forms are the ones that have actually caused outages: an execution run once
+blocked on `TaskOutput` for 600s, timed out, re-issued the same blocking call,
+and burned the Job's whole 1800s budget producing nothing. If you are about to
+call `TaskOutput` twice for one `task_id`, stop and report instead.
+
+And NEVER end your turn with prose like "I'll wait for the background run to
+finish" or "pausing here for the check to complete" — there is no notification
+channel back to you, so a backgrounded command's result is simply lost and the
+run is treated as a parse failure.
 
 ## Output
 
