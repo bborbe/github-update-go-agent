@@ -77,6 +77,15 @@ func (b *bulkUpdater) Run(ctx context.Context, workdir string) (BulkUpdateResult
 		{"get", "-u", "./..."},
 		{"mod", "tidy"},
 	} {
+		select {
+		case <-ctx.Done():
+			return BulkUpdateResult{
+				Ran:        false,
+				FailDetail: "bulk update cancelled: " + ctx.Err().Error(),
+				Output:     tail(combined.String()),
+			}, nil
+		default:
+		}
 		out, err := b.run(ctx, workdir, args)
 		combined.WriteString("$ go ")
 		combined.WriteString(strings.Join(args, " "))
@@ -107,9 +116,21 @@ func (b *bulkUpdater) run(ctx context.Context, workdir string, args []string) (s
 	defer cancel()
 
 	full := append([]string{"-C", workdir}, args...)
+	// Log before the call, not only after: this step exists because a long
+	// `go get` once hung invisibly. A start line makes a run that never
+	// returns distinguishable from one that was never attempted.
+	glog.V(1).Infof(
+		"event=bulk_update_exec_start workdir=%s cmd=%q timeout=%s",
+		workdir, strings.Join(args, " "), bulkUpdateTimeout,
+	)
+	start := time.Now()
 	// #nosec G204 -- args are fixed literals above; workdir is agent-controlled.
 	cmd := exec.CommandContext(ctx, "go", full...)
 	out, err := cmd.CombinedOutput()
+	glog.V(1).Infof(
+		"event=bulk_update_exec_done workdir=%s cmd=%q err=%v duration=%s",
+		workdir, strings.Join(args, " "), err, time.Since(start),
+	)
 	if err != nil {
 		if ctx.Err() != nil {
 			return string(out), errors.Wrapf(
