@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -79,6 +80,36 @@ var _ = Describe("BulkUpdater", func() {
 			result, err := updater.Run(cancelled, workdir)
 			Expect(err).To(BeNil())
 			Expect(result.Ran).To(BeFalse())
+		})
+
+		// The fail-closed guarantee is only worth anything if the reason
+		// survives: a caller that sees Ran=false with an empty FailDetail
+		// cannot tell the model why the deps are stale.
+		It("still reports a reason", func() {
+			cancelled, cancel := context.WithCancel(ctx)
+			cancel()
+			result, err := updater.Run(cancelled, workdir)
+			Expect(err).To(BeNil())
+			Expect(result.FailDetail).NotTo(BeEmpty())
+		})
+	})
+
+	Context("when the context expires mid-run", func() {
+		BeforeEach(func() {
+			Expect(os.WriteFile(
+				filepath.Join(workdir, "go.mod"),
+				[]byte("module example.com/x\n\ngo 1.26.6\n"),
+				0o600,
+			)).To(Succeed())
+		})
+
+		It("reports Ran=false with a reason rather than blocking", func() {
+			expiring, cancel := context.WithTimeout(ctx, time.Millisecond)
+			defer cancel()
+			result, err := updater.Run(expiring, workdir)
+			Expect(err).To(BeNil())
+			Expect(result.Ran).To(BeFalse())
+			Expect(result.FailDetail).NotTo(BeEmpty())
 		})
 	})
 })
