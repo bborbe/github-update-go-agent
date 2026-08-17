@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- fix: planning captures and parses the repo's own gate scanner output in Go, validates every plan advisory ID verbatim against the captured table, and carries the verbatim scanner row on park escalations
+- fix: planning refutes false workdir/sandbox/permission needs_input claims with a Go stat before they can clear the assignee, and logs planning sub-call tool_result bodies (token-redacted) at the deployed log level
+
 ## v0.5.0
 
 - fix: run the bulk dependency update (`go get -u ./...` + `go mod tidy`) deterministically in Go before the execution model call, instead of instructing the model to run it. Left to the model, a long `go get` invited backgrounding: on 2026-08-16 an execution run put it in a harness background task, blocked on `TaskOutput` for 600s, timed out, and re-issued the **identical blocking call on the same `task_id`** — three rounds consumed the Job's whole 1800s `activeDeadlineSeconds` and it was killed having produced nothing (`bborbe/ip` job `bc3c6599`; also `bborbe/run`, `bborbe/beactive`). Raising the deadline cannot fix it — waiting again is the bug. Each command now runs under a hard 8-minute timeout with no retry. Same reasoning that moved the ast-grep funnel into Go in `github-pr-review-agent`: when a model can express a step in many forms, remove the step from the model rather than constraining the forms.

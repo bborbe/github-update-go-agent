@@ -17,6 +17,11 @@ The context sections appended after this prompt provide:
   the bump target for the repo's `go.mod` go-directive (never trust the
   task's `latest_go` frontmatter — it is a watcher trigger signal only).
 - `## Task` — the task markdown (frontmatter `repo`, `clone_url`, `ref`).
+- `## Scanner Findings` — the findings table Go captured by running the
+  repo's own gate targets and parsing their output.
+  It is the ONLY source of advisory IDs: every `vulns[].id` you report MUST
+  be one of these IDs, copied verbatim. Never invent, guess, or modify an
+  advisory ID, and never add a finding that is not listed here.
 
 ## Steps
 
@@ -25,45 +30,31 @@ The context sections appended after this prompt provide:
    (nested go.mod files that the root Makefile does not build), return
    `outcome: "needs_input"` with a reason naming the module layout.
 
-2. **Detect gate targets from the Makefile — never hardcode a scanner.**
-   Read `<workdir>/Makefile` (and its includes, e.g. Makefile.precommit) and
-   collect the repo's own gate targets among `precommit`, `check`,
-   `vulncheck` (in that preference order; include every one that exists and
-   adds coverage — on many repos the vuln scanners live in `check`, not
-   `precommit`). If NO gate target exists at all, return
-   `outcome: "needs_input"` with reason "no gate target found".
-
-3. **Go directive.** Compare the `go` directive in go.mod against the target
+2. **Go directive.** Compare the `go` directive in go.mod against the target
    Go version. Older → record `go_bump: {"from": "<directive>", "to":
    "<target>"}`. The directive bump is mandatory in every update PR: CI pins
    its toolchain to the go-directive (`go-version-file: go.mod`), so stdlib
    CVEs are only fixed when the directive moves.
 
-4. **Outdated dependencies.** Run `go -C <workdir> list -u -m all 2>/dev/null`
+3. **Outdated dependencies.** Run `go -C <workdir> list -u -m all 2>/dev/null`
    (or inspect go.mod) and note whether direct dependencies have newer
    versions → `dep_updates_expected`.
 
-5. **Vulnerabilities — run the REPO'S OWN gate targets, not a hardcoded
-   scanner.** Run the detected scanner-bearing targets (`make -C <workdir>
-   vulncheck`, `make -C <workdir> check`, ...). Repos wrap MULTIPLE scanners:
-   govulncheck (call-graph — only flags called symbols), osv-scanner
-   (dependency-level, respects .osv-scanner.toml), and trivy (dependency
-   level, respects .trivyignore). govulncheck alone MISSES indirect/uncalled
-   dep vulns — a finding any one scanner reports counts. The gate already
-   respects the repo's ignore surfaces (VULNCHECK_IGNORE, .osv-scanner.toml,
-   .trivyignore) — a suppressed finding is NOT a finding.
-
-6. **Classify each finding fix-vs-park:**
-   - `"fix"` — a patched module version exists (the scanner's Fixed
-     Version/Fixed In column is a real version) and reaching it does not
+4. **Classify each finding listed in `## Scanner Findings` fix-vs-park** per
+   the existing rules:
+   - `"fix"` — a patched module version exists (the finding's
+     `fixed_version` column is a real version) and reaching it does not
      require a major (v1→v2) bump. Record the id, package, fixed_version,
      and which scanner flagged it.
-   - `"park"` — no fixed version exists (Fixed: N/A / empty), or the fix
-     requires an out-of-scope major bump. Never plan a suppression: writing
-     ignore entries is a human risk call. The agent will park the whole task
-     naming your park findings.
+   - `"park"` — no fixed version exists (empty), or the fix requires an
+     out-of-scope major bump. Never plan a suppression: writing ignore
+     entries is a human risk call. The agent will park the whole task naming
+     your park findings.
 
-7. **has_work** is true when any of: go_bump present, dep_updates_expected,
+   Report ONLY findings listed in `## Scanner Findings`.
+   Never add a finding ID that is not in the table.
+
+5. **has_work** is true when any of: go_bump present, dep_updates_expected,
    or at least one vuln finding. All current and clean → `outcome:
    "no_update_needed"`, `has_work: false`.
 
@@ -111,7 +102,8 @@ ONLY a single JSON object (no markdown fences, no prose):
 ```
 
 Field rules:
-- `gate_targets` MUST list only real Makefile targets you verified exist.
+- `gate_targets` is detected and populated by Go from the repo's Makefile —
+  you may omit it or set it to `[]`; Go overrides it.
 - `go_bump` omitted when the directive is already at the target.
 - `vulns` empty array/omitted when the gate is clean.
 - `action` is exactly `fix` or `park` — nothing else.
