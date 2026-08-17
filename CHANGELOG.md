@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.5.1
 
 - fix: planning captures and parses the repo's own gate scanner output in Go, validates every plan advisory ID verbatim against the captured table, and carries the verbatim scanner row on park escalations
 - fix: planning refutes false workdir/sandbox/permission needs_input claims with a Go stat before they can clear the assignee, and logs planning sub-call tool_result bodies (token-redacted) at the deployed log level
