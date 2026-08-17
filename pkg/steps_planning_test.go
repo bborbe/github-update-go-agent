@@ -386,4 +386,52 @@ var _ = Describe("PlanningStep", func() {
 			Expect(result.Message).To(ContainSubstring("parse planning output"))
 		})
 	})
+
+	Describe("environment-claim needs_input refutation", func() {
+		var workdir string
+
+		BeforeEach(func() {
+			setupFixture(fixtureMakefile)
+			workdir = filepath.Join(os.TempDir(), "github-update-go-test-task-1")
+		})
+
+		It("refutes a false workdir/sandbox claim — failed, assignee not cleared", func() {
+			runner.RunReturns(&claudelib.ClaudeResult{Result: `{
+				"outcome": "needs_input",
+				"has_work": false,
+				"reason": "cannot access workdir /tmp/github-update-go-test-task-1 — all filesystem access is blocked by sandbox restrictions"
+			}`}, nil)
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusFailed))
+			Expect(result.Status).NotTo(Equal(agentlib.AgentStatusNeedsInput))
+			Expect(result.Message).To(ContainSubstring(workdir))
+			Expect(result.Message).To(ContainSubstring("sandbox"))
+		})
+
+		It("refutes an allowed-paths claim via the existing workdir", func() {
+			runner.RunReturns(&claudelib.ClaudeResult{Result: `{
+				"outcome": "needs_input",
+				"has_work": false,
+				"reason": "directory not in allowed paths (/agent only)"
+			}`}, nil)
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusFailed))
+			Expect(result.Message).To(ContainSubstring(workdir))
+			Expect(result.Message).To(ContainSubstring("allowed paths"))
+		})
+
+		It("keeps needs_input unchanged for a non-environment reason", func() {
+			runner.RunReturns(&claudelib.ClaudeResult{Result: `{
+				"outcome": "needs_input",
+				"has_work": false,
+				"reason": "no fixed version available"
+			}`}, nil)
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusNeedsInput))
+			Expect(result.Message).To(Equal("no fixed version available"))
+		})
+	})
 })

@@ -1,8 +1,13 @@
 ---
-status: approved
+status: completed
 spec: [002-bug-fabricated-vulnerability-advisories]
+summary: 'Park-trust hardening complete: planning needs_input reasons claiming an environment problem (workdir/sandbox/permission/allowed paths/filesystem access) are stat-verified in Go before they can clear the assignee (refuted -> failed, standing -> needs_input unchanged), and the planning sub-call now runs through an in-repo claude runner that logs every tool_result body (token-redacted via git.RedactToken) at the deployed V(2) log level, mirroring the agent-lib subprocess env allowlist exactly; fixed a nil-vs-empty-slice contract bug in extractToolResultBodies and added coverage for Run/appendPlanningTail error and ring-buffer branches; make precommit exits 0'
+execution_id: github-update-go-agent-fabricated-advisories-exec-006-spec-002-park-trust-hardening
+dark-factory-version: dev
 created: "2026-08-17T20:36:00Z"
 queued: "2026-08-17T18:51:44Z"
+started: "2026-08-17T19:28:22Z"
+completed: "2026-08-17T19:37:34Z"
 ---
 
 # Park-trust hardening: verify environment claims in Go and capture tool_result bodies in the planning log

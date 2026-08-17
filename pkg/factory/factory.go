@@ -149,7 +149,13 @@ func CreateAgent(
 ) *agentlib.Agent {
 	claudeAuth := updatepkg.NewClaudeAuthStep(claudeProber)
 	ghTokenCheck := updatepkg.NewGHTokenCheckStep(ghToken)
-	planningRunner := CreateClaudeRunner(claudeConfigDir, agentDir, planningTools, model, claudeEnv)
+	planningRunner := updatepkg.NewPlanningRunner(claudelib.ClaudeRunnerConfig{
+		ClaudeConfigDir:  claudeConfigDir,
+		AllowedTools:     planningTools,
+		Model:            model,
+		WorkingDirectory: agentDir,
+		Env:              claudeEnv,
+	})
 	planningStep := updatepkg.NewPlanningStep(
 		planningRunner,
 		gitOps,

@@ -148,6 +148,13 @@ func (s *planningStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentli
 	}
 
 	if plan.Outcome == PlanOutcomeNeedsInput {
+		if refuteEnvironmentClaim(workdir, plan.Reason) {
+			glog.V(2).
+				Infof("planning: env-claim refuted — workdir exists, not clearing assignee: reason=%q", plan.Reason)
+			return failed(
+				"needs_input reason claims an environment problem but workdir " + workdir + " exists on disk — false claim, not clearing assignee: " + plan.Reason,
+			), nil
+		}
 		if err := writePlanSection(ctx, md, plan); err != nil {
 			return nil, err
 		}
@@ -278,6 +285,45 @@ func parkMessage(parked []PlanVuln, table ScannerTable) string {
 		strings.Join(findings, "; "),
 		suppressionSurfacesHint,
 	)
+}
+
+// environmentClaimMarkers are needs_input reason substrings that claim an
+// environment problem (workdir/sandbox/permission) rather than a real repo
+// finding. Such a claim is stat-verified before it may clear the assignee.
+var environmentClaimMarkers = []string{
+	"workdir",
+	"sandbox",
+	"permission",
+	"allowed paths",
+	"filesystem access",
+}
+
+// claimsEnvironmentProblem reports whether reason reads as an environment
+// claim (case-insensitive marker match).
+func claimsEnvironmentProblem(reason string) bool {
+	lowered := strings.ToLower(reason)
+	for _, marker := range environmentClaimMarkers {
+		if strings.Contains(lowered, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// refuteEnvironmentClaim stat-checks the agent's own workdir against an
+// environment-claim needs_input reason. The planning step cloned into
+// workdir, so an existing workdir refutes a "cannot access workdir /
+// sandbox" claim. Logs the stat result alongside the claim at V(2) so the
+// evidence is visible in the deployed pod log.
+func refuteEnvironmentClaim(workdir string, reason string) bool {
+	if !claimsEnvironmentProblem(reason) {
+		return false
+	}
+	_, err := os.Stat(workdir)
+	exists := err == nil
+	glog.V(2).
+		Infof("planning: env-claim check workdir=%s stat_exists=%t reason=%q", workdir, exists, reason)
+	return exists
 }
 
 // writePlanSection marshals the typed ## Plan section into the task body.

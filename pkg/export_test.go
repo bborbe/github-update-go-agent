@@ -4,7 +4,12 @@
 
 package pkg
 
-import "context"
+import (
+	"context"
+	"os/exec"
+
+	claudelib "github.com/bborbe/agent/claude"
+)
 
 // Test-only exports for the external pkg_test package.
 var (
@@ -16,6 +21,18 @@ var (
 	ValidatePlanAgainstTable = validatePlanAgainstTable
 	RenderScannerTable       = renderScannerTable
 	ParkMessage              = parkMessage
+	ExtractToolResultBodies  = extractToolResultBodies
+	PlanningResultText       = planningResultText
+	ScanPlanningOutput       = scanPlanningOutput
+	RefuteEnvironmentClaim   = refuteEnvironmentClaim
+	// PlanningRunnerForTest constructs a planningRunner with an injected log
+	// sink — the sink is constructor-injected, never swapped package state.
+	PlanningRunnerForTest = func(config claudelib.ClaudeRunnerConfig, sink func(context.Context, string)) *planningRunner {
+		return &planningRunner{config: config, logSink: sink}
+	}
+	PlanningRunnerBuildCmd = func(r *planningRunner, ctx context.Context, prompt string) (*exec.Cmd, error) {
+		return r.buildCommand(ctx, prompt)
+	}
 )
 
 // LLMJSONProbe is the typed shape pkg_test uses to exercise
