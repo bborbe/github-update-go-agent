@@ -140,6 +140,11 @@ func (r *planningRunner) buildSubprocessEnv(ctx context.Context) ([]string, erro
 
 	// Layer 1: allowlist pass-through.
 	for _, k := range []string{"HOME", "PATH", "USER", "TZ", "ZONEINFO", "TMPDIR", "LANG", "LC_ALL"} {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
 		if v, ok := os.LookupEnv(k); ok {
 			env[k] = v
 		}
@@ -167,6 +172,11 @@ func (r *planningRunner) buildSubprocessEnv(ctx context.Context) ([]string, erro
 	// Convert to []string for exec.Cmd.
 	result := make([]string, 0, len(env))
 	for k, v := range env {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
 		result = append(result, k+"="+v)
 	}
 	return result, nil
