@@ -206,6 +206,11 @@ func (s *planningStep) runInspection(
 
 	table := ScannerTable{}
 	for _, target := range targets {
+		select {
+		case <-ctx.Done():
+			return nil, nil, failed("canceled while running gate targets: " + ctx.Err().Error())
+		default:
+		}
 		output, exitCode, runErr := s.gate.RunTargetFull(ctx, workdir, target)
 		rows := parseScannerOutput(target, output)
 		if runErr != nil && len(rows) == 0 {

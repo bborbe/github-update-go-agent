@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"strings"
@@ -66,12 +67,14 @@ func (r *planningRunner) Run(ctx context.Context, prompt string) (*claudelib.Cla
 		} else {
 			tailMsg = "no stdout captured"
 		}
+		glog.V(2).Infof("planning: claude CLI failed result_len=%d err=%v", len(resultText), err)
 		return nil, errors.Wrapf(ctx, err, "claude CLI failed: %s", tailMsg)
 	}
 
 	if resultText == "" {
 		return nil, errors.New(ctx, "no result event found in claude CLI output")
 	}
+	glog.V(2).Infof("planning: claude CLI succeeded result_len=%d", len(resultText))
 
 	return &claudelib.ClaudeResult{Result: resultText}, nil
 }
@@ -159,9 +162,7 @@ func (r *planningRunner) buildSubprocessEnv(ctx context.Context) ([]string, erro
 	env["CLAUDE_CONFIG_DIR"] = resolved
 
 	// Layer 3: consumer-provided env overrides everything above.
-	for k, v := range r.config.Env {
-		env[k] = v
-	}
+	maps.Copy(env, r.config.Env)
 
 	// Convert to []string for exec.Cmd.
 	result := make([]string, 0, len(env))
@@ -228,6 +229,9 @@ func scanPlanningOutput(
 		if text, ok := planningResultText(line); ok {
 			resultText = text
 		}
+	}
+	if err := scanner.Err(); err != nil {
+		return "", nil
 	}
 	return resultText, tail
 }
