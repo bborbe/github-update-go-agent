@@ -153,6 +153,7 @@ func CreateAgent(
 	planningStep := updatepkg.NewPlanningStep(
 		planningRunner,
 		gitOps,
+		gateRunner,
 		ghToken,
 		updatepkg.NewGhInstallationScope(ghToken),
 	)

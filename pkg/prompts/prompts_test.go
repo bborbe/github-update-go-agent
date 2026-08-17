@@ -16,9 +16,12 @@ var _ = Describe("PlanningPrompt", func() {
 		Expect(prompts.PlanningPrompt()).NotTo(BeEmpty())
 	})
 
-	It("instructs the repo's own gate detection, never a hardcoded scanner", func() {
-		Expect(prompts.PlanningPrompt()).To(ContainSubstring("gate targets"))
-		Expect(prompts.PlanningPrompt()).To(ContainSubstring("never hardcode"))
+	It("treats the Go-captured Scanner Findings table as the only ID source", func() {
+		Expect(prompts.PlanningPrompt()).To(ContainSubstring("Scanner Findings"))
+		Expect(prompts.PlanningPrompt()).To(ContainSubstring("ONLY source of advisory IDs"))
+		Expect(
+			prompts.PlanningPrompt(),
+		).To(ContainSubstring("Never add a finding ID that is not in the table"))
 	})
 
 	It("carries the fix-vs-park classification", func() {

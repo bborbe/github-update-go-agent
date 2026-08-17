@@ -35,6 +35,16 @@ type GateRunner interface {
 	// combined-output tail, the process exit code (0 on success), and a
 	// non-nil error when the target failed or could not be started.
 	RunTarget(ctx context.Context, workdir, target string) (tail string, exitCode int, err error)
+
+	// RunTargetFull runs `make <target>` in workdir and returns the FULL
+	// combined output (no truncation), the process exit code (0 on success),
+	// and a non-nil error when the target failed or could not be started.
+	// Planning uses this to capture the complete raw scanner output; the
+	// bounded RunTarget tail remains for failure messages.
+	RunTargetFull(
+		ctx context.Context,
+		workdir, target string,
+	) (output string, exitCode int, err error)
 }
 
 // NewOSExecGateRunner returns a GateRunner shelling out to make. The gate
@@ -71,6 +81,30 @@ func (g *osExecGateRunner) RunTarget(
 	}
 	glog.V(2).Infof("gate: make %s succeeded", target)
 	return tail, 0, nil
+}
+
+func (g *osExecGateRunner) RunTargetFull(
+	ctx context.Context,
+	workdir, target string,
+) (string, int, error) {
+	if !gateTargetRegexp.MatchString(target) {
+		return "", -1, errors.Errorf(ctx, "invalid gate target name: %q", target)
+	}
+	glog.V(2).Infof("gate: running make -C %s %s (full output)", workdir, target)
+	// #nosec G204 -- binary is hardcoded make; workdir is os.TempDir-rooted; target is regexp-validated
+	cmd := exec.CommandContext(ctx, "make", "-C", workdir, target)
+	cmd.Env = os.Environ()
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		exitCode := -1
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		}
+		glog.V(2).Infof("gate: make %s failed exit=%d", target, exitCode)
+		return string(out), exitCode, errors.Wrapf(ctx, err, "make %s failed", target)
+	}
+	glog.V(2).Infof("gate: make %s succeeded", target)
+	return string(out), 0, nil
 }
 
 // truncateTail returns the last maxBytes bytes of s with a truncation marker.

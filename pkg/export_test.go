@@ -11,6 +11,11 @@ var (
 	NormalizeCloneURLToHTTPS = normalizeCloneURLToHTTPS
 	InjectToken              = injectToken
 	PRCreateArgs             = prCreateArgs
+	ParseScannerOutput       = parseScannerOutput
+	DetectGateTargets        = detectGateTargets
+	ValidatePlanAgainstTable = validatePlanAgainstTable
+	RenderScannerTable       = renderScannerTable
+	ParkMessage              = parkMessage
 )
 
 // LLMJSONProbe is the typed shape pkg_test uses to exercise

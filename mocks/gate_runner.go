@@ -26,6 +26,23 @@ type GateRunner struct {
 		result2 int
 		result3 error
 	}
+	RunTargetFullStub        func(context.Context, string, string) (string, int, error)
+	runTargetFullMutex       sync.RWMutex
+	runTargetFullArgsForCall []struct {
+		arg1 context.Context
+		arg2 string
+		arg3 string
+	}
+	runTargetFullReturns struct {
+		result1 string
+		result2 int
+		result3 error
+	}
+	runTargetFullReturnsOnCall map[int]struct {
+		result1 string
+		result2 int
+		result3 error
+	}
 	invocations      map[string][][]interface{}
 	invocationsMutex sync.RWMutex
 }
@@ -93,6 +110,75 @@ func (fake *GateRunner) RunTargetReturnsOnCall(i int, result1 string, result2 in
 		})
 	}
 	fake.runTargetReturnsOnCall[i] = struct {
+		result1 string
+		result2 int
+		result3 error
+	}{result1, result2, result3}
+}
+
+func (fake *GateRunner) RunTargetFull(arg1 context.Context, arg2 string, arg3 string) (string, int, error) {
+	fake.runTargetFullMutex.Lock()
+	ret, specificReturn := fake.runTargetFullReturnsOnCall[len(fake.runTargetFullArgsForCall)]
+	fake.runTargetFullArgsForCall = append(fake.runTargetFullArgsForCall, struct {
+		arg1 context.Context
+		arg2 string
+		arg3 string
+	}{arg1, arg2, arg3})
+	stub := fake.RunTargetFullStub
+	fakeReturns := fake.runTargetFullReturns
+	fake.recordInvocation("RunTargetFull", []interface{}{arg1, arg2, arg3})
+	fake.runTargetFullMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2, arg3)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2, ret.result3
+	}
+	return fakeReturns.result1, fakeReturns.result2, fakeReturns.result3
+}
+
+func (fake *GateRunner) RunTargetFullCallCount() int {
+	fake.runTargetFullMutex.RLock()
+	defer fake.runTargetFullMutex.RUnlock()
+	return len(fake.runTargetFullArgsForCall)
+}
+
+func (fake *GateRunner) RunTargetFullCalls(stub func(context.Context, string, string) (string, int, error)) {
+	fake.runTargetFullMutex.Lock()
+	defer fake.runTargetFullMutex.Unlock()
+	fake.RunTargetFullStub = stub
+}
+
+func (fake *GateRunner) RunTargetFullArgsForCall(i int) (context.Context, string, string) {
+	fake.runTargetFullMutex.RLock()
+	defer fake.runTargetFullMutex.RUnlock()
+	argsForCall := fake.runTargetFullArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+}
+
+func (fake *GateRunner) RunTargetFullReturns(result1 string, result2 int, result3 error) {
+	fake.runTargetFullMutex.Lock()
+	defer fake.runTargetFullMutex.Unlock()
+	fake.RunTargetFullStub = nil
+	fake.runTargetFullReturns = struct {
+		result1 string
+		result2 int
+		result3 error
+	}{result1, result2, result3}
+}
+
+func (fake *GateRunner) RunTargetFullReturnsOnCall(i int, result1 string, result2 int, result3 error) {
+	fake.runTargetFullMutex.Lock()
+	defer fake.runTargetFullMutex.Unlock()
+	fake.RunTargetFullStub = nil
+	if fake.runTargetFullReturnsOnCall == nil {
+		fake.runTargetFullReturnsOnCall = make(map[int]struct {
+			result1 string
+			result2 int
+			result3 error
+		})
+	}
+	fake.runTargetFullReturnsOnCall[i] = struct {
 		result1 string
 		result2 int
 		result3 error

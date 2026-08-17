@@ -7,6 +7,8 @@ package pkg_test
 import (
 	"context"
 	stderrors "errors"
+	"os"
+	"path/filepath"
 
 	agentlib "github.com/bborbe/agent"
 	claudelib "github.com/bborbe/agent/claude"
@@ -31,6 +33,41 @@ task_identifier: test-task-1
 Update Go bborbe/demo
 `
 
+// fixtureMakefile defines check + vulncheck with @echo recipes emitting
+// canned scanner output in the shapes the Go parser recognizes: an osv
+// row and a govulncheck row under check, a second govulncheck row under
+// vulncheck.
+var fixtureMakefile = ".PHONY: check vulncheck\n" +
+	"check:\n" +
+	"\t@echo 'GO-2026-1234 | stdlib | 1.26.5 | fixed 1.26.6'\n" +
+	"\t@echo 'GO-2026-5932\tgolang.org/x/crypto/openpgp@v0.0.0-20241113183425-a8a1ce24caf7 -> v0.38.0\tOpenPGP default weak'\n" +
+	"vulncheck:\n" +
+	"\t@echo 'CVE-2026-9999\tgolang.org/x/net@v0.32.0 -> v0.36.0\tsummary'\n"
+
+// fixtureMakefilePrefixCollision adds a GO-2026-5026 row whose 5-digit tail
+// shares a prefix with the fabricated GO-2026-50260.
+var fixtureMakefilePrefixCollision = ".PHONY: check vulncheck\n" +
+	"check:\n" +
+	"\t@echo 'GO-2026-1234 | stdlib | 1.26.5 | fixed 1.26.6'\n" +
+	"\t@echo 'GO-2026-5026 | stdlib | 1.26.5 | fixed 1.26.6'\n" +
+	"\t@echo 'GO-2026-5932\tgolang.org/x/crypto/openpgp@v0.0.0-20241113183425-a8a1ce24caf7 -> v0.38.0\tOpenPGP default weak'\n" +
+	"vulncheck:\n" +
+	"\t@echo 'CVE-2026-9999\tgolang.org/x/net@v0.32.0 -> v0.36.0\tsummary'\n"
+
+// fixtureMakefileEmpty defines the same gate targets but their recipes emit
+// no scanner findings (exit 0).
+var fixtureMakefileEmpty = ".PHONY: check vulncheck\n" +
+	"check:\n" +
+	"\t@:\n" +
+	"vulncheck:\n" +
+	"\t@:\n"
+
+// fixtureMakefileBroken defines a gate target that fails with output that
+// carries no advisory IDs.
+var fixtureMakefileBroken = ".PHONY: check\n" +
+	"check:\n" +
+	"\t@echo 'make: something broken' >&2; exit 1\n"
+
 var _ = Describe("PlanningStep", func() {
 	var (
 		ctx    context.Context
@@ -41,13 +78,26 @@ var _ = Describe("PlanningStep", func() {
 		md     *agentlib.Markdown
 	)
 
+	// setupFixture makes CloneAtRef create the workdir and write the given
+	// Makefile, mirroring a real clone. setupWorkdir removes the stale dir
+	// inside Run before the stub runs, so the fixture is written after that
+	// cleanup and the real osExecGateRunner can run `make -C <workdir>`.
+	setupFixture := func(makefile string) {
+		ops.CloneAtRefStub = func(ctx context.Context, url, ref, workdir string) error {
+			if err := os.MkdirAll(workdir, 0o755); err != nil {
+				return err
+			}
+			return os.WriteFile(filepath.Join(workdir, "Makefile"), []byte(makefile), 0o644)
+		}
+	}
+
 	BeforeEach(func() {
 		ctx = context.Background()
 		runner = &mocks.ClaudeRunnerMock{}
 		ops = &mocks.GitOps{}
 		scope = &mocks.InstallationScope{}
 		scope.AllowsReturns(pkg.ScopeAllowed)
-		step = pkg.NewPlanningStep(runner, ops, "tok", scope)
+		step = pkg.NewPlanningStep(runner, ops, pkg.NewOSExecGateRunner(), "tok", scope)
 		var err error
 		md, err = agentlib.ParseMarkdown(ctx, planningTaskMD)
 		Expect(err).To(BeNil())
@@ -129,8 +179,43 @@ var _ = Describe("PlanningStep", func() {
 		})
 	})
 
+	Describe("no gate target", func() {
+		BeforeEach(func() {
+			// CloneAtRef creates the workdir but writes no Makefile.
+			ops.CloneAtRefStub = func(ctx context.Context, url, ref, workdir string) error {
+				return os.MkdirAll(workdir, 0o755)
+			}
+		})
+
+		It("escalates NeedsInput before any LLM call", func() {
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusNeedsInput))
+			Expect(result.Message).To(ContainSubstring("no gate target found"))
+			Expect(runner.RunCallCount()).To(Equal(0))
+		})
+	})
+
+	Describe("gate target failure (empty-on-error is not clean)", func() {
+		BeforeEach(func() {
+			setupFixture(fixtureMakefileBroken)
+		})
+
+		It("fails naming the target and exit code, never reads empty as clean", func() {
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusFailed))
+			Expect(
+				result.Message,
+			).To(MatchRegexp(`gate target "check" failed \(exit [0-9-]+\) with no parseable findings`))
+			Expect(result.Message).To(ContainSubstring("make: something broken"))
+			Expect(result.Status).NotTo(Equal(agentlib.AgentStatusNeedsInput))
+		})
+	})
+
 	Describe("happy path", func() {
 		BeforeEach(func() {
+			setupFixture(fixtureMakefile)
 			runner.RunReturns(&claudelib.ClaudeResult{Result: `{
 				"outcome": "ready",
 				"has_work": true,
@@ -152,46 +237,65 @@ var _ = Describe("PlanningStep", func() {
 			Expect(ref).To(Equal("6d1f27fabcdef12345678901234567890abcdef1"))
 		})
 
-		It("writes a round-trippable ## Plan and advances to execution", func() {
-			result, err := step.Run(ctx, md)
+		It("embeds the parsed scanner table in the prompt as the only ID source", func() {
+			_, err := step.Run(ctx, md)
 			Expect(err).To(BeNil())
-			Expect(result.Status).To(Equal(agentlib.AgentStatusDone))
-			Expect(result.NextPhase).To(Equal("execution"))
-
-			plan, err := agentlib.ExtractSection[pkg.PlanOutput](ctx, md, "## Plan")
-			Expect(err).To(BeNil())
-			Expect(plan.Outcome).To(Equal(pkg.PlanOutcomeReady))
-			Expect(plan.GateTargets).To(Equal([]string{"precommit", "check"}))
-			Expect(plan.GoBump.To).To(Equal("1.26.5"))
+			_, prompt := runner.RunArgsForCall(0)
+			Expect(prompt).To(ContainSubstring("## Scanner Findings"))
+			Expect(prompt).To(ContainSubstring("GO-2026-1234 | stdlib | 1.26.6 | osv-scanner"))
 		})
+
+		It(
+			"writes a round-trippable ## Plan with Go-detected gate targets and advances to execution",
+			func() {
+				result, err := step.Run(ctx, md)
+				Expect(err).To(BeNil())
+				Expect(result.Status).To(Equal(agentlib.AgentStatusDone))
+				Expect(result.NextPhase).To(Equal("execution"))
+
+				plan, err := agentlib.ExtractSection[pkg.PlanOutput](ctx, md, "## Plan")
+				Expect(err).To(BeNil())
+				Expect(plan.Outcome).To(Equal(pkg.PlanOutcomeReady))
+				Expect(plan.GateTargets).To(Equal([]string{"check", "vulncheck"}))
+				Expect(plan.GoBump.To).To(Equal("1.26.5"))
+			},
+		)
 	})
 
 	Describe("park path (design D4)", func() {
 		BeforeEach(func() {
+			setupFixture(fixtureMakefile)
 			runner.RunReturns(&claudelib.ClaudeResult{Result: `{
 				"outcome": "ready",
 				"has_work": true,
 				"dep_updates_expected": false,
 				"gate_targets": ["check"],
 				"vulns": [
-					{"id": "GO-2026-5932", "package": "golang.org/x/crypto/openpgp", "scanner": "trivy", "action": "park", "reason": "no upstream fix"},
-					{"id": "CVE-2026-9999", "scanner": "osv-scanner", "action": "park", "reason": "major bump required"}
+					{"id": "GO-2026-5932", "package": "golang.org/x/crypto/openpgp", "scanner": "govulncheck", "action": "park", "reason": "no upstream fix"},
+					{"id": "CVE-2026-9999", "scanner": "govulncheck", "action": "park", "reason": "major bump required"}
 				]
 			}`}, nil)
 		})
 
-		It("parks NeedsInput naming finding IDs, scanners, and the 3 suppression files", func() {
-			result, err := step.Run(ctx, md)
-			Expect(err).To(BeNil())
-			Expect(result.Status).To(Equal(agentlib.AgentStatusNeedsInput))
-			Expect(result.Message).To(ContainSubstring("GO-2026-5932"))
-			Expect(result.Message).To(ContainSubstring("CVE-2026-9999"))
-			Expect(result.Message).To(ContainSubstring("trivy"))
-			Expect(result.Message).To(ContainSubstring("osv-scanner"))
-			Expect(result.Message).To(ContainSubstring("VULNCHECK_IGNORE"))
-			Expect(result.Message).To(ContainSubstring(".osv-scanner.toml"))
-			Expect(result.Message).To(ContainSubstring(".trivyignore"))
-		})
+		It(
+			"parks NeedsInput carrying the verbatim scanner rows and the 3 suppression files",
+			func() {
+				result, err := step.Run(ctx, md)
+				Expect(err).To(BeNil())
+				Expect(result.Status).To(Equal(agentlib.AgentStatusNeedsInput))
+				Expect(
+					result.Message,
+				).To(ContainSubstring("GO-2026-5932 (scanner=govulncheck, fixed_version=v0.38.0)"))
+				Expect(
+					result.Message,
+				).To(ContainSubstring("CVE-2026-9999 (scanner=govulncheck, fixed_version=v0.36.0)"))
+				Expect(result.Message).To(ContainSubstring("VULNCHECK_IGNORE"))
+				Expect(result.Message).To(ContainSubstring(".osv-scanner.toml"))
+				Expect(result.Message).To(ContainSubstring(".trivyignore"))
+				Expect(result.Message).NotTo(ContainSubstring("no upstream fix"))
+				Expect(result.Message).NotTo(ContainSubstring("major bump required"))
+			},
+		)
 
 		It("still records the ## Plan for the operator", func() {
 			_, _ = step.Run(ctx, md)
@@ -207,8 +311,52 @@ var _ = Describe("PlanningStep", func() {
 		})
 	})
 
+	Describe("fabricated plan ID rejection", func() {
+		BeforeEach(func() {
+			setupFixture(fixtureMakefile)
+			runner.RunReturns(&claudelib.ClaudeResult{Result: `{
+				"outcome": "ready",
+				"has_work": true,
+				"dep_updates_expected": false,
+				"vulns": [
+					{"id": "GO-2025-3283", "package": "golang.org/x/text", "action": "fix", "reason": "patched"}
+				]
+			}`}, nil)
+		})
+
+		It("fails naming the fabricated ID and never parks", func() {
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusFailed))
+			Expect(result.Message).To(ContainSubstring("GO-2025-3283"))
+			Expect(result.Status).NotTo(Equal(agentlib.AgentStatusNeedsInput))
+		})
+	})
+
+	Describe("prefix-collision plan ID rejection", func() {
+		BeforeEach(func() {
+			setupFixture(fixtureMakefilePrefixCollision)
+			runner.RunReturns(&claudelib.ClaudeResult{Result: `{
+				"outcome": "ready",
+				"has_work": true,
+				"dep_updates_expected": false,
+				"vulns": [
+					{"id": "GO-2026-50260", "package": "golang.org/x/text", "action": "fix", "reason": "patched"}
+				]
+			}`}, nil)
+		})
+
+		It("rejects the prefix-shared ID", func() {
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusFailed))
+			Expect(result.Message).To(ContainSubstring("GO-2026-50260"))
+		})
+	})
+
 	Describe("no_update_needed", func() {
 		BeforeEach(func() {
+			setupFixture(fixtureMakefileEmpty)
 			runner.RunReturns(&claudelib.ClaudeResult{Result: `{
 				"outcome": "no_update_needed",
 				"has_work": false,
@@ -227,6 +375,7 @@ var _ = Describe("PlanningStep", func() {
 
 	Describe("unparseable claude output", func() {
 		BeforeEach(func() {
+			setupFixture(fixtureMakefile)
 			runner.RunReturns(&claudelib.ClaudeResult{Result: "sorry, no json here"}, nil)
 		})
 

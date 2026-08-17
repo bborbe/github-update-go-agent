@@ -54,24 +54,29 @@ const suppressionSurfacesHint = "an operator-approved suppression would touch: "
 	"then re-delegate"
 
 // planningStep implements agentlib.Step for the planning phase: clone at
-// ref, run the Claude inspection call, classify, park-or-advance.
+// ref, detect + run the repo's gate targets, parse the scanner findings into
+// the ground-truth table, run the Claude inspection call against that table,
+// validate every plan ID verbatim, classify, park-or-advance.
 type planningStep struct {
 	runner  claudelib.ClaudeRunner
 	ops     git.GitOps
+	gate    GateRunner
 	ghToken string
 	scope   InstallationScope
 }
 
 // NewPlanningStep wires the planning step with its Claude runner (inspection
-// LLM), the GitOps seam (clone at ref), the GitHub token (HTTPS auth URL
+// LLM), the GitOps seam (clone at ref), the GateRunner (repo gate detection
+// + full scanner-output capture), the GitHub token (HTTPS auth URL
 // transformation), and the installation-scope allowlist check.
 func NewPlanningStep(
 	runner claudelib.ClaudeRunner,
 	ops git.GitOps,
+	gate GateRunner,
 	ghToken string,
 	scope InstallationScope,
 ) agentlib.Step {
-	return &planningStep{runner: runner, ops: ops, ghToken: ghToken, scope: scope}
+	return &planningStep{runner: runner, ops: ops, gate: gate, ghToken: ghToken, scope: scope}
 }
 
 // Name implements agentlib.Step.
@@ -89,11 +94,16 @@ func (s *planningStep) ShouldRun(_ context.Context, _ *agentlib.Markdown) (bool,
 //     NEVER writes ## Failure and NEVER mutates assignee/status — the
 //     controller owns the escalation envelope).
 //  2. Clone at ref via GitOps → Failed on clone/auth error.
-//  3. Claude inspection call with the planning prompt → parse PlanOutput.
-//  4. Any park-action finding → ## Plan + NeedsInput naming finding IDs,
-//     scanners, and the three suppression surfaces (design D4).
-//  5. no_update_needed → ## Plan + Done/NextPhase done (task completes).
-//  6. ready → ## Plan + Done/NextPhase execution.
+//  3. Detect gate targets from the Makefile in Go, run each via the
+//     GateRunner, and capture the full raw scanner output (no gate target →
+//     NeedsInput; a failing target with no parseable findings → Failed).
+//  4. Claude inspection call against the parsed Scanner Findings table →
+//     parse PlanOutput; validate every vuln ID verbatim against the table
+//     (a fabricated or prefix-colliding ID → Failed naming it).
+//  5. Any park-action finding → ## Plan + NeedsInput naming the verbatim
+//     scanner rows and the three suppression surfaces (design D4).
+//  6. no_update_needed → ## Plan + Done/NextPhase done (task completes).
+//  7. ready → ## Plan + Done/NextPhase execution.
 func (s *planningStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentlib.Result, error) {
 	missingField, repo, cloneURL, ref := readRequired(md)
 	if missingField != "" {
@@ -123,7 +133,7 @@ func (s *planningStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentli
 		return s.failClone(repo, err), nil
 	}
 
-	plan, failResult := s.runInspection(ctx, md, workdir)
+	plan, table, failResult := s.runInspection(ctx, md, workdir)
 	if failResult != nil {
 		return failResult, nil
 	}
@@ -132,7 +142,7 @@ func (s *planningStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentli
 		if err := writePlanSection(ctx, md, plan); err != nil {
 			return nil, err
 		}
-		msg := parkMessage(parked)
+		msg := parkMessage(parked, table)
 		glog.V(2).Infof("planning: parking task — %s", msg)
 		return needsInput(msg), nil
 	}
@@ -156,11 +166,6 @@ func (s *planningStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentli
 		}, nil
 	}
 
-	if len(plan.GateTargets) == 0 {
-		return needsInput("no gate target found in " + repo + " Makefile — " +
-			"add a precommit/check/vulncheck target or handle manually"), nil
-	}
-
 	glog.V(2).Infof(
 		"planning: ready repo=%s gate_targets=%v vulns=%d",
 		repo, plan.GateTargets, len(plan.Vulns),
@@ -171,32 +176,66 @@ func (s *planningStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentli
 	}, nil
 }
 
-// runInspection issues the Claude planning call and parses the PlanOutput.
-// Returns (plan, nil) on success or (nil, failResult) on runner/parse error.
+// runInspection detects the repo's gate targets in Go, runs each one via
+// the GateRunner, parses the raw output into the ground-truth findings
+// table, embeds the table in the planning prompt as the only source of
+// advisory IDs, runs the Claude sub-call, and validates every plan vuln ID
+// verbatim against the table. Returns (plan, table, nil) on success or
+// (nil, nil, failResult) on runner/parse/validation error.
 func (s *planningStep) runInspection(
 	ctx context.Context,
 	md *agentlib.Markdown,
 	workdir string,
-) (*PlanOutput, *agentlib.Result) {
+) (*PlanOutput, ScannerTable, *agentlib.Result) {
+	targets, err := detectGateTargets(ctx, workdir)
+	if err != nil {
+		return nil, nil, failed("detect gate targets: " + err.Error())
+	}
+	repo, _ := md.Frontmatter.String("repo")
+	if len(targets) == 0 {
+		return nil, nil, needsInput("no gate target found in " + repo + " Makefile — " +
+			"add a precommit/check/vulncheck target or handle manually")
+	}
+
+	table := ScannerTable{}
+	for _, target := range targets {
+		output, exitCode, runErr := s.gate.RunTargetFull(ctx, workdir, target)
+		rows := parseScannerOutput(target, output)
+		if runErr != nil && len(rows) == 0 {
+			glog.V(2).
+				Infof("planning: gate target %s failed exit=%d rows=0 output=%q", target, exitCode, output)
+			return nil, nil, failed(fmt.Sprintf(
+				"gate target %q failed (exit %d) with no parseable findings: %s",
+				target, exitCode, truncateTail(output, gateTailMaxBytes),
+			))
+		}
+		table = append(table, rows...)
+	}
+
 	taskContent, err := md.Marshal(ctx)
 	if err != nil {
-		return nil, failed("marshal task content: " + err.Error())
+		return nil, nil, failed("marshal task content: " + err.Error())
 	}
 	prompt := prompts.PlanningPrompt() +
 		"\n\n## Workdir\n\n" + workdir +
 		"\n\n## Target Go\n\n" + targetGoVersion() +
+		"\n\n## Scanner Findings\n\nThe findings below were captured by Go from running the repo's own gate targets — they are the ONLY source of advisory IDs. Every vuln ID you report MUST appear in this table verbatim.\n\n" + renderScannerTable(table) +
 		"\n\n## Task\n\n" + taskContent
 	runResult, err := s.runner.Run(ctx, prompt)
 	if err != nil {
 		glog.V(2).Infof("planning: claude runner failed: %v", err)
-		return nil, failed("claude planning run: " + err.Error())
+		return nil, nil, failed("claude planning run: " + err.Error())
 	}
 	plan, err := parseJSONResponse[PlanOutput](ctx, runResult.Result)
 	if err != nil {
 		glog.V(2).Infof("planning: parse plan failed: %v", err)
-		return nil, failed("parse planning output: " + err.Error())
+		return nil, nil, failed("parse planning output: " + err.Error())
 	}
-	return plan, nil
+	plan.GateTargets = targets
+	if err := validatePlanAgainstTable(ctx, plan, table); err != nil {
+		return nil, nil, failed("plan validation: " + err.Error())
+	}
+	return plan, table, nil
 }
 
 // failClone maps a clone error onto an actionable failed Result.
@@ -219,18 +258,19 @@ func parkFindings(plan *PlanOutput) []PlanVuln {
 }
 
 // parkMessage assembles the design-D4 park escalation: every unfixable
-// finding ID with its scanner, plus the three suppression surfaces an
-// operator-approved suppression would touch.
-func parkMessage(parked []PlanVuln) string {
+// finding ID with its verbatim scanner row (id, scanner, fixed version)
+// from the captured table, plus the three suppression surfaces an
+// operator-approved suppression would touch. The model's prose reason is
+// deliberately NOT carried — the operator's suppression decision must be
+// made against the real finding.
+func parkMessage(parked []PlanVuln, table ScannerTable) string {
 	findings := make([]string, 0, len(parked))
 	for _, v := range parked {
-		entry := v.ID
-		if v.Scanner != "" {
-			entry += " (" + v.Scanner + ")"
+		row, ok := table.Row(v.ID)
+		if !ok {
+			row = ScannerFinding{ID: v.ID, Scanner: v.Scanner}
 		}
-		if v.Reason != "" {
-			entry += ": " + v.Reason
-		}
+		entry := row.ID + " (scanner=" + row.Scanner + ", fixed_version=" + row.FixedVersion + ")"
 		findings = append(findings, entry)
 	}
 	return fmt.Sprintf(
