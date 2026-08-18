@@ -88,6 +88,14 @@ type application struct {
 	// or ready. Unset behaves exactly as the previous release: drafts only.
 	PRTarget string `required:"false" arg:"pr-target" env:"PR_TARGET" usage:"Pull request target at creation: draft (default) | ready"`
 
+	// AutoMergeLabel, when non-empty, is applied to every PR this agent
+	// opens (gh pr create --label <value>). It opts the PR into GitHub-native
+	// auto-merge — the watcher sees the label and arms EnableAutoMerge, so the
+	// PR merges once checks + required reviews are green. Empty (default)
+	// adds no label and behaves exactly as the previous release. Never-merge
+	// boundary held: the agent only labels; it never calls gh pr merge.
+	AutoMergeLabel string `required:"false" arg:"auto-merge-label" env:"AUTO_MERGE_LABEL" usage:"PR label applied at creation to opt into GitHub-native auto-merge (e.g. 'auto-merge'); empty disables"`
+
 	// UpdateScope selects what the update sequence touches: both (default),
 	// golang, or deps. The per-task frontmatter `update_scope` field overrides
 	// this deployment default. Unset behaves exactly as the previous release.
@@ -168,6 +176,7 @@ func (a *application) Run(ctx context.Context, _ libsentry.Client) error {
 		factory.CreateGateRunner(),
 		factory.CreateClaudeProber(a.ClaudeConfigDir),
 		prTarget,
+		a.AutoMergeLabel,
 		updateScope,
 	)
 	agent, err := provider.Get(ctx, agentlib.TaskType(a.TaskType))

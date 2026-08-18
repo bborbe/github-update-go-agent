@@ -9,7 +9,7 @@ import (
 )
 
 type GhCli struct {
-	CreatePRStub        func(context.Context, string, string, string, string, string, pkg.PRTarget) (string, error)
+	CreatePRStub        func(context.Context, string, string, string, string, string, pkg.PRTarget, string) (string, error)
 	createPRMutex       sync.RWMutex
 	createPRArgsForCall []struct {
 		arg1 context.Context
@@ -19,6 +19,7 @@ type GhCli struct {
 		arg5 string
 		arg6 string
 		arg7 pkg.PRTarget
+		arg8 string
 	}
 	createPRReturns struct {
 		result1 string
@@ -63,7 +64,7 @@ type GhCli struct {
 	invocationsMutex sync.RWMutex
 }
 
-func (fake *GhCli) CreatePR(arg1 context.Context, arg2 string, arg3 string, arg4 string, arg5 string, arg6 string, arg7 pkg.PRTarget) (string, error) {
+func (fake *GhCli) CreatePR(arg1 context.Context, arg2 string, arg3 string, arg4 string, arg5 string, arg6 string, arg7 pkg.PRTarget, arg8 string) (string, error) {
 	fake.createPRMutex.Lock()
 	ret, specificReturn := fake.createPRReturnsOnCall[len(fake.createPRArgsForCall)]
 	fake.createPRArgsForCall = append(fake.createPRArgsForCall, struct {
@@ -74,13 +75,14 @@ func (fake *GhCli) CreatePR(arg1 context.Context, arg2 string, arg3 string, arg4
 		arg5 string
 		arg6 string
 		arg7 pkg.PRTarget
-	}{arg1, arg2, arg3, arg4, arg5, arg6, arg7})
+		arg8 string
+	}{arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8})
 	stub := fake.CreatePRStub
 	fakeReturns := fake.createPRReturns
-	fake.recordInvocation("CreatePR", []interface{}{arg1, arg2, arg3, arg4, arg5, arg6, arg7})
+	fake.recordInvocation("CreatePR", []interface{}{arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8})
 	fake.createPRMutex.Unlock()
 	if stub != nil {
-		return stub(arg1, arg2, arg3, arg4, arg5, arg6, arg7)
+		return stub(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8)
 	}
 	if specificReturn {
 		return ret.result1, ret.result2
@@ -94,17 +96,17 @@ func (fake *GhCli) CreatePRCallCount() int {
 	return len(fake.createPRArgsForCall)
 }
 
-func (fake *GhCli) CreatePRCalls(stub func(context.Context, string, string, string, string, string, pkg.PRTarget) (string, error)) {
+func (fake *GhCli) CreatePRCalls(stub func(context.Context, string, string, string, string, string, pkg.PRTarget, string) (string, error)) {
 	fake.createPRMutex.Lock()
 	defer fake.createPRMutex.Unlock()
 	fake.CreatePRStub = stub
 }
 
-func (fake *GhCli) CreatePRArgsForCall(i int) (context.Context, string, string, string, string, string, pkg.PRTarget) {
+func (fake *GhCli) CreatePRArgsForCall(i int) (context.Context, string, string, string, string, string, pkg.PRTarget, string) {
 	fake.createPRMutex.RLock()
 	defer fake.createPRMutex.RUnlock()
 	argsForCall := fake.createPRArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3, argsForCall.arg4, argsForCall.arg5, argsForCall.arg6, argsForCall.arg7
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3, argsForCall.arg4, argsForCall.arg5, argsForCall.arg6, argsForCall.arg7, argsForCall.arg8
 }
 
 func (fake *GhCli) CreatePRReturns(result1 string, result2 error) {

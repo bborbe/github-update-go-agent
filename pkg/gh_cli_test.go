@@ -13,18 +13,29 @@ import (
 
 var _ = Describe("prCreateArgs", func() {
 	It("draft target includes --draft flag", func() {
-		args := pkg.PRCreateArgs("base", "head", "title", "body", pkg.PRTargetDraft)
+		args := pkg.PRCreateArgs("base", "head", "title", "body", pkg.PRTargetDraft, "")
 		Expect(args).To(ContainElement("--draft"))
 	})
 
 	It("ready target omits --draft flag", func() {
-		args := pkg.PRCreateArgs("base", "head", "title", "body", pkg.PRTargetReady)
+		args := pkg.PRCreateArgs("base", "head", "title", "body", pkg.PRTargetReady, "")
 		Expect(args).NotTo(ContainElement("--draft"))
+	})
+
+	It("empty label adds no --label flag", func() {
+		args := pkg.PRCreateArgs("base", "head", "title", "body", pkg.PRTargetDraft, "")
+		Expect(args).NotTo(ContainElement("--label"))
+	})
+
+	It("non-empty label adds --label with the value", func() {
+		args := pkg.PRCreateArgs("base", "head", "title", "body", pkg.PRTargetDraft, "auto-merge")
+		Expect(args).To(ContainElement("--label"))
+		Expect(args).To(ContainElement("auto-merge"))
 	})
 
 	It("both targets start with pr create and include base, head, title, body", func() {
 		for _, target := range []pkg.PRTarget{pkg.PRTargetDraft, pkg.PRTargetReady} {
-			args := pkg.PRCreateArgs("mybase", "myhead", "mytitle", "mybody", target)
+			args := pkg.PRCreateArgs("mybase", "myhead", "mytitle", "mybody", target, "")
 			Expect(args[0]).To(Equal("pr"))
 			Expect(args[1]).To(Equal("create"))
 			Expect(args).To(ContainElement("--base"))

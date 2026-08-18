@@ -29,11 +29,14 @@ import (
 type GhCli interface {
 	// CreatePR opens a pull request from head against base, running gh
 	// inside workdir so the repo is inferred from the git remote. target
-	// selects draft or ready-for-review at creation time. Returns the PR URL.
+	// selects draft or ready-for-review at creation time. label, when
+	// non-empty, is added to the PR at creation (e.g. "auto-merge" to opt
+	// the PR into GitHub-native auto-merge). Returns the PR URL.
 	CreatePR(
 		ctx context.Context,
 		workdir, base, head, title, body string,
 		target PRTarget,
+		label string,
 	) (string, error)
 
 	// FindOpenPRByHead returns the URL of an open PR whose head is the
@@ -71,12 +74,17 @@ func (g *osExecGhCli) cmdEnv() []string {
 
 // prCreateArgs builds the argv for `gh pr create`. --draft is included
 // only when the target is draft; a ready target omits the flag entirely.
-func prCreateArgs(base, head, title, body string, target PRTarget) []string {
+// label, when non-empty, is appended as `--label <label>` so the PR carries
+// the opt-in marker from birth (e.g. `auto-merge`).
+func prCreateArgs(base, head, title, body string, target PRTarget, label string) []string {
 	args := []string{"pr", "create"}
 	if target.IsDraft() {
 		args = append(args, "--draft")
 	}
 	args = append(args, "--base", base, "--head", head, "--title", title, "--body", body)
+	if label != "" {
+		args = append(args, "--label", label)
+	}
 	return args
 }
 
@@ -84,9 +92,10 @@ func (g *osExecGhCli) CreatePR(
 	ctx context.Context,
 	workdir, base, head, title, body string,
 	target PRTarget,
+	label string,
 ) (string, error) {
 	// #nosec G204 -- binary is hardcoded gh; workdir is os.TempDir-rooted; head is the deterministic branch name
-	cmd := exec.CommandContext(ctx, "gh", prCreateArgs(base, head, title, body, target)...)
+	cmd := exec.CommandContext(ctx, "gh", prCreateArgs(base, head, title, body, target, label)...)
 	cmd.Dir = workdir
 	cmd.Env = g.cmdEnv()
 	out, err := cmd.CombinedOutput()
