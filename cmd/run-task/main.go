@@ -70,12 +70,21 @@ type application struct {
 	// or ready. Unset behaves exactly as the previous release: drafts only.
 	PRTarget string `required:"false" arg:"pr-target" env:"PR_TARGET" usage:"Pull request target at creation: draft (default) | ready"`
 
+	// UpdateScope selects what the update sequence touches: both (default),
+	// golang, or deps. The per-task frontmatter `update_scope` overrides this
+	// deployment default. Unset behaves exactly as the previous release.
+	UpdateScope string `required:"false" arg:"update-scope" env:"UPDATE_SCOPE" usage:"Update scope: both (default) | golang | deps"`
+
 	// Task file for local development
 	TaskFilePath string `required:"true" arg:"task-file" env:"TASK_FILE" usage:"Path to the markdown task file"`
 }
 
 func (a *application) Run(ctx context.Context, _ libsentry.Client) error {
 	prTarget, err := updatepkg.ParsePRTarget(ctx, a.PRTarget)
+	if err != nil {
+		return err
+	}
+	updateScope, err := updatepkg.ParseUpdateScope(ctx, a.UpdateScope)
 	if err != nil {
 		return err
 	}
@@ -120,6 +129,7 @@ func (a *application) Run(ctx context.Context, _ libsentry.Client) error {
 		factory.CreateGateRunner(),
 		factory.CreateClaudeProber(a.ClaudeConfigDir),
 		prTarget,
+		updateScope,
 	)
 
 	result, err := agent.Run(ctx, a.Phase, string(taskContent), deliverer)

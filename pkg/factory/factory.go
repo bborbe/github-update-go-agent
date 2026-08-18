@@ -146,6 +146,7 @@ func CreateAgent(
 	gateRunner updatepkg.GateRunner,
 	claudeProber updatepkg.ClaudeProber,
 	prTarget updatepkg.PRTarget,
+	updateScope updatepkg.UpdateScope,
 ) *agentlib.Agent {
 	claudeAuth := updatepkg.NewClaudeAuthStep(claudeProber)
 	ghTokenCheck := updatepkg.NewGHTokenCheckStep(ghToken)
@@ -162,6 +163,7 @@ func CreateAgent(
 		gateRunner,
 		ghToken,
 		updatepkg.NewGhInstallationScope(ghToken),
+		updateScope,
 	)
 	executionRunner := CreateClaudeRunner(
 		claudeConfigDir,
@@ -178,6 +180,7 @@ func CreateAgent(
 		updatepkg.NewBulkUpdater(),
 		ghToken,
 		prTarget,
+		updateScope,
 	)
 	reviewStep := updatepkg.NewReviewStep(gitOps, ghCli, gateRunner, ghToken, prTarget)
 
@@ -204,6 +207,7 @@ func CreateAgentProvider(
 	gateRunner updatepkg.GateRunner,
 	claudeProber updatepkg.ClaudeProber,
 	prTarget updatepkg.PRTarget,
+	updateScope updatepkg.UpdateScope,
 ) agentlib.AgentProvider {
 	domainAgent := CreateAgent(
 		claudeConfigDir,
@@ -216,6 +220,7 @@ func CreateAgentProvider(
 		gateRunner,
 		claudeProber,
 		prTarget,
+		updateScope,
 	)
 	healthcheckRunner := CreateClaudeRunner(
 		claudeConfigDir,

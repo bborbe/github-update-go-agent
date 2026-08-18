@@ -88,6 +88,11 @@ type application struct {
 	// or ready. Unset behaves exactly as the previous release: drafts only.
 	PRTarget string `required:"false" arg:"pr-target" env:"PR_TARGET" usage:"Pull request target at creation: draft (default) | ready"`
 
+	// UpdateScope selects what the update sequence touches: both (default),
+	// golang, or deps. The per-task frontmatter `update_scope` field overrides
+	// this deployment default. Unset behaves exactly as the previous release.
+	UpdateScope string `required:"false" arg:"update-scope" env:"UPDATE_SCOPE" usage:"Update scope: both (default) | golang | deps"`
+
 	// GitHub App authentication (design § 7.2). When APP_ID, INSTALLATION_ID,
 	// and a PEM (file or inline) are all set, the pod mints a short-lived
 	// installation access token at startup and forwards it to every git/gh
@@ -108,6 +113,10 @@ type application struct {
 
 func (a *application) Run(ctx context.Context, _ libsentry.Client) error {
 	prTarget, err := updatepkg.ParsePRTarget(ctx, a.PRTarget)
+	if err != nil {
+		return err
+	}
+	updateScope, err := updatepkg.ParseUpdateScope(ctx, a.UpdateScope)
 	if err != nil {
 		return err
 	}
@@ -159,6 +168,7 @@ func (a *application) Run(ctx context.Context, _ libsentry.Client) error {
 		factory.CreateGateRunner(),
 		factory.CreateClaudeProber(a.ClaudeConfigDir),
 		prTarget,
+		updateScope,
 	)
 	agent, err := provider.Get(ctx, agentlib.TaskType(a.TaskType))
 	if err != nil {

@@ -127,7 +127,7 @@ Human reviews + promotes the draft (runbook [[Update or Fix GitHub Go Repositori
 **planning**
 | Decision | Value |
 |---|---|
-| Input | frontmatter `repo`, `clone_url`, `ref` |
+| Input | frontmatter `repo`, `clone_url`, `ref`, `update_scope` (optional; default `both`) |
 | Output | `PlanOutput{go_bump{from,to}, dep_updates_expected bool, gate_targets []string, vulns []{id, package, fixed_version, action fix\|park, reason}, has_work bool}` → `## Plan` |
 | Side effects | bare-clone + worktree @ ref (read-only wrt origin); detect gate targets from Makefile (`precommit`, `check`, `vulncheck`); run the repo's own scanner targets; enumerate outdated deps |
 | Allowed tools | `Read, Grep, Glob, Bash(git:*), Bash(go:*), Bash(make:*)` — no Edit/Write, no push |
@@ -175,7 +175,7 @@ Per goal: no watcher service, no auto-merge/ready, no auto-suppress, no NPM/Pyth
 # 5. Data Contract
 
 ## 5.1 Inputs
-Task frontmatter (Kafka `TASK_CONTENT`); target repo via git clone (App IAT over HTTPS); repo Makefile (gate detection); scanner outputs (parsed for finding id + fixed-version); `go list -u -m` output; `PR_TARGET` (`draft` default | `ready`) from Job environment, selecting the pull-request target at creation time.
+Task frontmatter (Kafka `TASK_CONTENT`); target repo via git clone (App IAT over HTTPS); repo Makefile (gate detection); scanner outputs (parsed for finding id + fixed-version); `go list -u -m` output; `PR_TARGET` (`draft` default | `ready`) from Job environment, selecting the pull-request target at creation time; `UPDATE_SCOPE` (`both` default | `golang` | `deps`) from Job environment, selecting what the update sequence touches — frontmatter `update_scope` (same values) overrides the env default per task, allowing a watcher/trigger to scope a single sweep (e.g. golang-only backports).
 
 ## 5.2 Outputs
 Branch + PR on target repo (draft by default; ready when `PR_TARGET: ready`); task body sections; `AgentResult` JSON on stdout (executor round-trips to frontmatter via Kafka).

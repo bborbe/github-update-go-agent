@@ -58,25 +58,36 @@ const suppressionSurfacesHint = "an operator-approved suppression would touch: "
 // the ground-truth table, run the Claude inspection call against that table,
 // validate every plan ID verbatim, classify, park-or-advance.
 type planningStep struct {
-	runner  claudelib.ClaudeRunner
-	ops     git.GitOps
-	gate    GateRunner
-	ghToken string
-	scope   InstallationScope
+	runner       claudelib.ClaudeRunner
+	ops          git.GitOps
+	gate         GateRunner
+	ghToken      string
+	scope        InstallationScope
+	defaultScope UpdateScope
 }
 
 // NewPlanningStep wires the planning step with its Claude runner (inspection
 // LLM), the GitOps seam (clone at ref), the GateRunner (repo gate detection
 // + full scanner-output capture), the GitHub token (HTTPS auth URL
-// transformation), and the installation-scope allowlist check.
+// transformation), the installation-scope allowlist check, and the default
+// update scope (UPDATE_SCOPE env; frontmatter `update_scope` overrides per
+// task).
 func NewPlanningStep(
 	runner claudelib.ClaudeRunner,
 	ops git.GitOps,
 	gate GateRunner,
 	ghToken string,
 	scope InstallationScope,
+	defaultScope UpdateScope,
 ) agentlib.Step {
-	return &planningStep{runner: runner, ops: ops, gate: gate, ghToken: ghToken, scope: scope}
+	return &planningStep{
+		runner:       runner,
+		ops:          ops,
+		gate:         gate,
+		ghToken:      ghToken,
+		scope:        scope,
+		defaultScope: defaultScope,
+	}
 }
 
 // Name implements agentlib.Step.
@@ -121,6 +132,13 @@ func (s *planningStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentli
 			"route the task to a stage whose App covers it"), nil
 	}
 
+	// Resolve the update scope (frontmatter `update_scope` overrides the
+	// UPDATE_SCOPE env default); an invalid value fails with the accepted set.
+	updateScope, failResult := s.resolveScope(ctx, md)
+	if failResult != nil {
+		return failResult, nil
+	}
+
 	workdir := setupWorkdir(md, repo)
 	defer func() {
 		if err := os.RemoveAll(workdir); err != nil {
@@ -133,10 +151,14 @@ func (s *planningStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentli
 		return s.failClone(repo, err), nil
 	}
 
-	plan, table, failResult := s.runInspection(ctx, md, workdir)
+	plan, table, failResult := s.runInspection(ctx, md, workdir, updateScope)
 	if failResult != nil {
 		return failResult, nil
 	}
+	// Filter out-of-scope work out of has_work so a golang-only task with
+	// stale deps (or a deps-only task with a stale directive) is not
+	// classified ready.
+	plan.appliesScope(updateScope)
 
 	if parked := parkFindings(plan); len(parked) > 0 {
 		if err := writePlanSection(ctx, md, plan); err != nil {
@@ -165,8 +187,8 @@ func (s *planningStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentli
 		return nil, err
 	}
 
-	if plan.Outcome == PlanOutcomeNoUpdateNeeded || !plan.HasWork {
-		glog.V(2).Infof("planning: no update needed for repo=%s", repo)
+	if plan.Outcome == PlanOutcomeNoUpdateNeeded || !plan.hasWorkForScope(updateScope) {
+		glog.V(2).Infof("planning: no update needed for repo=%s scope=%s", repo, updateScope)
 		return &agentlib.Result{
 			Status:    agentlib.AgentStatusDone,
 			NextPhase: domain.TaskPhaseDone.String(),
@@ -193,6 +215,7 @@ func (s *planningStep) runInspection(
 	ctx context.Context,
 	md *agentlib.Markdown,
 	workdir string,
+	updateScope UpdateScope,
 ) (*PlanOutput, ScannerTable, *agentlib.Result) {
 	targets, err := detectGateTargets(ctx, workdir)
 	if err != nil {
@@ -231,6 +254,7 @@ func (s *planningStep) runInspection(
 	prompt := prompts.PlanningPrompt() +
 		"\n\n## Workdir\n\n" + workdir +
 		"\n\n## Target Go\n\n" + targetGoVersion() +
+		"\n\n" + updateScopeSection(updateScope) +
 		"\n\n## Scanner Findings\n\nThe findings below were captured by Go from running the repo's own gate targets — they are the ONLY source of advisory IDs. Every vuln ID you report MUST appear in this table verbatim.\n\n" + renderScannerTable(table) +
 		"\n\n## Task\n\n" + taskContent
 	runResult, err := s.runner.Run(ctx, prompt)
@@ -339,6 +363,39 @@ func writePlanSection(ctx context.Context, md *agentlib.Markdown, plan *PlanOutp
 	}
 	md.ReplaceSection(section)
 	return nil
+}
+
+// resolveUpdateScope reads the task's optional `update_scope` frontmatter
+// field and resolves it against the deployment default. An absent or empty
+// field resolves to defaultScope; a present-but-invalid value returns an
+// error naming the accepted set (the caller surfaces it as a failed result —
+// planning and execution must agree on scope before any update work runs).
+func resolveUpdateScope(
+	ctx context.Context,
+	md *agentlib.Markdown,
+	defaultScope UpdateScope,
+) (UpdateScope, error) {
+	v, _ := md.Frontmatter.String("update_scope")
+	if strings.TrimSpace(v) == "" {
+		return defaultScope, nil
+	}
+	return ParseUpdateScope(ctx, v)
+}
+
+// resolveScope is the planning step's scope-resolution wrapper: it resolves
+// the update scope and returns a failed Result when the frontmatter value is
+// invalid (the accepted-set error is the message), keeping Run lean.
+func (s *planningStep) resolveScope(
+	ctx context.Context,
+	md *agentlib.Markdown,
+) (UpdateScope, *agentlib.Result) {
+	scope, err := resolveUpdateScope(ctx, md, s.defaultScope)
+	if err != nil {
+		glog.V(2).Infof("planning: invalid update_scope — failing: %v", err)
+		return UpdateScope(""), failed("invalid update_scope: " + err.Error())
+	}
+	glog.V(2).Infof("planning: update_scope=%s", scope)
+	return scope, nil
 }
 
 // readRequired pulls the required frontmatter fields. Returns the first
