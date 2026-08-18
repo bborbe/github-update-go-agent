@@ -43,7 +43,9 @@ type reviewStep struct {
 // NewReviewStep wires the ai_review verifier with its GitOps seam (fresh
 // clone + tag/rev inspection), gh CLI seam (PR state), gate runner
 // (independent gate re-run), the GitHub token, and the configured PRTarget
-// the step compares observed draft-ness against.
+// the step compares observed draft-ness against. On approval the step writes
+// the plain-text ## Your Move operator-action block (PR link + merge action
+// + change summary) above ## Plan for the human operator.
 func NewReviewStep(
 	ops git.GitOps,
 	gh GhCli,
@@ -71,9 +73,10 @@ func (s *reviewStep) ShouldRun(_ context.Context, _ *agentlib.Markdown) (bool, e
 //  4. changelog_unreleased — CHANGELOG has an ## Unreleased bullet and no
 //     new version header vs master.
 //  5. no_new_tag — `git ls-remote --tags` shows no tag at any branch commit.
-//  6. All true → ## Review approved + Done/NextPhase human_review (the ONLY
-//     writer of that phase; success semantics per doctrine).
-//     Any false → ## Review approved:false + Status Failed, NO NextPhase.
+//  6. All true → ## Review approved + ## Your Move operator-action block +
+//     Done/NextPhase human_review (the ONLY writer of that phase; success
+//     semantics per doctrine). Any false → ## Review approved:false +
+//     Status Failed, NO NextPhase, NO ## Your Move block.
 func (s *reviewStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentlib.Result, error) {
 	result, err := agentlib.ExtractSection[ResultOutput](ctx, md, "## Result")
 	if err != nil || result == nil {
@@ -122,6 +125,9 @@ func (s *reviewStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentlib.
 		Approved: approved,
 		Checks:   checks,
 		Notes:    notesFor(notes),
+	}
+	if output.Approved {
+		writeYourMoveSection(ctx, md, result, plan)
 	}
 	return s.finish(ctx, md, output)
 }

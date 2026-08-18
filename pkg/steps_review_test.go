@@ -9,6 +9,7 @@ import (
 	stderrors "errors"
 	"os"
 	"path/filepath"
+	"strings"
 
 	agentlib "github.com/bborbe/agent"
 	. "github.com/onsi/ginkgo/v2"
@@ -59,6 +60,85 @@ Update Go bborbe/demo
 const changelogMaster = "# Changelog\n\n## Unreleased\n\n## v1.2.3\n\n- old release\n"
 
 const changelogBranch = "# Changelog\n\n## Unreleased\n\n- update Go to 1.26.5 and update dependencies\n\n## v1.2.3\n\n- old release\n"
+
+// reviewTaskMDGoBump is reviewTaskMD with a plan go_bump so the operator
+// block proves from/to interpolation (spec AC4).
+const reviewTaskMDGoBump = `---
+task_type: github-update-go
+assignee: github-update-go-agent
+phase: ai_review
+status: in_progress
+repo: bborbe/demo
+clone_url: git@github.com:bborbe/demo.git
+ref: 6d1f27fabcdef12345678901234567890abcdef1
+task_identifier: test-task-2
+---
+
+Update Go bborbe/demo
+
+## Plan
+
+` + "```json" + `
+{
+  "outcome": "ready",
+  "has_work": true,
+  "go_bump": {"from": "1.26.4", "to": "1.26.6"},
+  "dep_updates_expected": true,
+  "gate_targets": ["precommit"]
+}
+` + "```" + `
+
+## Result
+
+` + "```json" + `
+{
+  "outcome": "opened",
+  "branch": "fix/update-go-6d1f27f",
+  "pr_url": "https://github.com/bborbe/demo/pull/42",
+  "gate_exit": 0
+}
+` + "```" + `
+`
+
+// reviewTaskMDVuln is reviewTaskMD with a result carrying dep/vuln updates
+// so the operator block proves count + ID interpolation (spec AC4).
+const reviewTaskMDVuln = `---
+task_type: github-update-go
+assignee: github-update-go-agent
+phase: ai_review
+status: in_progress
+repo: bborbe/demo
+clone_url: git@github.com:bborbe/demo.git
+ref: 6d1f27fabcdef12345678901234567890abcdef1
+task_identifier: test-task-3
+---
+
+Update Go bborbe/demo
+
+## Plan
+
+` + "```json" + `
+{
+  "outcome": "ready",
+  "has_work": true,
+  "dep_updates_expected": true,
+  "gate_targets": ["precommit"]
+}
+` + "```" + `
+
+## Result
+
+` + "```json" + `
+{
+  "outcome": "opened",
+  "branch": "fix/update-go-6d1f27f",
+  "pr_url": "https://github.com/bborbe/demo/pull/42",
+  "deps_updated": 3,
+  "vulns_fixed": ["GO-2024-1234", "CVE-2025-1000"],
+  "gate_exit": 0
+}
+` + "```" + `
+`
 
 var _ = Describe("ReviewStep", func() {
 	var (
@@ -126,6 +206,96 @@ var _ = Describe("ReviewStep", func() {
 		})
 	})
 
+	Describe("Your Move operator-action block", func() {
+		It("opens the approved body with the operator-action block above ## Plan", func() {
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusDone))
+			Expect(result.NextPhase).To(Equal("human_review"))
+
+			section, ok := md.FindSection("## Your Move")
+			Expect(ok).To(BeTrue())
+			Expect(section.Body).To(ContainSubstring(
+				"[Open the PR](https://github.com/bborbe/demo/pull/42)",
+			))
+			Expect(section.Body).To(ContainSubstring("**Merge the PR** to apply the update."))
+			Expect(section.Body).To(ContainSubstring("No version bump recorded"))
+			Expect(section.Body).NotTo(ContainSubstring("{"))
+			Expect(md.Sections[0].Heading).To(Equal("## Your Move"))
+			Expect(md.Sections[1].Heading).To(Equal("## Plan"))
+		})
+
+		It("renders ## Your Move before ## Plan in the marshalled body", func() {
+			_, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			body, err := md.Marshal(ctx)
+			Expect(err).To(BeNil())
+			lines := strings.Split(body, "\n")
+			yourMoveIdx := -1
+			planIdx := -1
+			for i, line := range lines {
+				if line == "## Your Move" {
+					yourMoveIdx = i
+				}
+				if line == "## Plan" {
+					planIdx = i
+				}
+			}
+			Expect(yourMoveIdx).To(BeNumerically(">=", 0))
+			Expect(planIdx).To(BeNumerically(">=", 0))
+			Expect(yourMoveIdx).To(BeNumerically("<", planIdx))
+		})
+
+		It("replaces the block in place on a re-run instead of duplicating it", func() {
+			_, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			_, err = step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			count := 0
+			for _, s := range md.Sections {
+				if s.Heading == "## Your Move" {
+					count++
+				}
+			}
+			Expect(count).To(Equal(1))
+		})
+	})
+
+	Describe("Your Move block with a Go version bump", func() {
+		BeforeEach(func() {
+			var err error
+			md, err = agentlib.ParseMarkdown(ctx, reviewTaskMDGoBump)
+			Expect(err).To(BeNil())
+		})
+
+		It("interpolates go_bump.from and go_bump.to", func() {
+			_, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			section, ok := md.FindSection("## Your Move")
+			Expect(ok).To(BeTrue())
+			Expect(section.Body).To(ContainSubstring("Go version bump: 1.26.4 → 1.26.6"))
+		})
+	})
+
+	Describe("Your Move block with dependency and vulnerability updates", func() {
+		BeforeEach(func() {
+			var err error
+			md, err = agentlib.ParseMarkdown(ctx, reviewTaskMDVuln)
+			Expect(err).To(BeNil())
+		})
+
+		It("interpolates the dependency count and fixed-vulnerability IDs", func() {
+			_, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			section, ok := md.FindSection("## Your Move")
+			Expect(ok).To(BeTrue())
+			Expect(section.Body).To(ContainSubstring("Updated 3 dependencies"))
+			Expect(
+				section.Body,
+			).To(ContainSubstring("Fixed vulnerabilities: GO-2024-1234, CVE-2025-1000"))
+		})
+	})
+
 	Describe("PR not open", func() {
 		BeforeEach(func() {
 			gh.ViewPRReturns("CLOSED", true, nil)
@@ -140,6 +310,13 @@ var _ = Describe("ReviewStep", func() {
 			Expect(err).To(BeNil())
 			Expect(review.Approved).To(BeFalse())
 			Expect(review.Checks.PROpen).To(BeFalse())
+		})
+
+		It("writes no ## Your Move block on a rejected body", func() {
+			_, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			_, ok := md.FindSection("## Your Move")
+			Expect(ok).To(BeFalse())
 		})
 	})
 
