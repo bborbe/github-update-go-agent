@@ -97,7 +97,14 @@ var _ = Describe("PlanningStep", func() {
 		ops = &mocks.GitOps{}
 		scope = &mocks.InstallationScope{}
 		scope.AllowsReturns(pkg.ScopeAllowed)
-		step = pkg.NewPlanningStep(runner, ops, pkg.NewOSExecGateRunner(), "tok", scope)
+		step = pkg.NewPlanningStep(
+			runner,
+			ops,
+			pkg.NewOSExecGateRunner(),
+			"tok",
+			scope,
+			pkg.UpdateScopeBoth,
+		)
 		var err error
 		md, err = agentlib.ParseMarkdown(ctx, planningTaskMD)
 		Expect(err).To(BeNil())
@@ -162,6 +169,35 @@ var _ = Describe("PlanningStep", func() {
 			Expect(assignee).To(Equal("github-update-go-agent"))
 			_, hasPrev := md.Frontmatter["previous_assignee"]
 			Expect(hasPrev).To(BeFalse())
+		})
+	})
+
+	Describe("update_scope frontmatter", func() {
+		BeforeEach(func() {
+			var err error
+			md, err = agentlib.ParseMarkdown(
+				ctx,
+				"---\nassignee: github-update-go-agent\nrepo: bborbe/demo\nclone_url: git@github.com:bborbe/demo.git\nref: 6d1f27fabcdef\nupdate_scope: bogus\n---\n\nbody\n",
+			)
+			Expect(err).To(BeNil())
+		})
+
+		It(
+			"fails naming the rejected value and the accepted set for an invalid update_scope",
+			func() {
+				result, err := step.Run(ctx, md)
+				Expect(err).To(BeNil())
+				Expect(result.Status).To(Equal(agentlib.AgentStatusFailed))
+				Expect(result.Message).To(ContainSubstring("bogus"))
+				Expect(result.Message).To(ContainSubstring("both"))
+				Expect(result.Message).To(ContainSubstring("golang"))
+				Expect(result.Message).To(ContainSubstring("deps"))
+			},
+		)
+
+		It("does not clone for an invalid update_scope", func() {
+			_, _ = step.Run(ctx, md)
+			Expect(ops.CloneAtRefCallCount()).To(Equal(0))
 		})
 	})
 
@@ -260,6 +296,40 @@ var _ = Describe("PlanningStep", func() {
 				Expect(plan.GoBump.To).To(Equal("1.26.5"))
 			},
 		)
+	})
+
+	Describe("update_scope=golang filters dep work out of has_work", func() {
+		BeforeEach(func() {
+			setupFixture(fixtureMakefile)
+			var err error
+			md, err = agentlib.ParseMarkdown(
+				ctx,
+				"---\nassignee: github-update-go-agent\nrepo: bborbe/demo\nclone_url: git@github.com:bborbe/demo.git\nref: 6d1f27fabcdef\nupdate_scope: golang\n---\n\nbody\n",
+			)
+			Expect(err).To(BeNil())
+			runner.RunReturns(&claudelib.ClaudeResult{Result: `{
+				"outcome": "ready",
+				"has_work": true,
+				"dep_updates_expected": true,
+				"gate_targets": ["check"],
+				"vulns": []
+			}`}, nil)
+		})
+
+		It("resolves to done/no-update when only dep work exists (Go current)", func() {
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusDone))
+			Expect(result.NextPhase).To(Equal("done"))
+		})
+
+		It("tells the model dep work is out of scope in the prompt", func() {
+			_, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			_, prompt := runner.RunArgsForCall(0)
+			Expect(prompt).To(ContainSubstring("## Update Scope"))
+			Expect(prompt).To(ContainSubstring("Update ONLY the Go toolchain"))
+		})
 	})
 
 	Describe("park path (design D4)", func() {

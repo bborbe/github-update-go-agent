@@ -48,21 +48,23 @@ type executionReport struct {
 // Go step embedding one Claude sub-call. All git/gh side effects are the Go
 // step's — the Claude sub-call has NO git and NO gh tools (design § 7.0).
 type executionStep struct {
-	runner   claudelib.ClaudeRunner
-	ops      git.GitOps
-	gh       GhCli
-	gate     GateRunner
-	bulk     BulkUpdater
-	ghToken  string
-	prTarget PRTarget
+	runner       claudelib.ClaudeRunner
+	ops          git.GitOps
+	gh           GhCli
+	gate         GateRunner
+	bulk         BulkUpdater
+	ghToken      string
+	prTarget     PRTarget
+	defaultScope UpdateScope
 }
 
-// NewExecutionStep wires the execution step with its five seams: the Claude
+// NewExecutionStep wires the execution step with its seams: the Claude
 // runner (repair + CHANGELOG sub-call), the GitOps seam (clone/branch/commit/
 // push), the gh CLI seam (PR create + adopt), the gate runner (deterministic
-// green-gate re-run), and the bulk updater (deterministic `go get -u ./...` +
-// `go mod tidy`, run in Go so the model cannot background it). prTarget
-// selects draft or ready.
+// green-gate re-run), the bulk updater (deterministic `go get -u ./...` +
+// `go mod tidy`, run in Go so the model cannot background it), and the default
+// update scope (UPDATE_SCOPE env; frontmatter `update_scope` overrides per
+// task). prTarget selects draft or ready.
 func NewExecutionStep(
 	runner claudelib.ClaudeRunner,
 	ops git.GitOps,
@@ -71,15 +73,17 @@ func NewExecutionStep(
 	bulk BulkUpdater,
 	ghToken string,
 	prTarget PRTarget,
+	defaultScope UpdateScope,
 ) agentlib.Step {
 	return &executionStep{
-		runner:   runner,
-		ops:      ops,
-		gh:       gh,
-		gate:     gate,
-		bulk:     bulk,
-		ghToken:  ghToken,
-		prTarget: prTarget,
+		runner:       runner,
+		ops:          ops,
+		gh:           gh,
+		gate:         gate,
+		bulk:         bulk,
+		ghToken:      ghToken,
+		prTarget:     prTarget,
+		defaultScope: defaultScope,
 	}
 }
 
@@ -124,6 +128,12 @@ func (s *executionStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentl
 	if err != nil {
 		return s.fail(ctx, md, &ResultOutput{}, git.ErrorCategoryUnknown, err)
 	}
+	updateScope, err := resolveUpdateScope(ctx, md, s.defaultScope)
+	if err != nil {
+		return s.fail(ctx, md, &ResultOutput{}, git.ErrorCategoryUnknown,
+			errors.Wrap(ctx, err, "invalid update_scope"))
+	}
+	glog.V(2).Infof("execution: update_scope=%s repo=%s", updateScope, repo)
 	branch := branchPrefix + ref[:7]
 
 	if adopt := s.adoptExistingPR(ctx, md, repo, branch); adopt != nil {
@@ -149,12 +159,18 @@ func (s *executionStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentl
 	// Deterministic bulk update BEFORE the model call. Running it here is what
 	// stops the model backgrounding a long `go get` and then blocking on
 	// TaskOutput until the Job deadline kills it (see BulkUpdater).
-	bulkResult, bulkErr := s.bulk.Run(ctx, workdir)
-	if bulkErr != nil {
-		return s.fail(ctx, md, result, git.ErrorCategoryUnknown, bulkErr)
+	// golang-only scope skips the dep update — the model is told the bulk
+	// update is out of scope (via the prompt section) instead of running it.
+	bulkResult := BulkUpdateResult{Ran: false, FailDetail: "skipped: update_scope=golang"}
+	if !updateScope.IsGolangOnly() {
+		var bulkErr error
+		bulkResult, bulkErr = s.bulk.Run(ctx, workdir)
+		if bulkErr != nil {
+			return s.fail(ctx, md, result, git.ErrorCategoryUnknown, bulkErr)
+		}
 	}
 
-	report, claudeErr := s.runUpdate(ctx, workdir, plan, bulkResult)
+	report, claudeErr := s.runUpdate(ctx, workdir, plan, bulkResult, updateScope)
 	if claudeErr != nil {
 		return s.fail(ctx, md, result, git.ErrorCategoryUnknown, claudeErr)
 	}
@@ -274,8 +290,16 @@ func (s *executionStep) extractFrontmatter(
 // bulkUpdateSection renders the deterministic bulk-update outcome for the
 // prompt. Fail-closed: when the sequence did not run, the model is told so
 // explicitly and instructed to run it itself in the foreground, rather than
-// being left to assume the deps are current.
-func bulkUpdateSection(bulk BulkUpdateResult) string {
+// being left to assume the deps are current. The golang-only scope is the
+// one deliberate exception: the bulk update is SKIPPED by design, not failed,
+// and the model must not run it either.
+func bulkUpdateSection(bulk BulkUpdateResult, scope UpdateScope) string {
+	if scope.IsGolangOnly() {
+		return "## Bulk update — SKIPPED\n\n" +
+			"The update_scope is `golang`, so the deterministic bulk dependency " +
+			"update (`go get -u ./...` + `go mod tidy`) was deliberately NOT run. " +
+			"Do NOT run it and do not update module dependencies in this phase."
+	}
 	if bulk.Ran {
 		return "## Bulk update — ALREADY DONE\n\n" +
 			"`go get -u ./...` and `go mod tidy` have ALREADY been run for you in " +
@@ -297,6 +321,7 @@ func (s *executionStep) runUpdate(
 	workdir string,
 	plan *PlanOutput,
 	bulk BulkUpdateResult,
+	updateScope UpdateScope,
 ) (*executionReport, error) {
 	planJSON, err := agentlib.MarshalSectionTyped(ctx, "## Plan", *plan)
 	if err != nil {
@@ -305,7 +330,8 @@ func (s *executionStep) runUpdate(
 	prompt := prompts.ExecutionPrompt() +
 		"\n\n## Workdir\n\n" + workdir +
 		"\n\n## Target Go\n\n" + targetGoVersion() +
-		"\n\n" + bulkUpdateSection(bulk) +
+		"\n\n" + updateScopeSection(updateScope) +
+		"\n\n" + bulkUpdateSection(bulk, updateScope) +
 		"\n\n" + planJSON.Heading + "\n\n" + planJSON.Body
 	runResult, err := s.runner.Run(ctx, prompt)
 	if err != nil {

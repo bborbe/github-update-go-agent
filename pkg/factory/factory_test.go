@@ -41,6 +41,7 @@ var _ = Describe("CreateAgentProvider", func() {
 			factory.CreateGateRunner(),
 			factory.CreateClaudeProber(""),
 			updatepkg.PRTargetDraft,
+			updatepkg.UpdateScopeBoth,
 		)
 	})
 
@@ -145,6 +146,7 @@ var _ = Describe("CreateAgent", func() {
 			factory.CreateGateRunner(),
 			factory.CreateClaudeProber(""),
 			updatepkg.PRTargetDraft,
+			updatepkg.UpdateScopeBoth,
 		)
 		Expect(agent).NotTo(BeNil())
 	})
@@ -234,6 +236,7 @@ var _ = Describe("CreateAgent with PRTargetReady", func() {
 				ops, gh, gate,
 				factory.CreateClaudeProber(""),
 				updatepkg.PRTargetReady,
+				updatepkg.UpdateScopeBoth,
 			)
 		})
 
@@ -285,6 +288,7 @@ var _ = Describe("CreateAgent with PRTargetReady", func() {
 				ops, gh, gate,
 				factory.CreateClaudeProber(""),
 				updatepkg.PRTargetDraft,
+				updatepkg.UpdateScopeBoth,
 			)
 		})
 

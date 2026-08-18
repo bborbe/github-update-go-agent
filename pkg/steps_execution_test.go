@@ -67,7 +67,16 @@ var _ = Describe("ExecutionStep", func() {
 		gate = &mocks.GateRunner{}
 		bulk = &mocks.BulkUpdater{}
 		bulk.RunReturns(pkg.BulkUpdateResult{Ran: true, Output: "ok"}, nil)
-		step = pkg.NewExecutionStep(runner, ops, gh, gate, bulk, "tok", pkg.PRTargetDraft)
+		step = pkg.NewExecutionStep(
+			runner,
+			ops,
+			gh,
+			gate,
+			bulk,
+			"tok",
+			pkg.PRTargetDraft,
+			pkg.UpdateScopeBoth,
+		)
 		var err error
 		md, err = agentlib.ParseMarkdown(ctx, executionTaskMD)
 		Expect(err).To(BeNil())
@@ -201,7 +210,16 @@ var _ = Describe("ExecutionStep", func() {
 
 	Describe("PRTargetReady passes ready target to the seam", func() {
 		BeforeEach(func() {
-			step = pkg.NewExecutionStep(runner, ops, gh, gate, bulk, "tok", pkg.PRTargetReady)
+			step = pkg.NewExecutionStep(
+				runner,
+				ops,
+				gh,
+				gate,
+				bulk,
+				"tok",
+				pkg.PRTargetReady,
+				pkg.UpdateScopeBoth,
+			)
 		})
 
 		It("calls CreatePR with PRTargetReady", func() {
@@ -209,6 +227,36 @@ var _ = Describe("ExecutionStep", func() {
 			Expect(err).To(BeNil())
 			_, _, _, _, _, _, gotTarget := gh.CreatePRArgsForCall(0)
 			Expect(gotTarget).To(Equal(pkg.PRTargetReady))
+		})
+	})
+
+	Describe("update_scope bulk gating", func() {
+		It("runs the bulk dep update by default (update_scope=both)", func() {
+			_, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(bulk.RunCallCount()).To(Equal(1))
+		})
+
+		It("skips the bulk dep update when frontmatter update_scope=golang", func() {
+			var err error
+			md, err = agentlib.ParseMarkdown(
+				ctx,
+				`---
+repo: bborbe/demo
+clone_url: git@github.com:bborbe/demo.git
+ref: 6d1f27fabcdef12345678901234567890abcdef1
+update_scope: golang
+---
+
+body
+`+"```json"+`
+{"outcome":"ready","has_work":true,"go_bump":{"from":"1.26.3","to":"1.26.5"},"gate_targets":["precommit"]}
+`+"```"+`
+`)
+			Expect(err).To(BeNil())
+			_, err = step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(bulk.RunCallCount()).To(Equal(0))
 		})
 	})
 
