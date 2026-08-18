@@ -25,6 +25,7 @@ var (
 	PlanningResultText       = planningResultText
 	ScanPlanningOutput       = scanPlanningOutput
 	RefuteEnvironmentClaim   = refuteEnvironmentClaim
+	BuildYourMoveBody        = buildYourMoveBody
 	// PlanningRunnerForTest constructs a planningRunner with an injected log
 	// sink — the sink is constructor-injected, never swapped package state.
 	PlanningRunnerForTest = func(config claudelib.ClaudeRunnerConfig, sink func(context.Context, string)) *planningRunner {
