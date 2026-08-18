@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - feat: apply an optional `AUTO_MERGE_LABEL` to every PR at creation (`gh pr create --label <value>`) so a deployment can opt its agent PRs into GitHub-native auto-merge. Empty (default) behaves exactly as before. Never-merge boundary held: the agent only labels, it never calls `gh pr merge`.
 
+## v0.8.0
+
+- feat: ai_review writes a ## Your Move operator-action block at the top of a human_review-routed task body — a clickable PR link, the merge action, and a plain-text change summary (Go version bump and/or dependency/vulnerability updates) — so the operator can act without reading the ## Plan / ## Result / ## Review JSON
+
 ## v0.7.0
 
 - feat: add `update_scope` knob (`golang` | `deps` | `both`, default `both`). The per-task frontmatter `update_scope` (or the `UPDATE_SCOPE` env deployment default) selects what the update sequence touches: golang-only skips the bulk dep update and filters dep work out of `has_work`; deps-only skips the go-directive bump. Unset behaves exactly as the previous release.

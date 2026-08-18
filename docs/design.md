@@ -164,10 +164,10 @@ Human reviews + promotes the draft (runbook [[Update or Fix GitHub Go Repositori
 | Next on success | `human_review` (the ONLY writer of that phase; success semantics per doctrine) |
 | Failure | any check false → `## Review` with `approved: false` + `Status: failed` (controller parks; body keeps the verdict) |
 | Preconditions | `## Plan` + `## Result` exist |
-| Postconditions | `## Review` present |
+| Postconditions | `## Review` present; on approval the body additionally opens with the plain-text `## Your Move` operator-action block |
 
 ## 4.4 State passing + invariants
-`## Plan` / `## Result` / `## Review` as typed JSON via `agentlib.MarshalSectionTyped` / `ExtractSection[T]` (never `strings.Index`). Invariants: `Result.branch == "fix/update-go-" + ref[:7]`; `Result.vulns_fixed ⊆ {v.id | v ∈ Plan.vulns, action=fix}`; `Review.checks.gate_green` derived from re-execution, not from `Result.gate_exit`.
+`## Plan` / `## Result` / `## Review` as typed JSON via `agentlib.MarshalSectionTyped` / `ExtractSection[T]` (never `strings.Index`). Invariants: `Result.branch == "fix/update-go-" + ref[:7]`; `Result.vulns_fixed ⊆ {v.id | v ∈ Plan.vulns, action=fix}`; `Review.checks.gate_green` derived from re-execution, not from `Result.gate_exit`. A `human_review`-routed task (ai_review approval) additionally opens with a plain-text `## Your Move` operator-action block — PR link + merge action + change summary — written via `FindSection`/`InsertSection`, not `MarshalSectionTyped` (deliberate exception: the block carries no JSON).
 
 ## 4.5 Non-goals
 Per goal: no watcher service, no auto-merge/ready, no auto-suppress, no NPM/Python, no major Go bumps (1.x→2.0 → `needs_input`), no trading monorepo, no full `updater` port, no capabilities beyond the prototype.
