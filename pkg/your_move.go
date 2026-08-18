@@ -5,6 +5,7 @@
 package pkg
 
 import (
+	"context"
 	"net/url"
 	"strconv"
 	"strings"
@@ -69,7 +70,12 @@ func changeSummaryLines(result *ResultOutput, plan *PlanOutput) []string {
 // writeYourMoveSection inserts the ## Your Move block immediately above
 // ## Plan, or updates it in place on a re-run so a re-triggered review
 // never duplicates it. Only called when the review routes to human_review.
-func writeYourMoveSection(md *agentlib.Markdown, result *ResultOutput, plan *PlanOutput) {
+func writeYourMoveSection(
+	ctx context.Context,
+	md *agentlib.Markdown,
+	result *ResultOutput,
+	plan *PlanOutput,
+) {
 	section := agentlib.Section{Heading: yourMoveHeading, Body: buildYourMoveBody(result, plan)}
 	if existing, ok := md.FindSection(yourMoveHeading); ok {
 		existing.Body = section.Body
@@ -77,6 +83,11 @@ func writeYourMoveSection(md *agentlib.Markdown, result *ResultOutput, plan *Pla
 	}
 	pos := len(md.Sections)
 	for i, s := range md.Sections {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
 		if s.Heading == "## Plan" {
 			pos = i
 			break

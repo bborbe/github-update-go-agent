@@ -127,7 +127,7 @@ func (s *reviewStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentlib.
 		Notes:    notesFor(notes),
 	}
 	if output.Approved {
-		writeYourMoveSection(md, result, plan)
+		writeYourMoveSection(ctx, md, result, plan)
 	}
 	return s.finish(ctx, md, output)
 }

@@ -5,6 +5,9 @@
 package pkg_test
 
 import (
+	"context"
+
+	agentlib "github.com/bborbe/agent"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
@@ -35,6 +38,29 @@ var _ = Describe("YourMoveBody", func() {
 		body := pkg.BuildYourMoveBody(&pkg.ResultOutput{PRURL: "%zz"}, &pkg.PlanOutput{})
 		Expect(body).To(ContainSubstring("PR URL unavailable"))
 		Expect(body).NotTo(ContainSubstring("{"))
+	})
+
+	It("renders the PR URL unavailable placeholder for a data: URL", func() {
+		body := pkg.BuildYourMoveBody(
+			&pkg.ResultOutput{PRURL: "data:javascript:alert(1)"},
+			&pkg.PlanOutput{},
+		)
+		Expect(body).To(ContainSubstring("PR URL unavailable"))
+		Expect(body).NotTo(ContainSubstring("data:"))
+		Expect(body).NotTo(ContainSubstring("{"))
+	})
+
+	It("appends the block at the end when ## Plan is absent (fallback)", func() {
+		md := &agentlib.Markdown{Sections: []agentlib.Section{{Heading: "## Result", Body: "x"}}}
+		pkg.WriteYourMoveSection(
+			context.Background(),
+			md,
+			&pkg.ResultOutput{PRURL: "https://github.com/bborbe/demo/pull/7"},
+			&pkg.PlanOutput{},
+		)
+		Expect(md.Sections).To(HaveLen(2))
+		Expect(md.Sections[0].Heading).To(Equal("## Result"))
+		Expect(md.Sections[1].Heading).To(Equal("## Your Move"))
 	})
 
 	It("renders a clickable PR link for a valid http(s) PRURL", func() {
