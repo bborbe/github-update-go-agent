@@ -1,5 +1,4 @@
 workflow: direct
-hideGit: true
 pr: false
 autoMerge: false
 autoRelease: false

@@ -1,8 +1,9 @@
 ---
-status: prompted
+status: verifying
 approved: "2026-08-18T19:31:42Z"
 generating: "2026-08-18T19:34:08Z"
 prompted: "2026-08-18T19:59:52Z"
+verifying: "2026-08-18T20:14:30Z"
 branch: dark-factory/human-review-operator-action-block
 ---
 
