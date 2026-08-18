@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.8.0
 
 - feat: ai_review writes a ## Your Move operator-action block at the top of a human_review-routed task body — a clickable PR link, the merge action, and a plain-text change summary (Go version bump and/or dependency/vulnerability updates) — so the operator can act without reading the ## Plan / ## Result / ## Review JSON
 
