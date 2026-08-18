@@ -146,6 +146,7 @@ func CreateAgent(
 	gateRunner updatepkg.GateRunner,
 	claudeProber updatepkg.ClaudeProber,
 	prTarget updatepkg.PRTarget,
+	autoMergeLabel string,
 	updateScope updatepkg.UpdateScope,
 ) *agentlib.Agent {
 	claudeAuth := updatepkg.NewClaudeAuthStep(claudeProber)
@@ -180,6 +181,7 @@ func CreateAgent(
 		updatepkg.NewBulkUpdater(),
 		ghToken,
 		prTarget,
+		autoMergeLabel,
 		updateScope,
 	)
 	reviewStep := updatepkg.NewReviewStep(gitOps, ghCli, gateRunner, ghToken, prTarget)
@@ -207,6 +209,7 @@ func CreateAgentProvider(
 	gateRunner updatepkg.GateRunner,
 	claudeProber updatepkg.ClaudeProber,
 	prTarget updatepkg.PRTarget,
+	autoMergeLabel string,
 	updateScope updatepkg.UpdateScope,
 ) agentlib.AgentProvider {
 	domainAgent := CreateAgent(
@@ -220,6 +223,7 @@ func CreateAgentProvider(
 		gateRunner,
 		claudeProber,
 		prTarget,
+		autoMergeLabel,
 		updateScope,
 	)
 	healthcheckRunner := CreateClaudeRunner(

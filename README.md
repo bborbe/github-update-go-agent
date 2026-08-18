@@ -21,6 +21,7 @@ Full design: [docs/design.md](docs/design.md). Built from the [bborbe/agent-clau
 | `TASK_ID` | no | — | Required when publishing results via Kafka |
 | `MODEL` | no | `sonnet` | `sonnet` or `opus` |
 | `PR_TARGET` | no | `draft` | `draft` or `ready` — how the agent opens pull requests. Unset behaves exactly as before: drafts only |
+| `AUTO_MERGE_LABEL` | no | — | PR label applied at creation (`gh pr create --label <value>`) to opt into GitHub-native auto-merge (e.g. `auto-merge`). Empty (default) adds no label. Never-merge boundary held: the agent only labels, it never calls `gh pr merge` |
 | `ALLOWED_TOOLS` | no | — | Comma-separated Claude tool allowlist (e.g. `Read,Grep,Bash`) |
 | `AGENT_DIR` | no | `agent` | Directory containing `.claude/CLAUDE.md` guardrails |
 | `CLAUDE_CONFIG_DIR` | no | — | Claude Code OAuth config directory (PVC mount) |

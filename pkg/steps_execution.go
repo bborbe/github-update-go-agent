@@ -48,14 +48,15 @@ type executionReport struct {
 // Go step embedding one Claude sub-call. All git/gh side effects are the Go
 // step's — the Claude sub-call has NO git and NO gh tools (design § 7.0).
 type executionStep struct {
-	runner       claudelib.ClaudeRunner
-	ops          git.GitOps
-	gh           GhCli
-	gate         GateRunner
-	bulk         BulkUpdater
-	ghToken      string
-	prTarget     PRTarget
-	defaultScope UpdateScope
+	runner         claudelib.ClaudeRunner
+	ops            git.GitOps
+	gh             GhCli
+	gate           GateRunner
+	bulk           BulkUpdater
+	ghToken        string
+	prTarget       PRTarget
+	autoMergeLabel string
+	defaultScope   UpdateScope
 }
 
 // NewExecutionStep wires the execution step with its seams: the Claude
@@ -73,17 +74,19 @@ func NewExecutionStep(
 	bulk BulkUpdater,
 	ghToken string,
 	prTarget PRTarget,
+	autoMergeLabel string,
 	defaultScope UpdateScope,
 ) agentlib.Step {
 	return &executionStep{
-		runner:       runner,
-		ops:          ops,
-		gh:           gh,
-		gate:         gate,
-		bulk:         bulk,
-		ghToken:      ghToken,
-		prTarget:     prTarget,
-		defaultScope: defaultScope,
+		runner:         runner,
+		ops:            ops,
+		gh:             gh,
+		gate:           gate,
+		bulk:           bulk,
+		ghToken:        ghToken,
+		prTarget:       prTarget,
+		autoMergeLabel: autoMergeLabel,
+		defaultScope:   defaultScope,
 	}
 }
 
@@ -422,6 +425,7 @@ func (s *executionStep) commitPushAndOpenPR(
 		ctx, workdir, "master", branch, prTitle,
 		buildPRBody(plan, report, vulnsFixed),
 		s.prTarget,
+		s.autoMergeLabel,
 	)
 	if err != nil {
 		return s.fail(ctx, md, result, git.ErrorCategoryUnknown, err)

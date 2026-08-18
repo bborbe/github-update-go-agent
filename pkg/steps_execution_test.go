@@ -75,6 +75,7 @@ var _ = Describe("ExecutionStep", func() {
 			bulk,
 			"tok",
 			pkg.PRTargetDraft,
+			"",
 			pkg.UpdateScopeBoth,
 		)
 		var err error
@@ -168,11 +169,12 @@ var _ = Describe("ExecutionStep", func() {
 			_, _, pushBranch := ops.PushArgsForCall(0)
 			Expect(pushBranch).To(Equal("fix/update-go-6d1f27f"))
 
-			_, _, base, head, title, _, gotTarget := gh.CreatePRArgsForCall(0)
+			_, _, base, head, title, _, gotTarget, gotLabel := gh.CreatePRArgsForCall(0)
 			Expect(base).To(Equal("master"))
 			Expect(head).To(Equal("fix/update-go-6d1f27f"))
 			Expect(title).To(Equal("update go module dependencies"))
 			Expect(gotTarget).To(Equal(pkg.PRTargetDraft))
+			Expect(gotLabel).To(Equal(""))
 		})
 
 		It("re-runs every planned gate target", func() {
@@ -218,6 +220,7 @@ var _ = Describe("ExecutionStep", func() {
 				bulk,
 				"tok",
 				pkg.PRTargetReady,
+				"",
 				pkg.UpdateScopeBoth,
 			)
 		})
@@ -225,8 +228,31 @@ var _ = Describe("ExecutionStep", func() {
 		It("calls CreatePR with PRTargetReady", func() {
 			_, err := step.Run(ctx, md)
 			Expect(err).To(BeNil())
-			_, _, _, _, _, _, gotTarget := gh.CreatePRArgsForCall(0)
+			_, _, _, _, _, _, gotTarget, _ := gh.CreatePRArgsForCall(0)
 			Expect(gotTarget).To(Equal(pkg.PRTargetReady))
+		})
+
+		Describe("AutoMergeLabel passes the label to the seam", func() {
+			BeforeEach(func() {
+				step = pkg.NewExecutionStep(
+					runner,
+					ops,
+					gh,
+					gate,
+					bulk,
+					"tok",
+					pkg.PRTargetDraft,
+					"auto-merge",
+					pkg.UpdateScopeBoth,
+				)
+			})
+
+			It("calls CreatePR with the auto-merge label", func() {
+				_, err := step.Run(ctx, md)
+				Expect(err).To(BeNil())
+				_, _, _, _, _, _, _, gotLabel := gh.CreatePRArgsForCall(0)
+				Expect(gotLabel).To(Equal("auto-merge"))
+			})
 		})
 	})
 
