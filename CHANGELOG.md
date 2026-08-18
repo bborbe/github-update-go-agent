@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.9.0
 
 - feat: apply an optional `AUTO_MERGE_LABEL` to every PR at creation (`gh pr create --label <value>`) so a deployment can opt its agent PRs into GitHub-native auto-merge. Empty (default) behaves exactly as before. Never-merge boundary held: the agent only labels, it never calls `gh pr merge`.
 
