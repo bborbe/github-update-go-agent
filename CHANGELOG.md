@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.9.5
 
 - fix: a missing `AUTO_MERGE_LABEL` no longer costs the pull request. `gh pr create --label <name>` fails outright when the label does not exist in the repo, so with `AUTO_MERGE_LABEL: auto-merge` configured fleet-wide and no repo actually defining that label, every run died at PR creation with `could not add label: 'auto-merge' not found` — the 2026-08-19 deps sweep stopped producing PRs entirely while planning and execution both succeeded. `CreatePR` now retries once without the label, logs at V(0) naming the label so the operator can create it, and opens the PR anyway: losing the auto-merge opt-in beats losing the PR. Safe against duplicates because gh validates labels before creating anything — verified on `bborbe/backup`, which had no PR at all after the failure.
 
