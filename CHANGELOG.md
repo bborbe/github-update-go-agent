@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.9.1
 
 - fix: the execution prompt's CHANGELOG step now (a) marks the bullet MANDATORY when the repo has a CHANGELOG.md, and (b) ties its wording to the update scope. Two real defects on the 2026-08-18 deps sweep: `bborbe/badgerkv` merged a dep bump with no `## Unreleased` entry, so the `autoRelease` releaser never cut a version and consumers never saw it; and `bborbe/kafka-topic-purger` shipped `update Go to 1.26.6 and update dependencies` on a diff containing zero go-directive changes — a false claim in a released changelog. The step now spells out the per-scope wording (`golang` / `deps` / `both`) and forbids mentioning the Go version on a deps-scope run.
 
