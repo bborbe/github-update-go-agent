@@ -122,7 +122,10 @@ func updateScopeSection(scope UpdateScope) string {
 			"Update ONLY module dependencies: `go get -u ./...`, targeted vuln fixes " +
 			"(`go get <pkg>@<fixed>`), and `go mod tidy`. Do NOT bump the go.mod `go` " +
 			"directive and do NOT touch Dockerfile golang pins. The go-directive bump is " +
-			"out of scope — it must NOT contribute to has_work."
+			"out of scope — it must NOT contribute to has_work. Dependency updates " +
+			"ARE in scope: if `dep_updates_expected` is true, `has_work` MUST be true " +
+			"and `outcome` MUST NOT be `no_update_needed`. Do not write that dep " +
+			"updates are out of scope on a deps-scope run — that is inverted."
 	default:
 		return "## Update Scope\n\n" +
 			"Update BOTH the Go toolchain directive and module dependencies."
