@@ -187,8 +187,7 @@ func (s *planningStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentli
 		return nil, err
 	}
 
-	if plan.Outcome == PlanOutcomeNoUpdateNeeded || !plan.hasWorkForScope(updateScope) {
-		glog.V(2).Infof("planning: no update needed for repo=%s scope=%s", repo, updateScope)
+	if s.shouldClose(plan, updateScope, repo) {
 		return &agentlib.Result{
 			Status:    agentlib.AgentStatusDone,
 			NextPhase: domain.TaskPhaseDone.String(),
@@ -385,6 +384,38 @@ func resolveUpdateScope(
 // resolveScope is the planning step's scope-resolution wrapper: it resolves
 // the update scope and returns a failed Result when the frontmatter value is
 // invalid (the accepted-set error is the message), keeping Run lean.
+// shouldClose reports whether planning ends the task instead of routing to
+// execution. The decision is driven by the plan's structured fields, never by
+// the model's `outcome` label alone.
+//
+// A label sitting in front of the scope check as an `||` can only ever widen
+// the close: on 2026-08-19 bborbe/argument (update_scope=deps) came back
+// `no_update_needed` + `has_work=false` while the SAME object carried
+// `dep_updates_expected=true`, and its reason had the scope inverted ("dep
+// updates are out of scope since update_scope is deps"). The task completed
+// with no PR and never retried, while the repo really had three direct dep
+// updates waiting. Trusting a checkable field over a prose verdict is the same
+// rule the close-obsolete-tasks evidence gate follows.
+//
+// Cost of being wrong in this direction is bounded: if the fields overstate the
+// work, execution's no-effective-change guard writes no_update_needed and routes
+// to done. A wasted pass beats a silent skip.
+func (s *planningStep) shouldClose(plan *PlanOutput, scope UpdateScope, repo string) bool {
+	hasWork := plan.hasWorkForScope(scope)
+	if plan.Outcome == PlanOutcomeNoUpdateNeeded && hasWork {
+		glog.V(0).Infof(
+			"planning: model claimed no_update_needed but plan fields show in-scope work — "+
+				"overriding to ready repo=%s scope=%s dep_updates_expected=%t vulns=%d go_bump=%t reason=%q",
+			repo, scope, plan.DepUpdatesExpected, len(plan.Vulns), plan.GoBump != nil, plan.Reason,
+		)
+	}
+	if hasWork {
+		return false
+	}
+	glog.V(2).Infof("planning: no update needed for repo=%s scope=%s", repo, scope)
+	return true
+}
+
 func (s *planningStep) resolveScope(
 	ctx context.Context,
 	md *agentlib.Markdown,
