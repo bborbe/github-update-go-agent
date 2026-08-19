@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 - fix: keep `npm` in the runtime image instead of `apk del`-ing it after it installs the Claude CLI. Node survived that delete, npm did not, so any repo whose `make precommit` recurses into a JS subproject died at the planning gate with `npm: No such file or directory` (exit 127) — a task that can never pass and therefore retries forever. Observed on `bborbe/backup` during the 2026-08 deps sweep: 4+ consecutive jobs, ~8 min each, identical failure, burning the serial slot at `maxConcurrentJobs: 1`. Costs 7.5 MB (`npm-11.11.0-r0`); node was already present for the Claude CLI. Audited the rest of that RUN block against the deployed v0.9.2 image — npm was the only binary installed-then-deleted; curl, bash, git, gh, make, jq, column, node, gcc, go, trivy and claude all resolve.
+- docs: list `AUTO_MERGE_LABEL` in design.md § 5.1 Inputs and § 5.2 Outputs — it was documented in the README env table but missing from the design doc's input/output contract
 
 ## v0.9.3
 
