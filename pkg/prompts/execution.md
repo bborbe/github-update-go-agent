@@ -63,14 +63,18 @@ Execute in order, repairing as you go:
    **Describe only what you actually changed** — the bullet is a release note
    others read, so a claim you did not do is a false statement in a shipped
    changelog. Match it to the `## Update Scope` section:
-   - scope `golang`: `- update Go to <X.Y.Z>`
-   - scope `deps`: `- update dependencies` — do **NOT** mention the Go version;
-     a deps-scope run never touches the go directive (observed 2026-08-18:
-     bborbe/kafka-topic-purger shipped `update Go to 1.26.6 and update
-     dependencies` on a diff with zero go-directive changes)
-   - scope `both`: `- update Go to <X.Y.Z> and update dependencies` — and only
-     when the go directive really moved; if it was already current, drop that
-     half and write `- update dependencies`
+   Every bullet needs a conventional prefix (`chore:` for these updates) — a
+   prefixless bullet cannot be classified by the version-bump detector, so
+   release automation fails (rule `changelog/conventional-prefix-required`).
+
+   - scope `golang`: `- chore: update Go to <X.Y.Z>`
+   - scope `deps`: `- chore: update dependencies` — do **NOT** mention the Go
+     version; a deps-scope run never touches the go directive (observed
+     2026-08-18: bborbe/kafka-topic-purger shipped `update Go to 1.26.6 and
+     update dependencies` on a diff with zero go-directive changes)
+   - scope `both`: `- chore: update Go to <X.Y.Z> and update dependencies` —
+     and only when the go directive really moved; if it was already current,
+     drop that half and write `- chore: update dependencies`
 
    Mention fixed vuln IDs when applicable.
 7. **Green-gate**: run EVERY gate target from the plan
