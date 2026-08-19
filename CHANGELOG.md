@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- fix: `make build` refuses to stamp a version onto a tree that is not that version's tag (`check-version-tag`, escape hatch `ALLOW_UNTAGGED_BUILD=1`). The image publish is operator-run and `VERSION` defaults to the newest tag, so a build started before the tag lands — or with an explicit `VERSION=` for a tag that does not exist yet — silently stamps new-version metadata onto old code. This drifted twice in one day (2026-08-19): the `v0.9.0` image was built from a stale tree, and the `v0.9.1` image was pushed at 09:25Z from a binary built 09:20Z, while the `v0.9.1` tag was only cut at 09:39Z — so the published `v0.9.1` image did not contain the prompt fix that `v0.9.1` exists to ship. Nothing surfaced it: the tag, the changelog and the image name all agreed, and only grepping the image binary showed the fix absent.
+
 ## v0.9.1
 
 - fix: the execution prompt's CHANGELOG step now (a) marks the bullet MANDATORY when the repo has a CHANGELOG.md, and (b) ties its wording to the update scope. Two real defects on the 2026-08-18 deps sweep: `bborbe/badgerkv` merged a dep bump with no `## Unreleased` entry, so the `autoRelease` releaser never cut a version and consumers never saw it; and `bborbe/kafka-topic-purger` shipped `update Go to 1.26.6 and update dependencies` on a diff containing zero go-directive changes — a false claim in a released changelog. The step now spells out the per-scope wording (`golang` / `deps` / `both`) and forbids mentioning the Go version on a deps-scope run.
