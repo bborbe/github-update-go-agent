@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.9.7
 
 - chore: bump the image toolchain to Go 1.27.0 (Dockerfile `golang:` base) and golangci-lint to v2.12.2 (the pinned v2.11.4 cannot parse Go 1.27's export-data format — "export data version 4 is greater than maximum supported version 2" — once the toolchain is bumped). Planning's bump target is the toolchain baked into the image (design D5), so while the image carried `1.26.6`, every `update_scope: golang` task would have bumped repos from 1.26.6 → 1.26.6 — a no-op on the very thing the task exists to do. The frontmatter `latest_go: 1.26.7` on the emitted tasks was stale on top of that (go.dev announced 1.27.0 on 2026-08-19). Nothing checks that the image's Go is current when building — the image build passed `check-version-tag` (tag matches tree) while the toolchain inside lagged two releases. The repo's own go.mod directive stays at 1.26.6: golangci-lint v2.11.4 cannot yet parse Go 1.27's export-data format, and the directive is irrelevant to the sweep (target = runtime.Version() of the built binary, not the directive). This bump makes the 91 in-flight golang tasks target 1.27.0 once the image exists on docker.io; the deploy waits for the official `golang:1.27.0` image publish.
 
