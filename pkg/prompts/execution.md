@@ -54,9 +54,29 @@ Execute in order, repairing as you go:
    `go -C <workdir> get <package>@<fixed_version>` then `go mod tidy`.
 5. **Vendor**: if the repo has a vendor/ directory or the Makefile runs
    vendored builds, run `go -C <workdir> mod vendor`.
-6. **CHANGELOG bullet**: add one bullet under `## Unreleased` describing the
-   change, e.g. `- update Go to 1.26.5 and update dependencies` (mention
-   fixed vuln IDs when applicable).
+6. **CHANGELOG bullet (MANDATORY when the repo has a CHANGELOG.md)**: add one
+   bullet under `## Unreleased`. On an `autoRelease: true` repo the releaser
+   only cuts a version when `## Unreleased` is non-empty, so **skipping the
+   bullet means the change merges but never ships to consumers** (observed
+   2026-08-18: bborbe/badgerkv dep bump merged with no entry).
+
+   **Describe only what you actually changed** — the bullet is a release note
+   others read, so a claim you did not do is a false statement in a shipped
+   changelog. Match it to the `## Update Scope` section:
+   Every bullet needs a conventional prefix (`chore:` for these updates) — a
+   prefixless bullet cannot be classified by the version-bump detector, so
+   release automation fails (rule `changelog/conventional-prefix-required`).
+
+   - scope `golang`: `- chore: update Go to <X.Y.Z>`
+   - scope `deps`: `- chore: update dependencies` — do **NOT** mention the Go
+     version; a deps-scope run never touches the go directive (observed
+     2026-08-18: bborbe/kafka-topic-purger shipped `update Go to 1.26.6 and
+     update dependencies` on a diff with zero go-directive changes)
+   - scope `both`: `- chore: update Go to <X.Y.Z> and update dependencies` —
+     and only when the go directive really moved; if it was already current,
+     drop that half and write `- chore: update dependencies`
+
+   Mention fixed vuln IDs when applicable.
 7. **Green-gate**: run EVERY gate target from the plan
    (`make -C <workdir> <target>`) and repair until all exit 0.
 
