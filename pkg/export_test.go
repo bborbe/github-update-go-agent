@@ -27,6 +27,18 @@ var (
 	RefuteEnvironmentClaim   = refuteEnvironmentClaim
 	BuildYourMoveBody        = buildYourMoveBody
 	WriteYourMoveSection     = writeYourMoveSection
+	// HasWorkForScope / AppliesScope expose the scope-aware plan predicates so
+	// pkg_test can assert the close decision is driven by the plan's structured
+	// fields rather than the model's `outcome` label.
+	HasWorkForScope = func(p *PlanOutput, scope UpdateScope) bool { return p.hasWorkForScope(scope) }
+	AppliesScope    = func(p *PlanOutput, scope UpdateScope) { p.appliesScope(scope) }
+	// ShouldClose exposes planning's close decision. This is the predicate the
+	// bborbe/argument regression actually turned on — hasWorkForScope alone
+	// behaved identically before and after the fix, so a test that only exercises
+	// it would pass against the buggy code.
+	ShouldClose = func(plan *PlanOutput, scope UpdateScope, repo string) bool {
+		return (&planningStep{}).shouldClose(plan, scope, repo)
+	}
 	// PlanningRunnerForTest constructs a planningRunner with an injected log
 	// sink — the sink is constructor-injected, never swapped package state.
 	PlanningRunnerForTest = func(config claudelib.ClaudeRunnerConfig, sink func(context.Context, string)) *planningRunner {

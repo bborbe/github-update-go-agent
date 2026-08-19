@@ -29,6 +29,84 @@ var _ = Describe("UpdateScope", func() {
 		})
 	})
 
+	Describe("hasWorkForScope vs the model's outcome label", func() {
+		// Regression: bborbe/argument, 2026-08-19, update_scope=deps.
+		// The model returned outcome=no_update_needed + has_work=false while
+		// the SAME object carried dep_updates_expected=true, and its reason had
+		// the scope inverted ("dep updates are out of scope since update_scope
+		// is deps"). Planning closed on the label, so the task completed with no
+		// PR and never retried — while the repo really had three direct dep
+		// updates waiting (bborbe/errors, bborbe/time, onsi/ginkgo).
+		It("reports in-scope work for the argument plan despite has_work=false", func() {
+			plan := &pkg.PlanOutput{
+				Outcome:            pkg.PlanOutcomeNoUpdateNeeded,
+				HasWork:            false,
+				DepUpdatesExpected: true,
+				Reason:             "dep updates are out of scope since update_scope is deps",
+			}
+			pkg.AppliesScope(plan, pkg.UpdateScopeDeps)
+			Expect(pkg.HasWorkForScope(plan, pkg.UpdateScopeDeps)).To(BeTrue())
+		})
+
+		It("does NOT close the argument plan — the label loses to the fields", func() {
+			// The regression guard. Under the old logic this returned true
+			// (`Outcome == no_update_needed || !hasWork`) and the task completed
+			// with no PR. Asserting on hasWorkForScope alone would NOT catch it.
+			plan := &pkg.PlanOutput{
+				Outcome:            pkg.PlanOutcomeNoUpdateNeeded,
+				HasWork:            false,
+				DepUpdatesExpected: true,
+				Reason:             "dep updates are out of scope since update_scope is deps",
+			}
+			pkg.AppliesScope(plan, pkg.UpdateScopeDeps)
+			Expect(pkg.ShouldClose(plan, pkg.UpdateScopeDeps, "bborbe/argument")).To(BeFalse())
+		})
+
+		It("closes when the plan's own fields agree there is no work", func() {
+			plan := &pkg.PlanOutput{
+				Outcome:            pkg.PlanOutcomeNoUpdateNeeded,
+				DepUpdatesExpected: false,
+			}
+			pkg.AppliesScope(plan, pkg.UpdateScopeDeps)
+			Expect(pkg.ShouldClose(plan, pkg.UpdateScopeDeps, "bborbe/example")).To(BeTrue())
+		})
+
+		It("closes a golang-scope plan whose only work is out-of-scope deps", func() {
+			plan := &pkg.PlanOutput{
+				DepUpdatesExpected: true,
+			}
+			pkg.AppliesScope(plan, pkg.UpdateScopeGolang)
+			Expect(pkg.ShouldClose(plan, pkg.UpdateScopeGolang, "bborbe/example")).To(BeTrue())
+		})
+
+		It("still reports no work when the deps scope genuinely has none", func() {
+			plan := &pkg.PlanOutput{
+				Outcome:            pkg.PlanOutcomeNoUpdateNeeded,
+				DepUpdatesExpected: false,
+			}
+			pkg.AppliesScope(plan, pkg.UpdateScopeDeps)
+			Expect(pkg.HasWorkForScope(plan, pkg.UpdateScopeDeps)).To(BeFalse())
+		})
+
+		It("ignores a stale go directive on a deps-scope plan", func() {
+			plan := &pkg.PlanOutput{
+				GoBump:             &pkg.GoBump{From: "1.26.5", To: "1.26.6"},
+				DepUpdatesExpected: false,
+			}
+			pkg.AppliesScope(plan, pkg.UpdateScopeDeps)
+			Expect(pkg.HasWorkForScope(plan, pkg.UpdateScopeDeps)).To(BeFalse())
+		})
+
+		It("ignores stale deps on a golang-scope plan", func() {
+			plan := &pkg.PlanOutput{
+				Outcome:            pkg.PlanOutcomeNoUpdateNeeded,
+				DepUpdatesExpected: true,
+			}
+			pkg.AppliesScope(plan, pkg.UpdateScopeGolang)
+			Expect(pkg.HasWorkForScope(plan, pkg.UpdateScopeGolang)).To(BeFalse())
+		})
+	})
+
 	Describe("ParseUpdateScope", func() {
 		It("returns UpdateScopeBoth with no error for empty string", func() {
 			scope, err := pkg.ParseUpdateScope(ctx, "")
