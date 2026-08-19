@@ -175,10 +175,10 @@ Per goal: no watcher service, no auto-merge/ready, no auto-suppress, no NPM/Pyth
 # 5. Data Contract
 
 ## 5.1 Inputs
-Task frontmatter (Kafka `TASK_CONTENT`); target repo via git clone (App IAT over HTTPS); repo Makefile (gate detection); scanner outputs (parsed for finding id + fixed-version); `go list -u -m` output; `PR_TARGET` (`draft` default | `ready`) from Job environment, selecting the pull-request target at creation time; `UPDATE_SCOPE` (`both` default | `golang` | `deps`) from Job environment, selecting what the update sequence touches — frontmatter `update_scope` (same values) overrides the env default per task, allowing a watcher/trigger to scope a single sweep (e.g. golang-only backports).
+Task frontmatter (Kafka `TASK_CONTENT`); target repo via git clone (App IAT over HTTPS); repo Makefile (gate detection); scanner outputs (parsed for finding id + fixed-version); `go list -u -m` output; `PR_TARGET` (`draft` default | `ready`) from Job environment, selecting the pull-request target at creation time; `UPDATE_SCOPE` (`both` default | `golang` | `deps`) from Job environment, selecting what the update sequence touches — frontmatter `update_scope` (same values) overrides the env default per task, allowing a watcher/trigger to scope a single sweep (e.g. golang-only backports); `AUTO_MERGE_LABEL` (unset default) from Job environment, naming a label applied at PR creation so a deployment can opt its agent PRs into GitHub-native auto-merge — arming happens outside this agent (see § 7.0).
 
 ## 5.2 Outputs
-Branch + PR on target repo (draft by default; ready when `PR_TARGET: ready`); task body sections; `AgentResult` JSON on stdout (executor round-trips to frontmatter via Kafka).
+Branch + PR on target repo (draft by default; ready when `PR_TARGET: ready`; carrying `AUTO_MERGE_LABEL` when set); task body sections; `AgentResult` JSON on stdout (executor round-trips to frontmatter via Kafka).
 
 ## 5.3 Idempotency
 `ShouldRun` always true; replay guard inside `Run` (dark-factory pattern): existing `## <Section>` → re-route without redoing side effects. Execution crash-window guard: branch name is deterministic — if `gh pr list --head fix/update-go-<sha:7>` finds an open PR, adopt it and write `## Result` instead of re-pushing. Same task replayed → same branch, same PR, no duplicates.
