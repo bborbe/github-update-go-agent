@@ -6,8 +6,10 @@ package pkg
 
 import (
 	"context"
+	"fmt"
 	"os/exec"
 
+	agentlib "github.com/bborbe/agent"
 	claudelib "github.com/bborbe/agent/claude"
 )
 
@@ -32,7 +34,18 @@ var (
 	// pkg_test can assert the close decision is driven by the plan's structured
 	// fields rather than the model's `outcome` label.
 	HasWorkForScope = func(p *PlanOutput, scope UpdateScope) bool { return p.hasWorkForScope(scope) }
-	AppliesScope    = func(p *PlanOutput, scope UpdateScope) { p.appliesScope(scope) }
+	// ValidatePlan exposes execution's plan-readiness guard so pkg_test can
+	// assert it mirrors planning's scope-aware decision rather than the model's
+	// outcome/HasWork labels. Accepts the unexported step via the exported
+	// constructor return type and type-asserts.
+	ValidatePlan = func(step agentlib.Step, md *agentlib.Markdown, scope UpdateScope) (*PlanOutput, error) {
+		es, ok := step.(*executionStep)
+		if !ok {
+			return nil, fmt.Errorf("expected *executionStep, got %T", step)
+		}
+		return es.validatePlan(context.Background(), md, scope)
+	}
+	AppliesScope = func(p *PlanOutput, scope UpdateScope) { p.appliesScope(scope) }
 	// ShouldClose exposes planning's close decision. This is the predicate the
 	// bborbe/argument regression actually turned on — hasWorkForScope alone
 	// behaved identically before and after the fix, so a test that only exercises

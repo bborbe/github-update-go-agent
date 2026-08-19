@@ -102,7 +102,8 @@ func (s *executionStep) ShouldRun(_ context.Context, _ *agentlib.Markdown) (bool
 
 // Run executes the update pipeline:
 //  1. Replay guard — existing successful ## Result → re-route to ai_review.
-//  2. Read ## Plan (must be ready + has_work) + frontmatter.
+//  2. Read ## Plan (must show in-scope work per hasWorkForScope, not the
+//     model's labels) + frontmatter.
 //  3. PR-adopt guard — open PR for the deterministic branch → adopt, write
 //     ## Result, re-route (crash-window idempotency, design § 5.3).
 //  4. CloneAtRef + SwitchNewBranch fix/update-go-<ref:7>.
@@ -122,11 +123,6 @@ func (s *executionStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentl
 		return reroute, nil
 	}
 
-	plan, err := s.validatePlan(ctx, md)
-	if err != nil {
-		return s.fail(ctx, md, &ResultOutput{}, git.ErrorCategoryUnknown, err)
-	}
-
 	repo, cloneURL, ref, err := s.extractFrontmatter(ctx, md)
 	if err != nil {
 		return s.fail(ctx, md, &ResultOutput{}, git.ErrorCategoryUnknown, err)
@@ -137,6 +133,11 @@ func (s *executionStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentl
 			errors.Wrap(ctx, err, "invalid update_scope"))
 	}
 	glog.V(2).Infof("execution: update_scope=%s repo=%s", updateScope, repo)
+
+	plan, err := s.validatePlan(ctx, md, updateScope)
+	if err != nil {
+		return s.fail(ctx, md, &ResultOutput{}, git.ErrorCategoryUnknown, err)
+	}
 	branch := branchPrefix + ref[:7]
 
 	if adopt := s.adoptExistingPR(ctx, md, repo, branch); adopt != nil {
@@ -247,20 +248,30 @@ func (s *executionStep) adoptExistingPR(
 	}
 }
 
-// validatePlan extracts and validates the ## Plan section.
+// validatePlan extracts and validates the ## Plan section. The readiness check
+// mirrors planning's shouldClose: it runs off hasWorkForScope(scope), never off
+// the model's outcome/HasWork labels. A label check here is the same bug as the
+// planning `||` — on 2026-08-19 bborbe/log (update_scope=deps) carried
+// outcome=no_update_needed + has_work=false while dep_updates_expected=true;
+// v0.9.3 fixed planning to route it to execution, and this guard re-rejected
+// it by trusting the model's boolean. The plan in markdown is already
+// scope-filtered by planning's appliesScope, so hasWorkForScope on it is
+// consistent with the decision that routed here.
 func (s *executionStep) validatePlan(
 	ctx context.Context,
 	md *agentlib.Markdown,
+	updateScope UpdateScope,
 ) (*PlanOutput, error) {
 	plan, err := agentlib.ExtractSection[PlanOutput](ctx, md, "## Plan")
 	if err != nil || plan == nil {
 		return nil, errors.Wrapf(ctx, err, "execution invoked but planning did not complete")
 	}
-	if plan.Outcome != PlanOutcomeReady || !plan.HasWork {
+	if !plan.hasWorkForScope(updateScope) {
 		return nil, errors.Errorf(
 			ctx,
-			"execution invoked with non-ready plan: outcome=%s has_work=%t",
-			plan.Outcome, plan.HasWork,
+			"execution invoked but plan shows no in-scope work for scope=%s: "+
+				"dep_updates_expected=%t vulns=%d go_bump=%t",
+			updateScope, plan.DepUpdatesExpected, len(plan.Vulns), plan.GoBump != nil,
 		)
 	}
 	if len(plan.GateTargets) == 0 {

@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- fix: execution's `validatePlan` readiness check mirrors planning's scope-aware `hasWorkForScope` instead of trusting the model's `outcome`/`has_work` labels. v0.9.3 fixed PLANNING to route a `no_update_needed` + `has_work: false` plan to execution when the plan's own fields showed in-scope work — but execution's guard re-read `plan.HasWork` and rejected the same plan it had just been routed to. On 2026-08-19 `bborbe/log` (`update_scope: deps`) carried `outcome: no_update_needed` + `has_work: false` while `dep_updates_expected: true`; v0.9.3 sent it to execution, and this guard failed it again. Same root class as the planning `||`: a model verdict trusted where a computed field belongs. The plan in markdown is already scope-filtered by planning's `appliesScope`, so `hasWorkForScope` on it is consistent with the decision that routed there. Counterfactual-verified: old label check fails exactly the regression spec, fix passes.
+
 ## v0.9.5
 
 - fix: a missing `AUTO_MERGE_LABEL` no longer costs the pull request. `gh pr create --label <name>` fails outright when the label does not exist in the repo, so with `AUTO_MERGE_LABEL: auto-merge` configured fleet-wide and no repo actually defining that label, every run died at PR creation with `could not add label: 'auto-merge' not found` — the 2026-08-19 deps sweep stopped producing PRs entirely while planning and execution both succeeded. `CreatePR` now retries once without the label, logs at V(0) naming the label so the operator can create it, and opens the PR anyway: losing the auto-merge opt-in beats losing the PR. Safe against duplicates because gh validates labels before creating anything — verified on `bborbe/backup`, which had no PR at all after the failure.

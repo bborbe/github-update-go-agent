@@ -414,4 +414,118 @@ body
 			Expect(ops.CloneAtRefCallCount()).To(Equal(0))
 		})
 	})
+
+	Describe("validatePlan mirrors planning's scope-aware decision", func() {
+		var (
+			planMD *agentlib.Markdown
+			step   agentlib.Step
+		)
+
+		BeforeEach(func() {
+			step = pkg.NewExecutionStep(
+				nil, nil, nil, nil, nil,
+				"tok",
+				pkg.PRTargetDraft,
+				"",
+				pkg.UpdateScopeDeps,
+			)
+		})
+
+		// Regression: bborbe/log, 2026-08-19. The model returned
+		// outcome=no_update_needed + has_work=false while dep_updates_expected=true.
+		// v0.9.3 fixed PLANNING to route this to execution; this guard re-rejected
+		// it by trusting plan.HasWork — so the contradiction was fixed and then
+		// re-blocked downstream. Same root class as the planning `||`.
+		It("accepts a plan whose model labels say no work but whose fields show deps work", func() {
+			var err error
+			planMD, err = agentlib.ParseMarkdown(ctx, `---
+repo: bborbe/log
+clone_url: git@github.com:bborbe/log.git
+ref: 6d1f27fabcdef12345678901234567890abcdef1
+---
+
+body
+
+## Plan
+
+`+"```json"+`
+{
+  "outcome": "no_update_needed",
+  "has_work": false,
+  "dep_updates_expected": true,
+  "gate_targets": ["precommit"]
+}
+`+"```"+`
+`)
+			Expect(err).To(BeNil())
+
+			plan, err := pkg.ValidatePlan(step, planMD, pkg.UpdateScopeDeps)
+			Expect(err).To(BeNil())
+			Expect(plan.DepUpdatesExpected).To(BeTrue())
+		})
+
+		It("accepts a ready plan under both scope", func() {
+			var err error
+			planMD, err = agentlib.ParseMarkdown(ctx, executionTaskMD)
+			Expect(err).To(BeNil())
+
+			_, err = pkg.ValidatePlan(step, planMD, pkg.UpdateScopeDeps)
+			Expect(err).To(BeNil())
+		})
+
+		It("rejects a plan with genuinely no in-scope work", func() {
+			var err error
+			planMD, err = agentlib.ParseMarkdown(ctx, `---
+repo: bborbe/demo
+clone_url: git@github.com:bborbe/demo.git
+ref: 6d1f27fabcdef12345678901234567890abcdef1
+---
+
+body
+
+## Plan
+
+`+"```json"+`
+{
+  "outcome": "ready",
+  "has_work": true,
+  "dep_updates_expected": false,
+  "gate_targets": ["precommit"]
+}
+`+"```"+`
+`)
+			Expect(err).To(BeNil())
+
+			_, err = pkg.ValidatePlan(step, planMD, pkg.UpdateScopeDeps)
+			Expect(err).NotTo(BeNil())
+		})
+
+		It("ignores a stale go bump on a deps-scope plan", func() {
+			var err error
+			planMD, err = agentlib.ParseMarkdown(ctx, `---
+repo: bborbe/demo
+clone_url: git@github.com:bborbe/demo.git
+ref: 6d1f27fabcdef12345678901234567890abcdef1
+---
+
+body
+
+## Plan
+
+`+"```json"+`
+{
+  "outcome": "no_update_needed",
+  "has_work": false,
+  "go_bump": {"from": "1.26.3", "to": "1.26.5"},
+  "dep_updates_expected": false,
+  "gate_targets": ["precommit"]
+}
+`+"```"+`
+`)
+			Expect(err).To(BeNil())
+
+			_, err = pkg.ValidatePlan(step, planMD, pkg.UpdateScopeDeps)
+			Expect(err).NotTo(BeNil())
+		})
+	})
 })
