@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.9.3
 
 - fix: planning's close decision is driven by the plan's structured fields, never by the model's `outcome` label alone. The label sat in front of the scope check as an `||`, so it could only ever widen the close — `hasWorkForScope` was able to remove work but never to rescue it. On 2026-08-19 `bborbe/argument` (`update_scope: deps`) came back `no_update_needed` + `has_work: false` while the SAME plan object carried `dep_updates_expected: true`, and its reason had the scope inverted ("dep updates are out of scope since update_scope is deps"). The task completed with no PR and, being completed, never retried — while the repo really had three direct dep updates waiting (`bborbe/errors`, `bborbe/time`, `onsi/ginkgo/v2`). The contradiction now logs at V(0) with repo, scope and the model's own reason. Being wrong in this direction is bounded: if the fields overstate the work, execution's no-effective-change guard writes `no_update_needed` and routes to done — a wasted pass beats a silent skip. The deps-scope prompt section now also states explicitly that dep updates are in scope and that `dep_updates_expected: true` forces `has_work: true`, but the code no longer depends on the model reading it correctly.
 
