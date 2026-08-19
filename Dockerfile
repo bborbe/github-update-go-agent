@@ -14,10 +14,14 @@ FROM ${DOCKER_REGISTRY}/alpine:3.23 AS alpine
 # the full Go toolchain. Most scanners/linters run via `go run tool@version`
 # from the repo's Makefile — only trivy must be a system binary.
 # gcc + musl-dev: repo gates run `go test -race`, which requires cgo.
+# npm is KEPT (not `apk del`'d after installing the Claude CLI): a repo whose
+# `make precommit` recurses into a JS subproject needs it, and without it the
+# gate dies with `npm: No such file or directory` (exit 127) at planning, so the
+# task can never pass and retries forever — observed on bborbe/backup, 2026-08-19.
+# Costs 7.5 MB; node is already here for the Claude CLI.
 RUN apk --no-cache add ca-certificates curl bash git github-cli make jq util-linux nodejs npm gcc musl-dev \
  && npm install -g --omit=dev --no-optional @anthropic-ai/claude-code \
  && npm cache clean --force \
- && apk del npm \
  && rm -rf /root/.npm /tmp/*
 RUN curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
   | sh -s -- -b /usr/local/bin \
