@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- fix: a missing `AUTO_MERGE_LABEL` no longer costs the pull request. `gh pr create --label <name>` fails outright when the label does not exist in the repo, so with `AUTO_MERGE_LABEL: auto-merge` configured fleet-wide and no repo actually defining that label, every run died at PR creation with `could not add label: 'auto-merge' not found` — the 2026-08-19 deps sweep stopped producing PRs entirely while planning and execution both succeeded. `CreatePR` now retries once without the label, logs at V(0) naming the label so the operator can create it, and opens the PR anyway: losing the auto-merge opt-in beats losing the PR. Safe against duplicates because gh validates labels before creating anything — verified on `bborbe/backup`, which had no PR at all after the failure.
+
 ## v0.9.4
 
 - fix: keep `npm` in the runtime image instead of `apk del`-ing it after it installs the Claude CLI. Node survived that delete, npm did not, so any repo whose `make precommit` recurses into a JS subproject died at the planning gate with `npm: No such file or directory` (exit 127) — a task that can never pass and therefore retries forever. Observed on `bborbe/backup` during the 2026-08 deps sweep: 4+ consecutive jobs, ~8 min each, identical failure, burning the serial slot at `maxConcurrentJobs: 1`. Costs 7.5 MB (`npm-11.11.0-r0`); node was already present for the Claude CLI. Audited the rest of that RUN block against the deployed v0.9.2 image — npm was the only binary installed-then-deleted; curl, bash, git, gh, make, jq, column, node, gcc, go, trivy and claude all resolve.

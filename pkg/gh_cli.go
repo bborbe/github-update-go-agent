@@ -88,17 +88,52 @@ func prCreateArgs(base, head, title, body string, target PRTarget, label string)
 	return args
 }
 
+// isMissingLabelError reports whether gh refused to create the PR because the
+// requested label does not exist in the repository. gh's message is
+// "could not add label: '<name>' not found".
+func isMissingLabelError(output string) bool {
+	return strings.Contains(output, "could not add label") &&
+		strings.Contains(output, "not found")
+}
+
+// runPRCreate shells out to `gh pr create` once and returns its combined
+// output alongside the run error, so CreatePR can inspect the failure and
+// decide whether a label-free retry is warranted.
+func (g *osExecGhCli) runPRCreate(
+	ctx context.Context,
+	workdir, base, head, title, body string,
+	target PRTarget,
+	label string,
+) ([]byte, error) {
+	// #nosec G204 -- binary is hardcoded gh; workdir is os.TempDir-rooted; head is the deterministic branch name
+	cmd := exec.CommandContext(ctx, "gh", prCreateArgs(base, head, title, body, target, label)...)
+	cmd.Dir = workdir
+	cmd.Env = g.cmdEnv()
+	return cmd.CombinedOutput()
+}
+
 func (g *osExecGhCli) CreatePR(
 	ctx context.Context,
 	workdir, base, head, title, body string,
 	target PRTarget,
 	label string,
 ) (string, error) {
-	// #nosec G204 -- binary is hardcoded gh; workdir is os.TempDir-rooted; head is the deterministic branch name
-	cmd := exec.CommandContext(ctx, "gh", prCreateArgs(base, head, title, body, target, label)...)
-	cmd.Dir = workdir
-	cmd.Env = g.cmdEnv()
-	out, err := cmd.CombinedOutput()
+	out, err := g.runPRCreate(ctx, workdir, base, head, title, body, target, label)
+	if err != nil && label != "" && isMissingLabelError(string(out)) {
+		// The label is an opt-in marker, not part of the update. gh validates
+		// labels before creating anything, so nothing was opened — retrying
+		// without the label cannot duplicate a PR. Losing the auto-merge
+		// opt-in is strictly better than losing the PR: on 2026-08-19 every
+		// repo in the deps sweep failed here with "could not add label:
+		// 'auto-merge' not found" because no repo defined that label, and the
+		// whole fleet stopped producing PRs.
+		glog.V(0).Infof(
+			"gh pr create: label %q does not exist in this repo — opening the PR without it "+
+				"(auto-merge opt-in skipped); create the label to enable it",
+			label,
+		)
+		out, err = g.runPRCreate(ctx, workdir, base, head, title, body, target, "")
+	}
 	if err != nil {
 		return "", errors.Errorf(
 			ctx,

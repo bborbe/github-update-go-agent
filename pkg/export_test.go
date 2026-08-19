@@ -16,6 +16,7 @@ var (
 	NormalizeCloneURLToHTTPS = normalizeCloneURLToHTTPS
 	InjectToken              = injectToken
 	PRCreateArgs             = prCreateArgs
+	IsMissingLabelError      = isMissingLabelError
 	ParseScannerOutput       = parseScannerOutput
 	DetectGateTargets        = detectGateTargets
 	ValidatePlanAgainstTable = validatePlanAgainstTable
