@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- fix: keep `npm` in the runtime image instead of `apk del`-ing it after it installs the Claude CLI. Node survived that delete, npm did not, so any repo whose `make precommit` recurses into a JS subproject died at the planning gate with `npm: No such file or directory` (exit 127) — a task that can never pass and therefore retries forever. Observed on `bborbe/backup` during the 2026-08 deps sweep: 4+ consecutive jobs, ~8 min each, identical failure, burning the serial slot at `maxConcurrentJobs: 1`. Costs 7.5 MB (`npm-11.11.0-r0`); node was already present for the Claude CLI. Audited the rest of that RUN block against the deployed v0.9.2 image — npm was the only binary installed-then-deleted; curl, bash, git, gh, make, jq, column, node, gcc, go, trivy and claude all resolve.
+
 ## v0.9.2
 
 - fix: `make build` refuses to stamp a version onto a tree that is not that version's tag (`check-version-tag`, escape hatch `ALLOW_UNTAGGED_BUILD=1`). The image publish is operator-run and `VERSION` defaults to the newest tag, so a build started before the tag lands — or with an explicit `VERSION=` for a tag that does not exist yet — silently stamps new-version metadata onto old code. This drifted twice in one day (2026-08-19): the `v0.9.0` image was built from a stale tree, and the `v0.9.1` image was pushed at 09:25Z from a binary built 09:20Z, while the `v0.9.1` tag was only cut at 09:39Z — so the published `v0.9.1` image did not contain the prompt fix that `v0.9.1` exists to ship. Nothing surfaced it: the tag, the changelog and the image name all agreed, and only grepping the image binary showed the fix absent.
