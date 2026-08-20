@@ -31,6 +31,16 @@ const (
 	// committed-files guard, NOT by ClassifyError — it is a semantic assertion
 	// on the file set, so there is no stderr fragment to match.
 	ErrorCategoryUnexpectedDiff ErrorCategory = "unexpected_diff"
+	// ErrorCategoryPermissionDenied — a Claude sub-call tool invocation was
+	// refused by the CLI allowlist. Amendment 2026-08-20: added after a run
+	// whose only fault was a denied `grep` retried until the Job's 1800s
+	// deadline killed it, recording error_category "unknown" and discarding a
+	// green update. "unknown" made a permissions bug look like a timeout,
+	// which is exactly the confusion this category removes.
+	//
+	// Unlike the git categories, the matched text comes from the Claude CLI's
+	// stdout tail (wrapped into the error by the runner), not from git stderr.
+	ErrorCategoryPermissionDenied ErrorCategory = "permission_denied"
 	// ErrorCategoryUnknown — message does not match any known fragment. Bug
 	// signal: if this fires repeatedly, add a new substring to the table.
 	ErrorCategoryUnknown ErrorCategory = "unknown"
@@ -47,6 +57,12 @@ type classifierEntry struct {
 // classifierTable is the canonical substring→category mapping. Distinct
 // fragment per category — adding entries requires a design amendment.
 var classifierTable = []classifierEntry{
+	// Claude CLI permission refusal (execution/planning sub-call). Listed
+	// first: these fragments come from the CLI's stdout tail and cannot
+	// collide with git stderr text.
+	{Fragment: "requires approval", Category: ErrorCategoryPermissionDenied},
+	{Fragment: "Claude requested permissions", Category: ErrorCategoryPermissionDenied},
+	{Fragment: "permission denied by allowlist", Category: ErrorCategoryPermissionDenied},
 	// Protected-branch fragments (push step).
 	{Fragment: "protected branch", Category: ErrorCategoryProtectedBranchRejected},
 	{Fragment: "GH006", Category: ErrorCategoryProtectedBranchRejected},

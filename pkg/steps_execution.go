@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	agentlib "github.com/bborbe/agent"
 	claudelib "github.com/bborbe/agent/claude"
@@ -28,6 +29,19 @@ const branchPrefix = "fix/update-go-"
 
 // prTitle is the fixed PR title (Stage-1 contract).
 const prTitle = "update go module dependencies"
+
+// claudeExecutionTimeout bounds the execution Claude sub-call. Without it the
+// sub-call is bounded only by the Job's activeDeadlineSeconds (1800s), which
+// is not a bound the Go step survives: the deadline kills the whole pod, so
+// the gate re-run, commit, and push after this call never happen and work that
+// already passed its gates is discarded (observed 2026-08-16 on bborbe/ip —
+// gate_exit: 0, branch never pushed, no PR).
+//
+// The point of the timeout is therefore not just failing fast; it is returning
+// control to Go while there is still Job budget left to act on the result.
+// Same rationale as bulkUpdateTimeout: exceeding it is a failure, never a
+// retry.
+const claudeExecutionTimeout = 15 * time.Minute
 
 // workflowsPrefix is the forbidden commit path. The committed-files guard
 // rejects it before push AND the GitHub App lacks the Workflows permission
@@ -107,7 +121,10 @@ func (s *executionStep) ShouldRun(_ context.Context, _ *agentlib.Markdown) (bool
 //  3. PR-adopt guard — open PR for the deterministic branch → adopt, write
 //     ## Result, re-route (crash-window idempotency, design § 5.3).
 //  4. CloneAtRef + SwitchNewBranch fix/update-go-<ref:7>.
-//  5. Claude sub-call (file-edit + go/make only) — update + repair + CHANGELOG.
+//  5. Claude sub-call (file-edit + go/make only) — update + repair + CHANGELOG,
+//     bounded by claudeExecutionTimeout. On failure the gates still decide:
+//     green → salvage the work as a DRAFT PR, red → Failed with the Claude
+//     cause (see salvageAfterClaudeFailure).
 //  6. Deterministic gate re-run of the plan's gate targets → red = Failed
 //     with the failing target + output tail.
 //  7. No-effective-change guard — changed files empty or ⊆ {CHANGELOG.md}
@@ -176,7 +193,7 @@ func (s *executionStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentl
 
 	report, claudeErr := s.runUpdate(ctx, workdir, plan, bulkResult, updateScope)
 	if claudeErr != nil {
-		return s.fail(ctx, md, result, git.ErrorCategoryUnknown, claudeErr)
+		return s.salvageAfterClaudeFailure(ctx, md, workdir, branch, plan, result, claudeErr)
 	}
 
 	if failResult, err := s.rerunGates(ctx, md, workdir, plan, result, report); failResult != nil ||
@@ -184,7 +201,64 @@ func (s *executionStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentl
 		return failResult, err
 	}
 
-	return s.commitPushAndOpenPR(ctx, md, workdir, branch, plan, report, result)
+	return s.commitPushAndOpenPR(ctx, md, workdir, branch, plan, report, result, s.prTarget)
+}
+
+// salvageAfterClaudeFailure decides what to do when the Claude sub-call
+// errored (timeout, permission refusal, CLI crash). It does NOT trust the
+// model's own verdict, because the model does not have one — it failed. It
+// asks the gates instead.
+//
+// Rationale: the gate targets are the deterministic verdict and the model's
+// self-report never was. A run on 2026-08-16 reached gate_exit: 0 and was
+// still discarded because the model died afterwards; the update was complete
+// and green, and nothing was pushed. When the gates pass, the work on disk is
+// good regardless of how the model exited.
+//
+// Two deliberate safety limits:
+//   - The pull request is forced to DRAFT even on a deployment configured
+//     PR_TARGET=ready. Green gates prove the code compiles and tests pass;
+//     they do NOT prove the model finished its non-gated duties — most
+//     importantly the CHANGELOG bullet, whose absence on an autoRelease repo
+//     means the change merges but never ships. A human sees salvaged work.
+//   - Gates red means no salvage: fail with the Claude error, which is the
+//     more actionable cause.
+func (s *executionStep) salvageAfterClaudeFailure(
+	ctx context.Context,
+	md *agentlib.Markdown,
+	workdir, branch string,
+	plan *PlanOutput,
+	result *ResultOutput,
+	claudeErr error,
+) (*agentlib.Result, error) {
+	// Classify rather than hardcoding unknown: a permission refusal and a
+	// genuine model failure need different operator responses, and recording
+	// both as "unknown" is what made the 2026-08-16 incident read as a
+	// deadline problem instead of an allowlist one.
+	category := git.ClassifyError(claudeErr)
+	glog.Warningf(
+		"execution: claude sub-call failed (category=%s) — re-running gates to "+
+			"decide whether the work on disk is salvageable: %v",
+		category, claudeErr,
+	)
+
+	// The model produced no parseable report, so PR body metadata (deps
+	// counted, vulns fixed) is empty rather than guessed at.
+	report := &executionReport{}
+	if failResult, err := s.rerunGates(ctx, md, workdir, plan, result, report); err != nil {
+		return failResult, err
+	} else if failResult != nil {
+		// rerunGates already wrote a ## Result with its own category; re-write
+		// it so the recorded cause is the Claude failure that started this,
+		// not the gate breakage that followed from it.
+		return s.fail(ctx, md, result, category, claudeErr)
+	}
+
+	glog.Warningf(
+		"execution: gates green despite claude failure — salvaging as a DRAFT pull "+
+			"request (branch=%s); review the CHANGELOG before merging", branch,
+	)
+	return s.commitPushAndOpenPR(ctx, md, workdir, branch, plan, report, result, PRTargetDraft)
 }
 
 // replayGuard re-routes when a prior run already produced a successful
@@ -347,7 +421,9 @@ func (s *executionStep) runUpdate(
 		"\n\n" + updateScopeSection(updateScope) +
 		"\n\n" + bulkUpdateSection(bulk, updateScope) +
 		"\n\n" + planJSON.Heading + "\n\n" + planJSON.Body
-	runResult, err := s.runner.Run(ctx, prompt)
+	runCtx, cancel := context.WithTimeout(ctx, claudeExecutionTimeout)
+	defer cancel()
+	runResult, err := s.runner.Run(runCtx, prompt)
 	if err != nil {
 		return nil, errors.Wrap(ctx, err, "claude execution run")
 	}
@@ -373,6 +449,15 @@ func (s *executionStep) rerunGates(
 	report *executionReport,
 ) (*agentlib.Result, error) {
 	for _, target := range plan.GateTargets {
+		// Each target is a `make` subprocess that can run for minutes. Without
+		// this check a cancelled context still walks the whole target list,
+		// which matters more now that the Job's remaining budget is what the
+		// salvage path spends.
+		select {
+		case <-ctx.Done():
+			return nil, errors.Wrap(ctx, ctx.Err(), "gate re-run cancelled")
+		default:
+		}
 		tail, exitCode, err := s.gate.RunTarget(ctx, workdir, target)
 		if err != nil {
 			result.GateExit = exitCode
@@ -390,6 +475,10 @@ func (s *executionStep) rerunGates(
 
 // commitPushAndOpenPR runs the no-effective-change guard, then the guarded
 // commit → push → PR tail, and writes the successful ## Result.
+//
+// prTarget is passed in rather than read from s.prTarget because the salvage
+// path forces draft regardless of deployment configuration — see
+// salvageAfterClaudeFailure.
 func (s *executionStep) commitPushAndOpenPR(
 	ctx context.Context,
 	md *agentlib.Markdown,
@@ -397,6 +486,7 @@ func (s *executionStep) commitPushAndOpenPR(
 	plan *PlanOutput,
 	report *executionReport,
 	result *ResultOutput,
+	prTarget PRTarget,
 ) (*agentlib.Result, error) {
 	changed, err := s.ops.ChangedFiles(ctx, workdir)
 	if err != nil {
@@ -435,7 +525,7 @@ func (s *executionStep) commitPushAndOpenPR(
 	prURL, err := s.gh.CreatePR(
 		ctx, workdir, "master", branch, prTitle,
 		buildPRBody(plan, report, vulnsFixed),
-		s.prTarget,
+		prTarget,
 		s.autoMergeLabel,
 	)
 	if err != nil {
@@ -452,7 +542,7 @@ func (s *executionStep) commitPushAndOpenPR(
 	}
 	md.ReplaceSection(section)
 
-	glog.V(2).Infof("execution: PR opened (target=%s) %s branch=%s", s.prTarget, prURL, branch)
+	glog.V(2).Infof("execution: PR opened (target=%s) %s branch=%s", prTarget, prURL, branch)
 	return &agentlib.Result{
 		Status:    agentlib.AgentStatusDone,
 		NextPhase: domain.TaskPhaseAIReview.String(),
