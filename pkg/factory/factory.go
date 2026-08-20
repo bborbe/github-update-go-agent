@@ -33,20 +33,46 @@ const serviceName = "github-update-go-agent"
 // trigger.task_type field must match.
 var taskTypeGithubUpdateGo = agentlib.TaskType("github-update-go")
 
+// readOnlyShellTools are the read-only text utilities both phases may shell
+// out to. They exist because the model reaches for shell pipelines even when
+// told to prefer the Grep/Read tools, and a denied Bash call is not a cheap
+// failure: the model retries it until the Job's activeDeadlineSeconds is
+// exhausted, discarding work that already passed its gates (observed
+// 2026-08-16, bborbe/ip, 1800s burned after gate_exit: 0).
+//
+// Every stage of a pipeline must be allowlisted independently — Claude Code
+// splits `go mod graph | grep foo` into two operations and denies the whole
+// command if either half is unlisted. That is why `grep` alone is not enough;
+// the paging tails the model habitually appends need listing too.
+//
+// Strictly read-only by construction: nothing here mutates the workdir, so
+// widening the scope does not widen the blast radius. Write access stays with
+// Edit/Write, and git/gh remain absent from execution.
+var readOnlyShellTools = []string{
+	"Bash(grep:*)", "Bash(head:*)", "Bash(tail:*)",
+	"Bash(cat:*)", "Bash(wc:*)", "Bash(sort:*)", "Bash(uniq:*)",
+}
+
 // planningTools is the planning phase's Claude tool scope: inspect-only —
 // no Edit/Write, no push (design § 4.3 planning).
-var planningTools = claudelib.AllowedTools{
-	"Read", "Grep", "Glob",
-	"Bash(git:*)", "Bash(go:*)", "Bash(make:*)",
-}
+var planningTools = append(
+	claudelib.AllowedTools{
+		"Read", "Grep", "Glob",
+		"Bash(git:*)", "Bash(go:*)", "Bash(make:*)",
+	},
+	readOnlyShellTools...,
+)
 
 // executionTools is the execution Claude sub-call's tool scope: file-edit +
 // go/make only — NO git, NO gh. Every git/PR side effect is the Go step's
 // (design § 7.0 capability removal).
-var executionTools = claudelib.AllowedTools{
-	"Read", "Grep", "Glob", "Edit", "Write",
-	"Bash(go:*)", "Bash(make:*)",
-}
+var executionTools = append(
+	claudelib.AllowedTools{
+		"Read", "Grep", "Glob", "Edit", "Write",
+		"Bash(go:*)", "Bash(make:*)",
+	},
+	readOnlyShellTools...,
+)
 
 // CreateClaudeRunner constructs a ClaudeRunner pre-configured with tools,
 // model, working directory, and CLI environment.

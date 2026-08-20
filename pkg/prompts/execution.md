@@ -103,6 +103,25 @@ Execute in order, repairing as you go:
 6. **Compile/test breakage from a bump** — fix the calling code minimally to
    match the new API. Keep edits small and mechanical.
 
+## Tool discipline
+
+To search file contents, use the **`Grep` tool**, not shell `grep`. To read a
+file, use the **`Read` tool**, not `cat`/`head`/`tail`. They are faster, they
+return structured results, and they cannot be refused.
+
+Read-only shell utilities (`grep`, `head`, `tail`, `cat`, `wc`, `sort`,
+`uniq`) ARE available as a fallback, so a pipeline like
+`go -C <workdir> mod graph | grep <pkg>` works. But prefer the tools: every
+stage of a shell pipeline must be separately permitted, so an unlisted
+utility anywhere in the chain rejects the whole command.
+
+If a Bash command IS refused, treat it as final. Do not retry it, do not
+retry a reworded variant — switch to the `Grep`/`Read` tool that does the
+same job, or proceed without that information. A refusal never becomes an
+approval by repetition, and on 2026-08-16 a run that kept retrying one denied
+`grep` consumed the Job's entire budget and threw away a completed, fully
+green update (`bborbe/ip`).
+
 ## Command discipline
 
 Run `go`/`make` commands — especially the gate targets in step 7 — to

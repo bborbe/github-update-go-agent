@@ -41,6 +41,21 @@ var _ = Describe("ClassifyError", func() {
 			"! [rejected] non-fast-forward",
 			git.ErrorCategoryPushNonFastForward,
 		),
+		// Verbatim denial text from the 2026-08-16 bborbe/ip run, which was
+		// recorded as "unknown" and read as a deadline problem. A denied tool
+		// call must surface as permission_denied, never as unknown.
+		Entry(
+			"denied bash pipeline (verbatim from bborbe/ip)",
+			"claude CLI failed: This Bash command contains multiple operations. "+
+				"The following part requires approval: grep -E '^[[:space:]]+"+
+				"(golang.org/x/crypto)[[:space:]]' /tmp/github-update-go-x/go.mod | head -20",
+			git.ErrorCategoryPermissionDenied,
+		),
+		Entry(
+			"permission prompt",
+			"claude CLI failed: Claude requested permissions to use Bash",
+			git.ErrorCategoryPermissionDenied,
+		),
 		Entry("unknown", "something exploded", git.ErrorCategoryUnknown),
 	)
 })

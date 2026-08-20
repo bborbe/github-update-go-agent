@@ -39,6 +39,18 @@ var _ = Describe("ExecutionPrompt", func() {
 		Expect(prompts.ExecutionPrompt()).NotTo(BeEmpty())
 	})
 
+	It("steers file search to the Grep tool rather than shell grep", func() {
+		Expect(prompts.ExecutionPrompt()).To(ContainSubstring("Tool discipline"))
+		Expect(prompts.ExecutionPrompt()).To(ContainSubstring("`Grep` tool"))
+	})
+
+	It("tells the model a refused Bash command is final, not retryable", func() {
+		// The 2026-08-16 bborbe/ip run burned all 1800s retrying one denied
+		// grep. Retrying a refusal is the cost driver, so the instruction not
+		// to retry is the load-bearing half of the prompt fix.
+		Expect(prompts.ExecutionPrompt()).To(ContainSubstring("Do not retry it"))
+	})
+
 	It("forbids git and gh — the Go step owns all git/PR side effects", func() {
 		Expect(prompts.ExecutionPrompt()).To(ContainSubstring("NO git and NO gh tools"))
 	})
