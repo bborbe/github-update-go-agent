@@ -449,6 +449,15 @@ func (s *executionStep) rerunGates(
 	report *executionReport,
 ) (*agentlib.Result, error) {
 	for _, target := range plan.GateTargets {
+		// Each target is a `make` subprocess that can run for minutes. Without
+		// this check a cancelled context still walks the whole target list,
+		// which matters more now that the Job's remaining budget is what the
+		// salvage path spends.
+		select {
+		case <-ctx.Done():
+			return nil, errors.Wrap(ctx, ctx.Err(), "gate re-run cancelled")
+		default:
+		}
 		tail, exitCode, err := s.gate.RunTarget(ctx, workdir, target)
 		if err != nil {
 			result.GateExit = exitCode
