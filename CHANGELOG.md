@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.9.8
 
 - fix: check `ctx.Done()` before each gate target in the gate re-run loop. Each target is a `make` subprocess that can run for minutes, so a cancelled context previously still walked the whole target list — which matters more now that the Job's remaining budget is what the salvage path spends.
 - fix: salvage completed work when the Claude sub-call fails after the update already succeeded. The gate targets are the deterministic verdict and the model's self-report never was, so a failed sub-call now re-runs the gates instead of discarding the workdir: green gates commit, push, and open a pull request; red gates fail with the Claude error as the recorded cause. The salvaged pull request is forced to **draft** even on a `PR_TARGET=ready` deployment — green gates prove the code compiles and tests pass, but not that the model finished its non-gated duties (notably the CHANGELOG bullet, whose absence on an `autoRelease` repo means the change merges but never ships), so salvaged work always gets human review.
