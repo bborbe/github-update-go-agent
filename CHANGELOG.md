@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- feat: CI-pin preflight in planning — the agent detects a hardcoded `go-version:` in `.github/workflows/*.yml` and escalates to human review with a precise manual fix (replace with `go-version-file: go.mod`) instead of opening a PR doomed to fail CI. Matrix pins (deliberate multi-version testing) are correctly not flagged. Pure-Go detection, no LLM cost; the agent remains architecturally forbidden from editing workflows.
+
 ## v0.9.8
 
 - fix: check `ctx.Done()` before each gate target in the gate re-run loop. Each target is a `make` subprocess that can run for minutes, so a cancelled context previously still walked the whole target list — which matters more now that the Job's remaining budget is what the salvage path spends.

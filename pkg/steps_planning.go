@@ -139,16 +139,15 @@ func (s *planningStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentli
 		return failResult, nil
 	}
 
-	workdir := setupWorkdir(md, repo)
-	defer func() {
-		if err := os.RemoveAll(workdir); err != nil {
-			glog.Warningf("planning: workdir cleanup failed: path=%s err=%v", workdir, err)
-		}
-	}()
+	workdir := s.setupAndCleanupWorkdir(md, repo)
 
 	authedURL := injectToken(normalizeCloneURLToHTTPS(cloneURL), s.ghToken)
 	if err := s.ops.CloneAtRef(ctx, authedURL, ref, workdir); err != nil {
 		return s.failClone(repo, err), nil
+	}
+
+	if failResult := s.ciPinPreflight(ctx, workdir, repo); failResult != nil {
+		return failResult, nil
 	}
 
 	plan, table, failResult := s.runInspection(ctx, md, workdir, updateScope)
@@ -202,6 +201,49 @@ func (s *planningStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentli
 		Status:    agentlib.AgentStatusDone,
 		NextPhase: domain.TaskPhaseExecution.String(),
 	}, nil
+}
+
+// setupAndCleanupWorkdir creates the ephemeral clone dir and registers its
+// deferred cleanup on Run's stack. setupWorkdir removes any stale dir first.
+func (s *planningStep) setupAndCleanupWorkdir(md *agentlib.Markdown, repo string) string {
+	workdir := setupWorkdir(md, repo)
+	defer func() {
+		if err := os.RemoveAll(workdir); err != nil {
+			glog.Warningf("planning: workdir cleanup failed: path=%s err=%v", workdir, err)
+		}
+	}()
+	return workdir
+}
+
+// ciPinPreflight is the prevention gate for hardcoded CI Go toolchain pins.
+// A `go-version:` value in a workflow freezes the CI toolchain; after a go.mod
+// bump it fails CI (`go.mod requires go >= X (running go Y; GOTOOLCHAIN=local)`),
+// and the agent is architecturally forbidden from editing workflows (no
+// Workflows permission; committed-files guard rejects .github/workflows/**).
+// So the agent escalates BEFORE any update work instead of opening a doomed
+// PR. Matrix pins (deliberate multi-version testing) are not a hardcode.
+// Returns a non-nil Result (needs_input escalation or failed) to short-circuit,
+// or nil to proceed to inspection.
+func (s *planningStep) ciPinPreflight(
+	ctx context.Context,
+	workdir, repo string,
+) *agentlib.Result {
+	pins, err := ScanWorkflowGoVersionPins(ctx, workdir)
+	if err != nil {
+		glog.Warningf("planning: workflow pin scan failed repo=%s err=%v", repo, err)
+		return failed("workflow pin scan failed: " + err.Error())
+	}
+	if !pins.HasPlainPin() {
+		return nil
+	}
+	pin := pins.PlainPins[0]
+	glog.V(2).
+		Infof("planning: hardcoded go-version pin in %s=%s — escalating repo=%s", pin.File, pin.Value, repo)
+	return needsInput("repo " + repo + " hardcodes CI Go toolchain in " + pin.File +
+		" (go-version: " + pin.Value + "). The agent cannot edit workflows (no Workflows permission; " +
+		"committed-files guard rejects .github/workflows/**). Fix manually: replace the single " +
+		"`go-version:` value with `go-version-file: go.mod` (keep `cache: true`), push to master, " +
+		"then re-delegate this task.")
 }
 
 // runInspection detects the repo's gate targets in Go, runs each one via
