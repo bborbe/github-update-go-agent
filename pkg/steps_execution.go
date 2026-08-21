@@ -501,6 +501,26 @@ func (s *executionStep) commitPushAndOpenPR(
 				"update touched forbidden workflow paths %v — refusing to commit", offending))
 	}
 
+	// Deterministic CHANGELOG guarantee (Defects 2/3/5). The model's bullet is
+	// best-effort — and absent entirely on the salvage path — so Go guarantees
+	// the CHANGELOG is bot-review-clean before the commit: canonical preamble
+	// on fresh files, `## Unreleased` after the preamble, and a `chore:` bullet
+	// naming the actual bumps. The base go.mod for the diff comes from
+	// origin/master; when it cannot be read (e.g. repo has no go.mod), the
+	// writer falls back to the generic bullet.
+	if _, err := os.Stat(workdir); err == nil {
+		baseGoMod, _ := s.ops.ShowFile(ctx, workdir, "origin/master", "go.mod")
+		if _, err := EnsureChangelog(ctx, workdir, baseGoMod); err != nil {
+			return s.fail(ctx, md, result, git.ErrorCategoryUnknown, err)
+		}
+		// The writer may have created/modified CHANGELOG.md — re-fetch so the
+		// commit pathspec and the post-commit guard see it.
+		changed, err = s.ops.ChangedFiles(ctx, workdir)
+		if err != nil {
+			return s.fail(ctx, md, result, git.ErrorCategoryUnknown, err)
+		}
+	}
+
 	if _, err := s.ops.Commit(ctx, workdir, prTitle, changed...); err != nil {
 		return s.fail(ctx, md, result, git.ClassifyError(err), err)
 	}
