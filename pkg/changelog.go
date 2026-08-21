@@ -97,7 +97,7 @@ func EnsureChangelog(
 		return &changelogResult{Created: true, Bullet: bullet}, nil
 	}
 
-	updated := ensureUnreleasedBullet(string(existing), bullet)
+	updated := ensureUnreleasedBullet(ctx, string(existing), bullet)
 	if updated == string(existing) {
 		return &changelogResult{}, nil
 	}
@@ -112,11 +112,16 @@ func EnsureChangelog(
 // section after the preamble (inserting it when absent) that carries at least
 // one conventional-prefix bullet (appending `bullet` when none exists).
 // Returns input unchanged when the section already satisfies the rule.
-func ensureUnreleasedBullet(content, bullet string) string {
+func ensureUnreleasedBullet(ctx context.Context, content, bullet string) string {
 	lines := strings.SplitAfter(content, "\n") // each element keeps its newline
 	heading := -1
 	nextHeading := len(lines)
 	for i, l := range lines {
+		select {
+		case <-ctx.Done():
+			return content
+		default:
+		}
 		trimmed := strings.TrimSpace(l)
 		if heading < 0 && strings.HasPrefix(trimmed, "## Unreleased") {
 			heading = i
@@ -131,7 +136,7 @@ func ensureUnreleasedBullet(content, bullet string) string {
 	if heading >= 0 {
 		// Section exists. If it already carries a conventional-prefix bullet,
 		// leave the whole file untouched — the model wrote a valid entry.
-		if hasPrefixedBullet(strings.Join(lines[heading:nextHeading], "")) {
+		if hasPrefixedBullet(ctx, strings.Join(lines[heading:nextHeading], "")) {
 			return content
 		}
 		// Insert the bullet at the end of the section, before the next heading
@@ -148,6 +153,11 @@ func ensureUnreleasedBullet(content, bullet string) string {
 	// to that heading is the frozen preamble; never place Unreleased inside it.
 	firstHeading := len(lines)
 	for i, l := range lines {
+		select {
+		case <-ctx.Done():
+			return content
+		default:
+		}
 		if strings.HasPrefix(strings.TrimSpace(l), "## ") {
 			firstHeading = i
 			break
@@ -162,8 +172,13 @@ func ensureUnreleasedBullet(content, bullet string) string {
 
 // hasPrefixedBullet reports whether the section body contains a bullet whose
 // first token is a conventional prefix (`- chore: ...`, `- fix: ...`, ...).
-func hasPrefixedBullet(section string) bool {
+func hasPrefixedBullet(ctx context.Context, section string) bool {
 	for _, line := range strings.Split(section, "\n") {
+		select {
+		case <-ctx.Done():
+			return false
+		default:
+		}
 		if conventionalPrefixRegexp.MatchString(line) {
 			return true
 		}
@@ -209,14 +224,44 @@ func changelogBulletFromGoModDiff(
 	if bf.Go != nil && wf.Go != nil && bf.Go.Version != wf.Go.Version {
 		parts = append(parts, "Go to "+wf.Go.Version)
 	}
+	bumped, err := diffRequireVersions(ctx, bf, wf)
+	if err != nil {
+		return "", err
+	}
+	if len(bumped) > 0 {
+		parts = append(parts, strings.Join(bumped, ", "))
+	}
+	if len(parts) == 0 {
+		return "- chore: update go module dependencies", nil
+	}
+	return "- chore: update " + strings.Join(parts, " and "), nil
+}
+
+// diffRequireVersions returns the "path to version" strings for every direct
+// requirement whose version moved between the base go.mod (origin/master) and
+// the workdir go.mod. Cancellation-aware per the go-context pattern.
+func diffRequireVersions(
+	ctx context.Context,
+	bf, wf *modfile.File,
+) ([]string, error) {
 	baseVersions := map[string]string{}
 	for _, r := range bf.Require {
+		select {
+		case <-ctx.Done():
+			return nil, errors.Wrap(ctx, ctx.Err(), "changelog bullet cancelled")
+		default:
+		}
 		if !r.Indirect {
 			baseVersions[r.Mod.Path] = r.Mod.Version
 		}
 	}
 	var bumped []string
 	for _, r := range wf.Require {
+		select {
+		case <-ctx.Done():
+			return nil, errors.Wrap(ctx, ctx.Err(), "changelog bullet cancelled")
+		default:
+		}
 		if r.Indirect {
 			continue
 		}
@@ -225,11 +270,5 @@ func changelogBulletFromGoModDiff(
 		}
 	}
 	sort.Strings(bumped)
-	if len(bumped) > 0 {
-		parts = append(parts, strings.Join(bumped, ", "))
-	}
-	if len(parts) == 0 {
-		return "- chore: update go module dependencies", nil
-	}
-	return "- chore: update " + strings.Join(parts, " and "), nil
+	return bumped, nil
 }
