@@ -91,6 +91,23 @@ var _ = Describe("PlanningStep", func() {
 		}
 	}
 
+	// setupFixtureWithWorkflow mirrors a clone that also carries a
+	// `.github/workflows/ci.yml` with the given content — used to exercise the
+	// CI-pin preflight without a real git clone.
+	setupFixtureWithWorkflow := func(workflowContent string) {
+		ops.CloneAtRefStub = func(ctx context.Context, url, ref, workdir string) error {
+			if err := os.MkdirAll(filepath.Join(workdir, ".github", "workflows"), 0o755); err != nil {
+				return err
+			}
+			if err := os.WriteFile(filepath.Join(workdir, "Makefile"), []byte(fixtureMakefile), 0o644); err != nil {
+				return err
+			}
+			return os.WriteFile(
+				filepath.Join(workdir, ".github", "workflows", "ci.yml"),
+				[]byte(workflowContent), 0o644)
+		}
+	}
+
 	BeforeEach(func() {
 		ctx = context.Background()
 		runner = &mocks.ClaudeRunnerMock{}
@@ -229,6 +246,62 @@ var _ = Describe("PlanningStep", func() {
 			Expect(result.Status).To(Equal(agentlib.AgentStatusNeedsInput))
 			Expect(result.Message).To(ContainSubstring("no gate target found"))
 			Expect(runner.RunCallCount()).To(Equal(0))
+		})
+	})
+
+	Describe("CI-pin preflight (hardcoded go-version in workflow)", func() {
+		BeforeEach(func() {
+			setupFixtureWithWorkflow(`name: CI
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.5'
+          cache: true
+`)
+		})
+
+		It("escalates NeedsInput with the workflow file + manual fix, before any LLM call", func() {
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusNeedsInput))
+			Expect(result.Message).To(ContainSubstring(".github/workflows/ci.yml"))
+			Expect(result.Message).To(ContainSubstring("go-version-file: go.mod"))
+			Expect(result.Message).To(ContainSubstring("cannot edit workflows"))
+			Expect(runner.RunCallCount()).To(Equal(0))
+		})
+	})
+
+	Describe("CI-pin preflight (matrix go-version — not a hardcode)", func() {
+		BeforeEach(func() {
+			setupFixtureWithWorkflow(`name: Test
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: ['1.25.11', '1.26.5']
+    steps:
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+`)
+		})
+
+		It("proceeds past the preflight to inspection (no escalation)", func() {
+			runner.RunReturns(&claudelib.ClaudeResult{Result: `{
+				"outcome": "no_update_needed",
+				"has_work": false,
+				"gate_targets": ["precommit"]
+			}`}, nil)
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusDone))
+			Expect(runner.RunCallCount()).To(Equal(1))
 		})
 	})
 
