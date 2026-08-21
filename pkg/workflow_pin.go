@@ -56,6 +56,11 @@ func ScanWorkflowGoVersionPins(ctx context.Context, workdir string) (PinScanResu
 		return result, errors.Wrapf(ctx, err, "read workflows dir %s", workflowsDir)
 	}
 	for _, entry := range entries {
+		select {
+		case <-ctx.Done():
+			return result, errors.Wrapf(ctx, ctx.Err(), "scan workflow pins cancelled")
+		default:
+		}
 		if entry.IsDir() {
 			continue
 		}

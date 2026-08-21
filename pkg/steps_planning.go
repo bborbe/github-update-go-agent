@@ -230,7 +230,6 @@ func (s *planningStep) ciPinPreflight(
 ) *agentlib.Result {
 	pins, err := ScanWorkflowGoVersionPins(ctx, workdir)
 	if err != nil {
-		glog.Warningf("planning: workflow pin scan failed repo=%s err=%v", repo, err)
 		return failed("workflow pin scan failed: " + err.Error())
 	}
 	if !pins.HasPlainPin() {
