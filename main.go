@@ -289,7 +289,7 @@ func (a *application) buildClaudeEnv(ctx context.Context, resolvedToken string) 
 	) {
 		select {
 		case <-ctx.Done():
-			return nil
+			return map[string]string{}
 		default:
 		}
 		claudeEnv[k] = v

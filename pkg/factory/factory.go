@@ -202,6 +202,19 @@ func CreateBuildFixChainEmitter(
 // clone_url frontmatter is set only for owner/repo inputs, so the updater's
 // HTTPS auth path has the explicit git@ remote.
 func buildChainCommand(repo, episodeSHA string, workflows []string) task.CreateCommand {
+	fm := chainFrontmatter(repo, episodeSHA)
+	return task.CreateCommand{
+		Title:          "Update Go " + repo + " at " + shortSHA(episodeSHA),
+		TaskIdentifier: agentlib.TaskIdentifier(deriveUpdateGoTaskID(repo, episodeSHA)),
+		Frontmatter:    fm,
+		Body:           buildChainBody(repo, episodeSHA, workflows),
+	}
+}
+
+// chainFrontmatter builds the chained task's frontmatter, adding clone_url
+// for owner/repo inputs so the updater's HTTPS auth path has the explicit
+// git@ remote.
+func chainFrontmatter(repo, episodeSHA string) agentlib.TaskFrontmatter {
 	fm := agentlib.TaskFrontmatter{
 		"task_type":   "github-update-go",
 		"assignee":    "github-update-go-agent",
@@ -213,12 +226,7 @@ func buildChainCommand(repo, episodeSHA string, workflows []string) task.CreateC
 	if len(splitRepo(repo)) == 2 {
 		fm["clone_url"] = "git@github.com:" + repo + ".git"
 	}
-	return task.CreateCommand{
-		Title:          "Update Go " + repo + " at " + shortSHA(episodeSHA),
-		TaskIdentifier: agentlib.TaskIdentifier(deriveUpdateGoTaskID(repo, episodeSHA)),
-		Frontmatter:    fm,
-		Body:           buildChainBody(repo, episodeSHA, workflows),
-	}
+	return fm
 }
 
 // updateGoChainNamespace is the fixed v5 UUID namespace for chained
