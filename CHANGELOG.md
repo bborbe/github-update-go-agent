@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+
+## Unreleased
+
+- exclude no-fix docker/containerd advisories in checker config (GO-2026-4883/4887/5064/5338/5622/5932 v1 no-fix)
 ## v0.12.1
 
 - fix: ship the common-problems knowledge base in the runtime image — `docs/common-problems.md` lived at a path only the build stage copied (`COPY . /workspace`), so `/workspace/docs/common-problems.md` did not exist in the deployed pod and the guardrail reference was dead. Moved to `agent/docs/common-problems.md` (carried by `COPY agent/ /agent/`) and the guardrail now reads `/agent/docs/common-problems.md`. Found by live e2e: the v0.11.0 self-update job parked a no-fix-advisory task (`needs_input`) because the model never saw the KB.
