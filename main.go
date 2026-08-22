@@ -165,6 +165,12 @@ func (a *application) Run(ctx context.Context, _ libsentry.Client) error {
 
 	claudeEnv := a.buildClaudeEnv(resolvedToken)
 
+	// Build-fix chain emission: publishes a github-update-go task via the
+	// controller's Kafka command bus when a build-fix task diagnoses a
+	// stale-dep/vuln failure. Nil when no brokers are configured (local CLI
+	// mode) — the fixer records a chain_noop instead.
+	createCmd := factory.CreateBuildFixChainEmitter(ctx, a.KafkaBrokers, a.TopicPrefix)
+
 	provider := factory.CreateAgentProvider(
 		a.ClaudeConfigDir,
 		a.AgentDir,
@@ -178,6 +184,7 @@ func (a *application) Run(ctx context.Context, _ libsentry.Client) error {
 		prTarget,
 		a.AutoMergeLabel,
 		updateScope,
+		createCmd,
 	)
 	agent, err := provider.Get(ctx, agentlib.TaskType(a.TaskType))
 	if err != nil {

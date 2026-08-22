@@ -29,6 +29,21 @@ type GhCli struct {
 		result1 string
 		result2 error
 	}
+	FetchFailedLogsStub        func(context.Context, string, string) (string, error)
+	fetchFailedLogsMutex       sync.RWMutex
+	fetchFailedLogsArgsForCall []struct {
+		arg1 context.Context
+		arg2 string
+		arg3 string
+	}
+	fetchFailedLogsReturns struct {
+		result1 string
+		result2 error
+	}
+	fetchFailedLogsReturnsOnCall map[int]struct {
+		result1 string
+		result2 error
+	}
 	FindOpenPRByHeadStub        func(context.Context, string, string) (string, error)
 	findOpenPRByHeadMutex       sync.RWMutex
 	findOpenPRByHeadArgsForCall []struct {
@@ -130,6 +145,72 @@ func (fake *GhCli) CreatePRReturnsOnCall(i int, result1 string, result2 error) {
 		})
 	}
 	fake.createPRReturnsOnCall[i] = struct {
+		result1 string
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *GhCli) FetchFailedLogs(arg1 context.Context, arg2 string, arg3 string) (string, error) {
+	fake.fetchFailedLogsMutex.Lock()
+	ret, specificReturn := fake.fetchFailedLogsReturnsOnCall[len(fake.fetchFailedLogsArgsForCall)]
+	fake.fetchFailedLogsArgsForCall = append(fake.fetchFailedLogsArgsForCall, struct {
+		arg1 context.Context
+		arg2 string
+		arg3 string
+	}{arg1, arg2, arg3})
+	stub := fake.FetchFailedLogsStub
+	fakeReturns := fake.fetchFailedLogsReturns
+	fake.recordInvocation("FetchFailedLogs", []interface{}{arg1, arg2, arg3})
+	fake.fetchFailedLogsMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2, arg3)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *GhCli) FetchFailedLogsCallCount() int {
+	fake.fetchFailedLogsMutex.RLock()
+	defer fake.fetchFailedLogsMutex.RUnlock()
+	return len(fake.fetchFailedLogsArgsForCall)
+}
+
+func (fake *GhCli) FetchFailedLogsCalls(stub func(context.Context, string, string) (string, error)) {
+	fake.fetchFailedLogsMutex.Lock()
+	defer fake.fetchFailedLogsMutex.Unlock()
+	fake.FetchFailedLogsStub = stub
+}
+
+func (fake *GhCli) FetchFailedLogsArgsForCall(i int) (context.Context, string, string) {
+	fake.fetchFailedLogsMutex.RLock()
+	defer fake.fetchFailedLogsMutex.RUnlock()
+	argsForCall := fake.fetchFailedLogsArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+}
+
+func (fake *GhCli) FetchFailedLogsReturns(result1 string, result2 error) {
+	fake.fetchFailedLogsMutex.Lock()
+	defer fake.fetchFailedLogsMutex.Unlock()
+	fake.FetchFailedLogsStub = nil
+	fake.fetchFailedLogsReturns = struct {
+		result1 string
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *GhCli) FetchFailedLogsReturnsOnCall(i int, result1 string, result2 error) {
+	fake.fetchFailedLogsMutex.Lock()
+	defer fake.fetchFailedLogsMutex.Unlock()
+	fake.FetchFailedLogsStub = nil
+	if fake.fetchFailedLogsReturnsOnCall == nil {
+		fake.fetchFailedLogsReturnsOnCall = make(map[int]struct {
+			result1 string
+			result2 error
+		})
+	}
+	fake.fetchFailedLogsReturnsOnCall[i] = struct {
 		result1 string
 		result2 error
 	}{result1, result2}

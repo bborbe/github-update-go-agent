@@ -43,6 +43,7 @@ var _ = Describe("CreateAgentProvider", func() {
 			updatepkg.PRTargetDraft,
 			"",
 			updatepkg.UpdateScopeBoth,
+			nil, // createCmd: nil in local tests — chain emission disabled
 		)
 	})
 
@@ -94,7 +95,15 @@ var _ = Describe("CreateAgentProvider", func() {
 		})
 
 		It("error message contains the sorted accepted-types list", func() {
-			Expect(err.Error()).To(ContainSubstring("[github-update-go healthcheck oauth-probe]"))
+			Expect(
+				err.Error(),
+			).To(ContainSubstring("[build-fix github-update-go healthcheck oauth-probe]"))
+		})
+
+		It("Get returns the build-fix agent for task_type build-fix", func() {
+			agent, err := provider.Get(ctx, agentlib.TaskType("build-fix"))
+			Expect(err).To(BeNil())
+			Expect(agent).NotTo(BeNil())
 		})
 	})
 })

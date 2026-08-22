@@ -10,15 +10,22 @@ package factory
 
 import (
 	"context"
+	"strings"
 
 	agentlib "github.com/bborbe/agent"
 	claudelib "github.com/bborbe/agent/claude"
+	task "github.com/bborbe/agent/command/task"
 	delivery "github.com/bborbe/agent/delivery"
 	healthcheck "github.com/bborbe/agent/healthcheck"
 	"github.com/bborbe/cqrs/base"
+	"github.com/bborbe/cqrs/cdb"
+	"github.com/bborbe/errors"
 	libkafka "github.com/bborbe/kafka"
+	"github.com/bborbe/log"
 	libtime "github.com/bborbe/time"
 	domain "github.com/bborbe/vault-cli/pkg/domain"
+	"github.com/golang/glog"
+	"github.com/google/uuid"
 
 	updatepkg "github.com/bborbe/github-update-go-agent/pkg"
 	"github.com/bborbe/github-update-go-agent/pkg/git"
@@ -32,6 +39,13 @@ const serviceName = "github-update-go-agent"
 // "github-update-go" — the watcher emits it verbatim and the CRD
 // trigger.task_type field must match.
 var taskTypeGithubUpdateGo = agentlib.TaskType("github-update-go")
+
+// taskTypeBuildFix is the agent-lib TaskType literal for the build-fix
+// domain task (the second task type this binary hosts, per the 2026-08-22
+// architecture decision). Keep the literal exactly "build-fix" — the
+// github-build watcher emits it verbatim and the CRD trigger.task_type field
+// must match.
+var taskTypeBuildFix = agentlib.TaskType("build-fix")
 
 // readOnlyShellTools are the read-only text utilities both phases may shell
 // out to. They exist because the model reaches for shell pipelines even when
@@ -152,6 +166,117 @@ func CreateFileResultDeliverer(filePath string) agentlib.ResultDeliverer {
 	)
 }
 
+// CreateBuildFixChainEmitter wires the build-fixer's chain-to-updater
+// emission: a CreateCommandFunc that publishes a github-update-go task via
+// the controller's Kafka command bus (task.CreateCommandSender), exactly as
+// the github-build watcher does for build-fix tasks. The producer is created
+// per invocation and closed immediately — the Pattern B Job emits at most one
+// downstream task per run, so a persistent producer would leak across runs.
+//
+// Nil brokers → the returned func is nil (local CLI mode disables chain
+// publishing; the execution step records a chain_noop so a local replay still
+// exercises the full phase path).
+func CreateBuildFixChainEmitter(
+	ctx context.Context,
+	brokers libkafka.Brokers,
+	topicPrefix base.TopicPrefix,
+) updatepkg.CreateCommandFunc {
+	if len(brokers) == 0 {
+		return nil
+	}
+	return func(
+		ctx context.Context,
+		repo, episodeSHA string,
+		workflows []string,
+	) error {
+		syncProducer, err := CreateSyncProducer(ctx, brokers)
+		if err != nil {
+			return errors.Wrap(ctx, err, "create chain sync producer")
+		}
+		defer func() {
+			if err := syncProducer.Close(); err != nil {
+				glog.Warningf("close chain sync producer failed: %v", err)
+			}
+		}()
+		sender := cdb.NewCommandObjectSender(syncProducer, topicPrefix, log.DefaultSamplerFactory)
+		createSender := task.NewCreateCommandSender(sender, "")
+		ownerRepo := splitRepo(repo)
+		fm := agentlib.TaskFrontmatter{
+			"task_type":   "github-update-go",
+			"assignee":    "github-update-go-agent",
+			"repo":        repo,
+			"episode_sha": episodeSHA,
+			"status":      "in_progress",
+			"phase":       "planning",
+		}
+		title := "Update Go " + repo + " at " + shortSHA(episodeSHA)
+		if len(ownerRepo) == 2 {
+			fm["clone_url"] = "git@github.com:" + repo + ".git"
+		}
+		cmd := task.CreateCommand{
+			Title:          title,
+			TaskIdentifier: agentlib.TaskIdentifier(deriveUpdateGoTaskID(repo, episodeSHA)),
+			Frontmatter:    fm,
+			Body:           buildChainBody(repo, episodeSHA, workflows),
+		}
+		if err := createSender.SendCommand(ctx, cmd); err != nil {
+			return errors.Wrap(ctx, err, "send github-update-go chain task")
+		}
+		return nil
+	}
+}
+
+// updateGoChainNamespace is the fixed v5 UUID namespace for chained
+// github-update-go task identifiers (distinct from the build watcher's own
+// namespace so the two services cannot collide).
+var updateGoChainNamespace = uuid.MustParse("6f4d2b1a-9c3e-4d7a-b5f0-2a8c1d3e5f6a")
+
+// deriveUpdateGoTaskID produces a deterministic task identifier for the
+// chained github-update-go task: UUID5 of (owner/repo, episode SHA), matching
+// the build watcher's DeriveTaskID shape. The updater's own task identifiers
+// use (owner, repo, head_sha); here the episode SHA stands in as the ref the
+// updater will clone at, so a re-diagnosis of the same episode chains to the
+// same updater task (dedup).
+func deriveUpdateGoTaskID(repo, episodeSHA string) string {
+	key := repo + "#build-chain-" + episodeSHA
+	return uuid.NewSHA1(updateGoChainNamespace, []byte(key)).String()
+}
+
+// buildChainBody renders the chained github-update-go task body: header +
+// the failing-workflow evidence so the updater has context for why it was
+// dispatched.
+func buildChainBody(repo, episodeSHA string, workflows []string) string {
+	b := "Chained by the build-fix agent: the CI episode " + episodeSHA +
+		" for " + repo + " was diagnosed as a stale-dependency / vulnerability " +
+		"failure. Update the repo's Go toolchain + dependencies.\n\n"
+	b += "Episode SHA: `" + episodeSHA + "`\n\n"
+	if len(workflows) > 0 {
+		b += "## Failing Workflows\n\n"
+		for _, w := range workflows {
+			b += "- " + w + "\n"
+		}
+		b += "\n"
+	}
+	return b
+}
+
+// splitRepo splits "owner/name" into [owner, name]; returns nil on malformed.
+func splitRepo(repo string) []string {
+	parts := strings.Split(repo, "/")
+	if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
+		return parts
+	}
+	return nil
+}
+
+// shortSHA bounds an episode SHA to its 7-char prefix.
+func shortSHA(sha string) string {
+	if len(sha) <= 7 {
+		return sha
+	}
+	return sha[:7]
+}
+
 // CreateAgent assembles the three distinct phases (design § 4.2):
 //
 //   - planning:  claude-auth + gh-token preflights + Claude planning step
@@ -219,8 +344,62 @@ func CreateAgent(
 	)
 }
 
+// CreateBuildFixAgent assembles the build-fixer's three phases (the second
+// domain agent this binary hosts, per the 2026-08-22 architecture decision
+// — shares the binary's core plumbing, no separate repo/deployment):
+//
+//   - planning:  claude-auth preflight + fix diagnosis step (clone @ episode
+//     SHA, verify green at HEAD, fetch failed logs, Claude classification
+//     into no_fix_needed / chain_update / file_spec / needs_input) → ## Fix Plan
+//   - execution: pure-Go hand-off step — chain_update emits a github-update-go
+//     task (CreateCommand), file_spec files the kind:bug spec on
+//     build-fixer/<sha-short>, dedup via branch existence → ## Fix Result
+//   - ai_review: pure-Go verifier (branch landed on origin / hand-off
+//     recorded) → ## Review → human_review
+func CreateBuildFixAgent(
+	claudeConfigDir claudelib.ClaudeConfigDir,
+	agentDir claudelib.AgentDir,
+	model claudelib.ClaudeModel,
+	ghToken string,
+	claudeEnv map[string]string,
+	gitOps git.GitOps,
+	ghCli updatepkg.GhCli,
+	claudeProber updatepkg.ClaudeProber,
+	createCmd updatepkg.CreateCommandFunc,
+) *agentlib.Agent {
+	claudeAuth := updatepkg.NewClaudeAuthStep(claudeProber)
+	fixRunner := CreateClaudeRunner(
+		claudeConfigDir,
+		agentDir,
+		planningTools,
+		model,
+		claudeEnv,
+	)
+	planningStep := updatepkg.NewFixPlanningStep(
+		fixRunner,
+		gitOps,
+		ghCli,
+		ghToken,
+	)
+	executionStep := updatepkg.NewFixExecutionStep(
+		gitOps,
+		ghCli,
+		ghToken,
+		createCmd,
+	)
+	reviewStep := updatepkg.NewFixReviewStep(gitOps, ghToken)
+
+	return agentlib.NewAgent(
+		agentlib.NewPhase(domain.TaskPhasePlanning, claudeAuth, planningStep),
+		agentlib.NewPhase(domain.TaskPhaseExecution, executionStep),
+		agentlib.NewPhase(domain.TaskPhaseAIReview, reviewStep),
+	)
+}
+
 // CreateAgentProvider wires the per-task-type dispatch table.
-//   - task_type: github-update-go → the 3-phase domain agent
+//   - task_type: github-update-go → the 3-phase updater agent
+//   - task_type: build-fix → the 3-phase build-fixer agent (second domain
+//     agent in this binary, per the 2026-08-22 architecture decision)
 //   - task_type: healthcheck / oauth-probe → shared liveness agent
 //
 // Pure plumbing; no conditional, no error.
@@ -237,6 +416,7 @@ func CreateAgentProvider(
 	prTarget updatepkg.PRTarget,
 	autoMergeLabel string,
 	updateScope updatepkg.UpdateScope,
+	createCmd updatepkg.CreateCommandFunc,
 ) agentlib.AgentProvider {
 	domainAgent := CreateAgent(
 		claudeConfigDir,
@@ -252,6 +432,17 @@ func CreateAgentProvider(
 		autoMergeLabel,
 		updateScope,
 	)
+	fixAgent := CreateBuildFixAgent(
+		claudeConfigDir,
+		agentDir,
+		model,
+		ghToken,
+		claudeEnv,
+		gitOps,
+		ghCli,
+		claudeProber,
+		createCmd,
+	)
 	healthcheckRunner := CreateClaudeRunner(
 		claudeConfigDir,
 		agentDir,
@@ -262,6 +453,7 @@ func CreateAgentProvider(
 	livenessAgent := healthcheck.NewAgent(healthcheck.NewClaudeStep(healthcheckRunner))
 	return agentlib.NewAgentProvider(serviceName, map[agentlib.TaskType]*agentlib.Agent{
 		taskTypeGithubUpdateGo:       domainAgent,
+		taskTypeBuildFix:             fixAgent,
 		agentlib.TaskTypeHealthcheck: livenessAgent,
 		agentlib.TaskTypeOAuthProbe:  livenessAgent,
 	})
