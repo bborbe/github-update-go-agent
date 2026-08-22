@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- fix: trivy scanner-table parser reads the Installed version as the Fixed version. trivy's table output gained a Status cell between Severity and Installed Version, shifting the Fixed Version cell one position right; the parser still assumed the legacy six-column offset, so a finding was planned with `fixed_version` = its currently-installed version and the model's targeted `go get <pkg>@<installed>` was a no-op — the gate stayed red and CI failed on otherwise-approved PRs (golang.org/x/mod v0.37.0 → v0.40.0, GO-2026-6179/6180, CVE-2026-56864/56865). The parser now detects the Status cell and reads the correct cell in both layouts.
+
 ## v0.10.1
 
 - fix: deterministic CHANGELOG hygiene in the execution step — Go now guarantees the CHANGELOG is bot-review-clean before commit: canonical preamble on fresh files (kills the `preamble-frozen` critical), `## Unreleased` after the preamble on existing files, and a `chore:` bullet naming the actual go.mod bumps (kills `conventional-prefix-required` and the silent no-release on bullet-less bumps). The model's bullet is best-effort and superseded by this step.
