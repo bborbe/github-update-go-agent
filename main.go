@@ -67,8 +67,8 @@ type application struct {
 	// routes the claude CLI to an alt-provider. AnthropicModel drives both the `--model`
 	// CLI flag and the ANTHROPIC_MODEL env var seen by the claude subprocess.
 	AnthropicBaseURL   string                `required:"false" arg:"anthropic-base-url"   env:"ANTHROPIC_BASE_URL"   usage:"Anthropic-compatible API base URL"`
-	AnthropicAuthToken string                `required:"false" arg:"anthropic-auth-token" env:"ANTHROPIC_AUTH_TOKEN" usage:"Bearer token for ANTHROPIC_BASE_URL"                                  display:"password"`
-	AnthropicModel     claudelib.ClaudeModel `required:"false" arg:"anthropic-model"      env:"ANTHROPIC_MODEL"      usage:"Model name; also exposed to the claude subprocess as ANTHROPIC_MODEL"                    default:"sonnet"`
+	AnthropicAuthToken string                `required:"false" arg:"anthropic-auth-token" env:"ANTHROPIC_AUTH_TOKEN" usage:"Bearer token for ANTHROPIC_BASE_URL"                                  display:"length"`
+	AnthropicModel     claudelib.ClaudeModel `required:"false" arg:"anthropic-model"      env:"ANTHROPIC_MODEL"      usage:"Model name; also exposed to the claude subprocess as ANTHROPIC_MODEL"                  default:"sonnet"`
 
 	// Branch for Kafka result delivery
 	Branch base.Branch `required:"false" arg:"branch" env:"BRANCH" usage:"branch"`
@@ -108,7 +108,7 @@ type application struct {
 	// there); locally they are absent and the agent falls back to GhToken.
 	AppID          int64  `required:"false" arg:"app-id"          env:"APP_ID"          usage:"GitHub App ID (numeric); enables App auth when set with INSTALLATION_ID + PEM"`
 	InstallationID int64  `required:"false" arg:"installation-id" env:"INSTALLATION_ID" usage:"GitHub App Installation ID (numeric)"`
-	PEMKeyFile     string `required:"false" arg:"pem-key-file"    env:"PEM_KEY_FILE"    usage:"Path to the GitHub App private key (PEM file mounted from k8s Secret)"`
+	PEMKeyFile     string `required:"false" arg:"pem-key-file"    env:"PEM_KEY_FILE"    usage:"Path to the GitHub App private key (PEM file mounted from k8s Secret)"                 display:"length"`
 	PEMKey         string `required:"false" arg:"pem-key"         env:"PEM_KEY"         usage:"GitHub App private key (PEM) as env var content; mutually exclusive with PEM_KEY_FILE" display:"length"`
 
 	// Kafka delivery (optional — only active when TASK_ID is set)
@@ -146,39 +146,14 @@ func (a *application) Run(ctx context.Context, _ libsentry.Client) error {
 
 	glog.V(2).Infof("github-update-go-agent started phase=%s", a.Phase)
 
-	// Resolve the GitHub credential (App IAT or raw GH_TOKEN fallback) and make
-	// it usable by every git/gh subprocess. See prepareAuth.
-	resolvedToken, err := a.prepareAuth(ctx)
+	deliverer, provider, cleanup, err := a.buildRun(ctx, prTarget, updateScope)
 	if err != nil {
 		jobMetrics.RecordRun(agentlib.AgentStatusFailed)
 		jobMetrics.RecordDuration(time.Since(start))
 		return err
 	}
+	defer cleanup()
 
-	deliverer, closeDeliverer, err := a.createResultDeliverer(ctx)
-	if err != nil {
-		jobMetrics.RecordRun(agentlib.AgentStatusFailed)
-		jobMetrics.RecordDuration(time.Since(start))
-		return err
-	}
-	defer closeDeliverer()
-
-	claudeEnv := a.buildClaudeEnv(resolvedToken)
-
-	provider := factory.CreateAgentProvider(
-		a.ClaudeConfigDir,
-		a.AgentDir,
-		a.AnthropicModel,
-		resolvedToken,
-		claudeEnv,
-		factory.CreateGitOps(),
-		factory.CreateGhCli(resolvedToken),
-		factory.CreateGateRunner(),
-		factory.CreateClaudeProber(a.ClaudeConfigDir),
-		prTarget,
-		a.AutoMergeLabel,
-		updateScope,
-	)
 	agent, err := provider.Get(ctx, agentlib.TaskType(a.TaskType))
 	if err != nil {
 		jobMetrics.RecordRun(agentlib.AgentStatusFailed)
@@ -200,6 +175,78 @@ func (a *application) Run(ctx context.Context, _ libsentry.Client) error {
 // createResultDeliverer builds the Kafka-backed result deliverer when
 // TASK_ID is set, and the no-op deliverer otherwise. The returned close
 // func shuts down the sync producer (no-op when none was created).
+// buildChainEmitter wires the build-fix chain-to-updater CreateCommandFunc.
+// Returns nil func + nil closer when no brokers are configured (local CLI
+// mode — the fixer records a chain_noop instead of publishing).
+func (a *application) buildChainEmitter(
+	ctx context.Context,
+) (updatepkg.CreateCommandFunc, func(), error) {
+	if len(a.KafkaBrokers) == 0 {
+		return nil, nil, nil
+	}
+	chainProducer, err := factory.CreateSyncProducer(ctx, a.KafkaBrokers)
+	if err != nil {
+		return nil, nil, errors.Wrap(ctx, err, "create chain sync producer")
+	}
+	closer := func() {
+		if err := chainProducer.Close(); err != nil {
+			glog.Warningf("close chain sync producer failed: %v", err)
+		}
+	}
+	return factory.CreateBuildFixChainEmitter(chainProducer, a.TopicPrefix), closer, nil
+}
+
+// buildRun wires everything the agent needs to execute one task: the
+// credential, the result deliverer, the chain emitter, and the provider.
+// Returns the deliverer, provider, and a single cleanup func (closes the
+// deliverer's + chain producer's resources). This keeps Run() short and
+// owns all boot-time errors at the call site.
+func (a *application) buildRun(
+	ctx context.Context,
+	prTarget updatepkg.PRTarget,
+	updateScope updatepkg.UpdateScope,
+) (agentlib.ResultDeliverer, agentlib.AgentProvider, func(), error) {
+	resolvedToken, err := a.prepareAuth(ctx)
+	if err != nil {
+		return nil, nil, func() {}, err
+	}
+
+	deliverer, closeDeliverer, err := a.createResultDeliverer(ctx)
+	if err != nil {
+		return nil, nil, func() {}, err
+	}
+
+	createCmd, closeChainProducer, err := a.buildChainEmitter(ctx)
+	if err != nil {
+		return nil, nil, func() {}, err
+	}
+
+	claudeEnv := a.buildClaudeEnv(ctx, resolvedToken)
+	provider := factory.CreateAgentProvider(
+		a.ClaudeConfigDir,
+		a.AgentDir,
+		a.AnthropicModel,
+		resolvedToken,
+		claudeEnv,
+		factory.CreateGitOps(),
+		factory.CreateGhCli(resolvedToken),
+		factory.CreateGateRunner(),
+		factory.CreateClaudeProber(a.ClaudeConfigDir),
+		prTarget,
+		a.AutoMergeLabel,
+		updateScope,
+		createCmd,
+	)
+
+	cleanup := func() {
+		closeDeliverer()
+		if closeChainProducer != nil {
+			closeChainProducer()
+		}
+	}
+	return deliverer, provider, cleanup, nil
+}
+
 func (a *application) createResultDeliverer(
 	ctx context.Context,
 ) (agentlib.ResultDeliverer, func(), error) {
@@ -229,7 +276,7 @@ func (a *application) createResultDeliverer(
 // non-empty, is threaded in as GH_TOKEN — the ClaudeRunner strips pod env to
 // an allowlist, so the token must be passed explicitly (os.Setenv in
 // prepareAuth covers other subprocess paths, not the Claude runner).
-func (a *application) buildClaudeEnv(resolvedToken string) map[string]string {
+func (a *application) buildClaudeEnv(ctx context.Context, resolvedToken string) map[string]string {
 	claudeEnv := envparse.KeyValuePairs(a.ClaudeEnvRaw)
 	if claudeEnv == nil {
 		claudeEnv = map[string]string{}
@@ -240,6 +287,11 @@ func (a *application) buildClaudeEnv(resolvedToken string) map[string]string {
 		a.AnthropicAuthToken,
 		a.AnthropicModel.String(),
 	) {
+		select {
+		case <-ctx.Done():
+			return map[string]string{}
+		default:
+		}
 		claudeEnv[k] = v
 	}
 	return claudeEnv

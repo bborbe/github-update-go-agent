@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- feat: build-fix agent as a second domain task type (`task_type: build-fix`) in the `github-update-go-agent` binary, dispatched via the framework's `map[TaskType]*Agent` table. The fixer consumes build-failure tasks and resolves one of four verdicts in planning: build already green → `no_fix_needed` (close); stale dep/vuln → chain a `github-update-go` task via Kafka CreateCommand; code/test bug → file a `kind: bug` spec on `build-fixer/<sha-short>` (dedup via branch existence); ambiguous → escalate. Execution is pure Go (no LLM) — the spec is built deterministically from the diagnosis. No separate repo/deployment: shares the binary's core plumbing.
+- fix: bot-review round 2 — mark the fix-step `ghToken` fields `display:"length"` (secret-field convention) and move the nil-producer guard inside `CreateBuildFixChainEmitter`'s returned closure so the factory body stays pure composition.
+- fix: bot-review round 3 — add `display:"length"` to the `osExecGhCli.ghToken` field and add `ctx.Done()` checks in the two `BuildEnv` merge loops (`buildClaudeEnv` now takes ctx; `cmd/run-task` Run loop returns `ctx.Err()` on cancellation).
+- fix: bot-review round 4 — add `display:"length"` to `AnthropicAuthToken` (main.go + cmd/run-task) and `PEMKeyFile`, and thread `ctx` through the fix-planning helpers (`readFixRequired`, `extractFailingWorkflowLogEvidence`, `parseFixPlan`, `writeSpecFile`) adding `ctx.Done()` cancellation checks in their loops.
+- fix: bot-review round 5 — replace the unrecognized `display:"password"` tag with `display:"length"` on `AnthropicAuthToken` (the argument library only knows `hidden`/`length`, so `password` fell through and printed the token verbatim), remove the duplicate nil-producer guard from `CreateBuildFixChainEmitter` (the caller owns the nil decision), and add boundary logs to `FetchFailedLogs`' `gh run list`/`run view` calls.
+- fix: bot-review round 6 — propagate ctx cancellation from `readFixRequired` (returns `ctx.Err()` instead of silently empty values), extract the chained-task assembly into `buildChainCommand` so `CreateBuildFixChainEmitter`'s closure stays pure composition (no conditional), and add boundary logs to `gh pr list` / `gh pr view`.
+- fix: bot-review round 7 — move the clone-url conditional into `chainFrontmatter` so `buildChainCommand` is conditional-free, and return an empty (not nil) env map from `buildClaudeEnv` on ctx cancellation.
+- fix: bot-review round 8 — extract the chain-producer close into a named `closeChainProducer` helper so the `CreateBuildFixChainEmitter` closure contains no conditional.
+
 ## v0.11.0
 
 - feat: baked-in common-problems knowledge base — `docs/common-problems.md` encodes the recurring Go-update failure classes (golangci-lint/Go mismatch → `GOLANGCI_LINT_VERSION` bump; no-fix advisory → per-repo exclusion, never fixable ones; stale pinned task ref → re-checkout origin head; DeadlineExceeded → fail fast) with symptom → confirm → fix → do-not structure. `agent/.claude/CLAUDE.md` now instructs the agent to read it at planning and execution and apply fixes autonomously instead of parking for the operator.

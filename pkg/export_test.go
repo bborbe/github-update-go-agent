@@ -63,6 +63,15 @@ var (
 	}
 )
 
+// Build-fix test exports: ParseFixPlanForTest, ShortSHAForTest, and
+// SanitizeSlugForTest expose the build-fixer's unexported helpers so pkg_test
+// can cover the diagnosis verdict grammar and spec-filename safety.
+var (
+	ParseFixPlanForTest = parseFixPlan
+	ShortSHAForTest     = shortSHA
+	SanitizeSlugForTest = sanitizeSlug
+)
+
 // LLMJSONProbe is the typed shape pkg_test uses to exercise
 // parseJSONResponse's three extraction strategies without depending on
 // PlanOutput/executionReport internals.
