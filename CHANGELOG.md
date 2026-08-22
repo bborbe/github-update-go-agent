@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.11.0
 
 - feat: baked-in common-problems knowledge base — `docs/common-problems.md` encodes the recurring Go-update failure classes (golangci-lint/Go mismatch → `GOLANGCI_LINT_VERSION` bump; no-fix advisory → per-repo exclusion, never fixable ones; stale pinned task ref → re-checkout origin head; DeadlineExceeded → fail fast) with symptom → confirm → fix → do-not structure. `agent/.claude/CLAUDE.md` now instructs the agent to read it at planning and execution and apply fixes autonomously instead of parking for the operator.
 
