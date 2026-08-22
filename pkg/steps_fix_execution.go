@@ -216,7 +216,7 @@ func (s *fixExecutionStep) fileSpec(
 		return s.failFix(repo, branch, "branch switch", err)
 	}
 
-	if failResult := s.writeSpecFile(md, repo, plan, workdir); failResult != nil {
+	if failResult := s.writeSpecFile(ctx, md, repo, plan, workdir); failResult != nil {
 		return failResult
 	}
 	if failResult := s.commitAndPushSpec(ctx, repo, plan, workdir, branch); failResult != nil {
@@ -231,6 +231,7 @@ func (s *fixExecutionStep) fileSpec(
 
 // writeSpecFile writes the kind:bug spec under specs/ideas/ in the workdir.
 func (s *fixExecutionStep) writeSpecFile(
+	ctx context.Context,
 	md *agentlib.Markdown,
 	repo string,
 	plan *FixPlanOutput,
@@ -245,7 +246,7 @@ func (s *fixExecutionStep) writeSpecFile(
 	if err := os.MkdirAll(filepath.Dir(specPath), 0o750); err != nil {
 		return s.failFix(repo, branch, "create specs/ideas dir", err)
 	}
-	spec := BuildBugSpec(repo, plan, extractFailingWorkflowLogEvidence(md))
+	spec := BuildBugSpec(repo, plan, extractFailingWorkflowLogEvidence(ctx, md))
 	if err := os.WriteFile(specPath, []byte(spec), 0o600); err != nil {
 		return s.failFix(repo, branch, "write bug spec", err)
 	}

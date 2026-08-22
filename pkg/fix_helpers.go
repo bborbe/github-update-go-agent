@@ -19,8 +19,16 @@ import (
 // readFixRequired reads the build-fix task's required frontmatter fields.
 // Returns the first missing field name ("" when all present) plus the
 // resolved repo and episode SHA.
-func readFixRequired(md *agentlib.Markdown) (missing, repo, episodeSHA string) {
+func readFixRequired(
+	ctx context.Context,
+	md *agentlib.Markdown,
+) (missing, repo, episodeSHA string) {
 	for _, field := range fixRequiredFrontmatterFields {
+		select {
+		case <-ctx.Done():
+			return "", "", ""
+		default:
+		}
 		v, _ := md.Frontmatter.String(field)
 		if strings.TrimSpace(v) == "" {
 			return field, "", ""
@@ -53,7 +61,7 @@ func setupFixWorkdir(md *agentlib.Markdown) string {
 // extractFailingWorkflowLogEvidence pulls the failing-workflow + log lines
 // from the task body so the diagnosis has concrete evidence without an extra
 // gh round-trip. Returns "" when the body carries neither.
-func extractFailingWorkflowLogEvidence(md *agentlib.Markdown) string {
+func extractFailingWorkflowLogEvidence(ctx context.Context, md *agentlib.Markdown) string {
 	if len(md.Sections) == 0 {
 		return ""
 	}
@@ -61,6 +69,11 @@ func extractFailingWorkflowLogEvidence(md *agentlib.Markdown) string {
 	// ## Log section verbatim — those are the reproduction evidence.
 	var out []string
 	for _, sec := range md.Sections {
+		select {
+		case <-ctx.Done():
+			return ""
+		default:
+		}
 		switch sec.Heading {
 		case "## Failing Workflows", "## Log":
 			out = append(out, strings.TrimSpace(sec.Body))
@@ -91,6 +104,11 @@ func parseFixPlan(ctx context.Context, raw string) (*FixPlanOutput, error) {
 	}
 	valid := false
 	for _, v := range AvailableFixVerdicts {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
 		if plan.Verdict == v {
 			valid = true
 			break

@@ -88,7 +88,7 @@ func (s *fixPlanningStep) Run(
 	ctx context.Context,
 	md *agentlib.Markdown,
 ) (*agentlib.Result, error) {
-	missingField, repo, episodeSHA := readFixRequired(md)
+	missingField, repo, episodeSHA := readFixRequired(ctx, md)
 	if missingField != "" {
 		glog.V(2).
 			Infof("build-fix planning: missing frontmatter field=%s — escalating", missingField)
@@ -163,7 +163,7 @@ func (s *fixPlanningStep) runDiagnosis(
 	// Fetch the failing-workflow log evidence. The body's ## Failing Workflows
 	// table carries run URLs; fall back to `gh run view --log-failed` on the
 	// latest failing run for the episode when the body is sparse.
-	logEvidence := extractFailingWorkflowLogEvidence(md)
+	logEvidence := extractFailingWorkflowLogEvidence(ctx, md)
 	if strings.TrimSpace(logEvidence) == "" && s.gh != nil {
 		if r, err := s.gh.FetchFailedLogs(ctx, repo, episodeSHA); err == nil {
 			logEvidence = r
