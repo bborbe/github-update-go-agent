@@ -7,6 +7,7 @@ package pkg
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"strings"
@@ -46,6 +47,13 @@ type GhCli interface {
 	// ViewPR returns the state (e.g. "OPEN", "MERGED", "CLOSED") and
 	// draft flag of the PR identified by URL.
 	ViewPR(ctx context.Context, prURL string) (state string, isDraft bool, err error)
+
+	// FetchFailedLogs returns the failed-step log tail for the latest
+	// failing run of the episode SHA on the repo, via `gh run view
+	// --log-failed`. Returns "" when no failing run exists for the episode
+	// (the caller treats it as "no log evidence"). Used by the build-fix
+	// planning step to give the diagnosis LLM concrete failure evidence.
+	FetchFailedLogs(ctx context.Context, repo, episodeSHA string) (string, error)
 }
 
 // NewOSExecGhCli returns a GhCli implementation that shells out to the gh
@@ -55,7 +63,7 @@ func NewOSExecGhCli(ghToken string) GhCli {
 }
 
 type osExecGhCli struct {
-	ghToken string
+	ghToken string `display:"length"`
 }
 
 // cmdEnv returns the env allowlist for gh subprocesses. gh needs HOME to
@@ -199,6 +207,80 @@ func (g *osExecGhCli) ViewPR(
 		return "", false, errors.Wrap(ctx, err, "parse gh pr view output")
 	}
 	return pr.State, pr.IsDraft, nil
+}
+
+// FetchFailedLogs returns the failed-step log tail for the latest failing
+// run of the episode SHA. It first finds the failing run id via
+// `gh run list --commit <sha> --json databaseId,conclusion` (lowest id whose
+// conclusion is failure), then fetches `gh run view <id> --log-failed` and
+// bounds the output to a diagnosis-sized tail. Returns "" when no failing
+// run exists for the episode — the caller treats that as "no log evidence".
+func (g *osExecGhCli) FetchFailedLogs(
+	ctx context.Context,
+	repo, episodeSHA string,
+) (string, error) {
+	// #nosec G204 -- binary is hardcoded gh; repo + episodeSHA come from task frontmatter
+	listCmd := exec.CommandContext(
+		ctx,
+		"gh", "run", "list",
+		"--repo", repo,
+		"--commit", episodeSHA,
+		"--json", "databaseId,conclusion",
+	)
+	listCmd.Env = g.cmdEnv()
+	listOut, err := listCmd.Output()
+	if err != nil {
+		// gh exits non-zero when no runs match the commit — treat as "no evidence".
+		return "", nil
+	}
+	var runs []struct {
+		DatabaseID int64  `json:"databaseId"`
+		Conclusion string `json:"conclusion"`
+	}
+	if err := json.Unmarshal(listOut, &runs); err != nil {
+		return "", errors.Wrap(ctx, err, "parse gh run list output")
+	}
+	var failingID int64
+	for _, r := range runs {
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		default:
+		}
+		if r.Conclusion != "success" && r.Conclusion != "skipped" {
+			failingID = r.DatabaseID
+			break
+		}
+	}
+	if failingID == 0 {
+		return "", nil
+	}
+	// #nosec G204 -- binary is hardcoded gh; failingID comes from gh run list output; repo from validated frontmatter
+	logCmd := exec.CommandContext(
+		ctx,
+		"gh",
+		"run",
+		"view",
+		fmt.Sprintf("%d", failingID),
+		"--repo",
+		repo,
+		"--log-failed",
+	)
+	logCmd.Env = g.cmdEnv()
+	logOut, err := logCmd.Output()
+	if err != nil {
+		return "", errors.Wrapf(ctx, err, "gh run view %d --log-failed", failingID)
+	}
+	return truncateToLines(string(logOut), 200), nil
+}
+
+// truncateToLines bounds s to at most n lines (diagnosis-sized log tail).
+func truncateToLines(s string, n int) string {
+	lines := strings.Split(strings.TrimSpace(s), "\n")
+	if len(lines) <= n {
+		return strings.TrimSpace(s)
+	}
+	return strings.Join(lines[:n], "\n") + "\n... (truncated)"
 }
 
 // lastNonEmptyLine returns the last non-empty line of s (gh prints the PR

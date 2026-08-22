@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- feat: build-fix agent as a second domain task type (`task_type: build-fix`) in the `github-update-go-agent` binary, dispatched via the framework's `map[TaskType]*Agent` table. The fixer consumes build-failure tasks and resolves one of four verdicts in planning: build already green → `no_fix_needed` (close); stale dep/vuln → chain a `github-update-go` task via Kafka CreateCommand; code/test bug → file a `kind: bug` spec on `build-fixer/<sha-short>` (dedup via branch existence); ambiguous → escalate. Execution is pure Go (no LLM) — the spec is built deterministically from the diagnosis. No separate repo/deployment: shares the binary's core plumbing.
+- fix: bot-review round 2 — mark the fix-step `ghToken` fields `display:"length"` (secret-field convention) and move the nil-producer guard inside `CreateBuildFixChainEmitter`'s returned closure so the factory body stays pure composition.
+- fix: bot-review round 3 — add `display:"length"` to the `osExecGhCli.ghToken` field and add `ctx.Done()` checks in the two `BuildEnv` merge loops (`buildClaudeEnv` now takes ctx; `cmd/run-task` Run loop returns `ctx.Err()` on cancellation).
+- fix: bot-review round 4 — add `display:"length"` to `AnthropicAuthToken` (main.go + cmd/run-task) and `PEMKeyFile`, and thread `ctx` through the fix-planning helpers (`readFixRequired`, `extractFailingWorkflowLogEvidence`, `parseFixPlan`, `writeSpecFile`) adding `ctx.Done()` cancellation checks in their loops.
+
 ## v0.10.2
 
 - fix: trivy scanner-table parser reads the Installed version as the Fixed version. trivy's table output gained a Status cell between Severity and Installed Version, shifting the Fixed Version cell one position right; the parser still assumed the legacy six-column offset, so a finding was planned with `fixed_version` = its currently-installed version and the model's targeted `go get <pkg>@<installed>` was a no-op — the gate stayed red and CI failed on otherwise-approved PRs (golang.org/x/mod v0.37.0 → v0.40.0, GO-2026-6179/6180, CVE-2026-56864/56865). The parser now detects the Status cell and reads the correct cell in both layouts.

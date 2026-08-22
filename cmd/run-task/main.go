@@ -83,6 +83,10 @@ type application struct {
 
 	// Task file for local development
 	TaskFilePath string `required:"true" arg:"task-file" env:"TASK_FILE" usage:"Path to the markdown task file"`
+
+	// TaskType selects which domain agent to run: github-update-go (default)
+	// or build-fix. Mirrors the Kafka entry point's TASK_TYPE dispatch.
+	TaskType string `required:"false" arg:"task-type" env:"TASK_TYPE" usage:"Task type: github-update-go (default) | build-fix" default:"github-update-go"`
 }
 
 func (a *application) Run(ctx context.Context, _ libsentry.Client) error {
@@ -114,6 +118,11 @@ func (a *application) Run(ctx context.Context, _ libsentry.Client) error {
 		a.AnthropicAuthToken,
 		a.AnthropicModel.String(),
 	) {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
 		claudeEnv[k] = v
 	}
 
@@ -124,7 +133,7 @@ func (a *application) Run(ctx context.Context, _ libsentry.Client) error {
 		return errors.Wrap(ctx, err, "export GH_TOKEN")
 	}
 
-	agent := factory.CreateAgent(
+	provider := factory.CreateAgentProvider(
 		a.ClaudeConfigDir,
 		a.AgentDir,
 		a.AnthropicModel,
@@ -137,7 +146,14 @@ func (a *application) Run(ctx context.Context, _ libsentry.Client) error {
 		prTarget,
 		a.AutoMergeLabel,
 		updateScope,
+		// createCmd: nil in local mode — chain emission records a no-op so
+		// a build-fix replay still exercises the full phase path.
+		nil,
 	)
+	agent, err := provider.Get(ctx, agentlib.TaskType(a.TaskType))
+	if err != nil {
+		return errors.Wrap(ctx, err, "select agent for task_type")
+	}
 
 	result, err := agent.Run(ctx, a.Phase, string(taskContent), deliverer)
 	if err != nil {
