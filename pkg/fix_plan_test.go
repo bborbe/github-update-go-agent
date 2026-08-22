@@ -18,10 +18,10 @@ var _ = Describe("fix plan helpers", func() {
 
 	Describe("parseFixPlan", func() {
 		DescribeTable("accepts each valid verdict",
-			func(verdict string) {
+			func(verdict updatepkg.FixVerdict) {
 				plan, err := updatepkg.ParseFixPlanForTest(
 					ctx,
-					`{"verdict":"`+verdict+`","reason":"r","episode_sha":"abc1234"}`,
+					`{"verdict":"`+string(verdict)+`","reason":"r","episode_sha":"abc1234"}`,
 				)
 				Expect(err).To(BeNil())
 				Expect(plan.Verdict).To(Equal(verdict))

@@ -20,7 +20,7 @@ package pkg
 // No `Details map[string]any`: concrete fields only. Future fields require
 // a design amendment.
 type FixPlanOutput struct {
-	Verdict string `json:"verdict"`
+	Verdict FixVerdict `json:"verdict"`
 
 	// Reason carries the human-readable diagnosis on every path — the
 	// reproduction/expected-actual summary the spec writer or escalation
@@ -36,10 +36,24 @@ type FixPlanOutput struct {
 	EpisodeSHA string `json:"episode_sha,omitempty"`
 }
 
+// FixVerdict is the typed build-fix diagnosis verdict. A typo in a switch
+// case or comparison now fails to compile instead of silently routing the
+// task to the wrong phase.
+type FixVerdict string
+
 // Fix verdict values for FixPlanOutput.Verdict.
 const (
-	FixVerdictNoFixNeeded = "no_fix_needed"
-	FixVerdictChainUpdate = "chain_update"
-	FixVerdictFileSpec    = "file_spec"
-	FixVerdictNeedsInput  = "needs_input"
+	FixVerdictNoFixNeeded FixVerdict = "no_fix_needed"
+	FixVerdictChainUpdate FixVerdict = "chain_update"
+	FixVerdictFileSpec    FixVerdict = "file_spec"
+	FixVerdictNeedsInput  FixVerdict = "needs_input"
 )
+
+// AvailableFixVerdicts is the complete set of valid verdicts, used for
+// validation and error messages.
+var AvailableFixVerdicts = []FixVerdict{
+	FixVerdictNoFixNeeded,
+	FixVerdictChainUpdate,
+	FixVerdictFileSpec,
+	FixVerdictNeedsInput,
+}

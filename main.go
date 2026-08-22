@@ -146,46 +146,14 @@ func (a *application) Run(ctx context.Context, _ libsentry.Client) error {
 
 	glog.V(2).Infof("github-update-go-agent started phase=%s", a.Phase)
 
-	// Resolve the GitHub credential (App IAT or raw GH_TOKEN fallback) and make
-	// it usable by every git/gh subprocess. See prepareAuth.
-	resolvedToken, err := a.prepareAuth(ctx)
+	deliverer, provider, cleanup, err := a.buildRun(ctx, prTarget, updateScope)
 	if err != nil {
 		jobMetrics.RecordRun(agentlib.AgentStatusFailed)
 		jobMetrics.RecordDuration(time.Since(start))
 		return err
 	}
+	defer cleanup()
 
-	deliverer, closeDeliverer, err := a.createResultDeliverer(ctx)
-	if err != nil {
-		jobMetrics.RecordRun(agentlib.AgentStatusFailed)
-		jobMetrics.RecordDuration(time.Since(start))
-		return err
-	}
-	defer closeDeliverer()
-
-	claudeEnv := a.buildClaudeEnv(resolvedToken)
-
-	// Build-fix chain emission: publishes a github-update-go task via the
-	// controller's Kafka command bus when a build-fix task diagnoses a
-	// stale-dep/vuln failure. Nil when no brokers are configured (local CLI
-	// mode) — the fixer records a chain_noop instead.
-	createCmd := factory.CreateBuildFixChainEmitter(ctx, a.KafkaBrokers, a.TopicPrefix)
-
-	provider := factory.CreateAgentProvider(
-		a.ClaudeConfigDir,
-		a.AgentDir,
-		a.AnthropicModel,
-		resolvedToken,
-		claudeEnv,
-		factory.CreateGitOps(),
-		factory.CreateGhCli(resolvedToken),
-		factory.CreateGateRunner(),
-		factory.CreateClaudeProber(a.ClaudeConfigDir),
-		prTarget,
-		a.AutoMergeLabel,
-		updateScope,
-		createCmd,
-	)
 	agent, err := provider.Get(ctx, agentlib.TaskType(a.TaskType))
 	if err != nil {
 		jobMetrics.RecordRun(agentlib.AgentStatusFailed)
@@ -207,6 +175,78 @@ func (a *application) Run(ctx context.Context, _ libsentry.Client) error {
 // createResultDeliverer builds the Kafka-backed result deliverer when
 // TASK_ID is set, and the no-op deliverer otherwise. The returned close
 // func shuts down the sync producer (no-op when none was created).
+// buildChainEmitter wires the build-fix chain-to-updater CreateCommandFunc.
+// Returns nil func + nil closer when no brokers are configured (local CLI
+// mode — the fixer records a chain_noop instead of publishing).
+func (a *application) buildChainEmitter(
+	ctx context.Context,
+) (updatepkg.CreateCommandFunc, func(), error) {
+	if len(a.KafkaBrokers) == 0 {
+		return nil, nil, nil
+	}
+	chainProducer, err := factory.CreateSyncProducer(ctx, a.KafkaBrokers)
+	if err != nil {
+		return nil, nil, errors.Wrap(ctx, err, "create chain sync producer")
+	}
+	closer := func() {
+		if err := chainProducer.Close(); err != nil {
+			glog.Warningf("close chain sync producer failed: %v", err)
+		}
+	}
+	return factory.CreateBuildFixChainEmitter(chainProducer, a.TopicPrefix), closer, nil
+}
+
+// buildRun wires everything the agent needs to execute one task: the
+// credential, the result deliverer, the chain emitter, and the provider.
+// Returns the deliverer, provider, and a single cleanup func (closes the
+// deliverer's + chain producer's resources). This keeps Run() short and
+// owns all boot-time errors at the call site.
+func (a *application) buildRun(
+	ctx context.Context,
+	prTarget updatepkg.PRTarget,
+	updateScope updatepkg.UpdateScope,
+) (agentlib.ResultDeliverer, agentlib.AgentProvider, func(), error) {
+	resolvedToken, err := a.prepareAuth(ctx)
+	if err != nil {
+		return nil, nil, func() {}, err
+	}
+
+	deliverer, closeDeliverer, err := a.createResultDeliverer(ctx)
+	if err != nil {
+		return nil, nil, func() {}, err
+	}
+
+	createCmd, closeChainProducer, err := a.buildChainEmitter(ctx)
+	if err != nil {
+		return nil, nil, func() {}, err
+	}
+
+	claudeEnv := a.buildClaudeEnv(resolvedToken)
+	provider := factory.CreateAgentProvider(
+		a.ClaudeConfigDir,
+		a.AgentDir,
+		a.AnthropicModel,
+		resolvedToken,
+		claudeEnv,
+		factory.CreateGitOps(),
+		factory.CreateGhCli(resolvedToken),
+		factory.CreateGateRunner(),
+		factory.CreateClaudeProber(a.ClaudeConfigDir),
+		prTarget,
+		a.AutoMergeLabel,
+		updateScope,
+		createCmd,
+	)
+
+	cleanup := func() {
+		closeDeliverer()
+		if closeChainProducer != nil {
+			closeChainProducer()
+		}
+	}
+	return deliverer, provider, cleanup, nil
+}
+
 func (a *application) createResultDeliverer(
 	ctx context.Context,
 ) (agentlib.ResultDeliverer, func(), error) {

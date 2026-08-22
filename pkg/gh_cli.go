@@ -242,6 +242,11 @@ func (g *osExecGhCli) FetchFailedLogs(
 	}
 	var failingID int64
 	for _, r := range runs {
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		default:
+		}
 		if r.Conclusion != "success" && r.Conclusion != "skipped" {
 			failingID = r.DatabaseID
 			break

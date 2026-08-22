@@ -89,16 +89,21 @@ func parseFixPlan(ctx context.Context, raw string) (*FixPlanOutput, error) {
 	if err := json.Unmarshal([]byte(raw), &plan); err != nil {
 		return nil, errors.Wrap(ctx, err, "unmarshal build-fix plan")
 	}
-	switch plan.Verdict {
-	case FixVerdictNoFixNeeded, FixVerdictChainUpdate, FixVerdictFileSpec, FixVerdictNeedsInput:
-		return &plan, nil
-	default:
+	valid := false
+	for _, v := range AvailableFixVerdicts {
+		if plan.Verdict == v {
+			valid = true
+			break
+		}
+	}
+	if !valid {
 		return nil, errors.Wrap(
 			ctx,
-			errors.New(ctx, "unknown verdict "+plan.Verdict),
+			errors.New(ctx, "unknown verdict "+string(plan.Verdict)),
 			"invalid build-fix verdict",
 		)
 	}
+	return &plan, nil
 }
 
 // writeFixPlanSection replaces the ## Fix Plan section with the typed JSON.
