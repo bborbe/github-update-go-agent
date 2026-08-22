@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix: bot-review round 5 — replace the unrecognized `display:"password"` tag with `display:"length"` on `AnthropicAuthToken` (the argument library only knows `hidden`/`length`, so `password` fell through and printed the token verbatim), remove the duplicate nil-producer guard from `CreateBuildFixChainEmitter` (the caller owns the nil decision), and add boundary logs to `FetchFailedLogs`' `gh run list`/`run view` calls.
 - fix: bot-review round 6 — propagate ctx cancellation from `readFixRequired` (returns `ctx.Err()` instead of silently empty values), extract the chained-task assembly into `buildChainCommand` so `CreateBuildFixChainEmitter`'s closure stays pure composition (no conditional), and add boundary logs to `gh pr list` / `gh pr view`.
 - fix: bot-review round 7 — move the clone-url conditional into `chainFrontmatter` so `buildChainCommand` is conditional-free, and return an empty (not nil) env map from `buildClaudeEnv` on ctx cancellation.
+- fix: bot-review round 8 — extract the chain-producer close into a named `closeChainProducer` helper so the `CreateBuildFixChainEmitter` closure contains no conditional.
 
 ## v0.10.2
 

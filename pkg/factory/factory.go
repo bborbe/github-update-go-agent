@@ -183,11 +183,7 @@ func CreateBuildFixChainEmitter(
 		repo, episodeSHA string,
 		workflows []string,
 	) error {
-		defer func() {
-			if err := syncProducer.Close(); err != nil {
-				glog.Warningf("close chain sync producer failed: %v", err)
-			}
-		}()
+		defer closeChainProducer(syncProducer)
 		sender := cdb.NewCommandObjectSender(syncProducer, topicPrefix, log.DefaultSamplerFactory)
 		createSender := task.NewCreateCommandSender(sender, "")
 		cmd := buildChainCommand(repo, episodeSHA, workflows)
@@ -195,6 +191,15 @@ func CreateBuildFixChainEmitter(
 			return errors.Wrap(ctx, err, "send github-update-go chain task")
 		}
 		return nil
+	}
+}
+
+// closeChainProducer closes the chain emitter's sync producer, warning on
+// failure. Extracted as a named func so the emitter closure contains no
+// conditional (factory no-conditional-in-body rule).
+func closeChainProducer(producer libkafka.SyncProducer) {
+	if err := producer.Close(); err != nil {
+		glog.Warningf("close chain sync producer failed: %v", err)
 	}
 }
 
