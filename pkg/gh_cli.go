@@ -63,7 +63,7 @@ func NewOSExecGhCli(ghToken string) GhCli {
 }
 
 type osExecGhCli struct {
-	ghToken string
+	ghToken string `display:"length"`
 }
 
 // cmdEnv returns the env allowlist for gh subprocesses. gh needs HOME to

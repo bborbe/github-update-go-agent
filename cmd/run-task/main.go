@@ -118,6 +118,11 @@ func (a *application) Run(ctx context.Context, _ libsentry.Client) error {
 		a.AnthropicAuthToken,
 		a.AnthropicModel.String(),
 	) {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
 		claudeEnv[k] = v
 	}
 

@@ -221,7 +221,7 @@ func (a *application) buildRun(
 		return nil, nil, func() {}, err
 	}
 
-	claudeEnv := a.buildClaudeEnv(resolvedToken)
+	claudeEnv := a.buildClaudeEnv(ctx, resolvedToken)
 	provider := factory.CreateAgentProvider(
 		a.ClaudeConfigDir,
 		a.AgentDir,
@@ -276,7 +276,7 @@ func (a *application) createResultDeliverer(
 // non-empty, is threaded in as GH_TOKEN — the ClaudeRunner strips pod env to
 // an allowlist, so the token must be passed explicitly (os.Setenv in
 // prepareAuth covers other subprocess paths, not the Claude runner).
-func (a *application) buildClaudeEnv(resolvedToken string) map[string]string {
+func (a *application) buildClaudeEnv(ctx context.Context, resolvedToken string) map[string]string {
 	claudeEnv := envparse.KeyValuePairs(a.ClaudeEnvRaw)
 	if claudeEnv == nil {
 		claudeEnv = map[string]string{}
@@ -287,6 +287,11 @@ func (a *application) buildClaudeEnv(resolvedToken string) map[string]string {
 		a.AnthropicAuthToken,
 		a.AnthropicModel.String(),
 	) {
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+		}
 		claudeEnv[k] = v
 	}
 	return claudeEnv

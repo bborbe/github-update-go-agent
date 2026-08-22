@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - feat: build-fix agent as a second domain task type (`task_type: build-fix`) in the `github-update-go-agent` binary, dispatched via the framework's `map[TaskType]*Agent` table. The fixer consumes build-failure tasks and resolves one of four verdicts in planning: build already green → `no_fix_needed` (close); stale dep/vuln → chain a `github-update-go` task via Kafka CreateCommand; code/test bug → file a `kind: bug` spec on `build-fixer/<sha-short>` (dedup via branch existence); ambiguous → escalate. Execution is pure Go (no LLM) — the spec is built deterministically from the diagnosis. No separate repo/deployment: shares the binary's core plumbing.
 - fix: bot-review round 2 — mark the fix-step `ghToken` fields `display:"length"` (secret-field convention) and move the nil-producer guard inside `CreateBuildFixChainEmitter`'s returned closure so the factory body stays pure composition.
+- fix: bot-review round 3 — add `display:"length"` to the `osExecGhCli.ghToken` field and add `ctx.Done()` checks in the two `BuildEnv` merge loops (`buildClaudeEnv` now takes ctx; `cmd/run-task` Run loop returns `ctx.Err()` on cancellation).
 
 ## v0.10.2
 
