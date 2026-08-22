@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix: bot-review round 7 — move the clone-url conditional into `chainFrontmatter` so `buildChainCommand` is conditional-free, and return an empty (not nil) env map from `buildClaudeEnv` on ctx cancellation.
 - fix: bot-review round 8 — extract the chain-producer close into a named `closeChainProducer` helper so the `CreateBuildFixChainEmitter` closure contains no conditional.
 
+## v0.11.0
+
+- feat: baked-in common-problems knowledge base — `docs/common-problems.md` encodes the recurring Go-update failure classes (golangci-lint/Go mismatch → `GOLANGCI_LINT_VERSION` bump; no-fix advisory → per-repo exclusion, never fixable ones; stale pinned task ref → re-checkout origin head; DeadlineExceeded → fail fast) with symptom → confirm → fix → do-not structure. `agent/.claude/CLAUDE.md` now instructs the agent to read it at planning and execution and apply fixes autonomously instead of parking for the operator.
+
 ## v0.10.2
 
 - fix: trivy scanner-table parser reads the Installed version as the Fixed version. trivy's table output gained a Status cell between Severity and Installed Version, shifting the Fixed Version cell one position right; the parser still assumed the legacy six-column offset, so a finding was planned with `fixed_version` = its currently-installed version and the model's targeted `go get <pkg>@<installed>` was a no-op — the gate stayed red and CI failed on otherwise-approved PRs (golang.org/x/mod v0.37.0 → v0.40.0, GO-2026-6179/6180, CVE-2026-56864/56865). The parser now detects the Status cell and reads the correct cell in both layouts.
