@@ -200,22 +200,51 @@ func parseGovulncheckLine(line, id string) ScannerFinding {
 	return f
 }
 
-// parseTrivyLine parses the trivy row shape with box-drawing `│` cells in
-// the standard `Library | Vulnerability | Severity | Installed | Fixed |
-// Title` layout.
+// trivyStatusValues are the values trivy writes in the Status column that
+// some table versions insert between Severity and Installed Version. When
+// the cell after Severity is one of these, the Fixed Version cell sits one
+// position further right than in the legacy six-column layout.
+var trivyStatusValues = map[string]bool{
+	"fixed":        true,
+	"affected":     true,
+	"will_not_fix": true,
+	"not_affected": true,
+	"end_of_life":  true,
+}
+
+// parseTrivyLine parses the trivy row shape with box-drawing `│` cells.
+// Two layouts occur in the wild:
+//
+//	Legacy: Library | Vulnerability | Severity | Installed | Fixed | Title
+//	Current: Library | Vulnerability | Severity | Status | Installed | Fixed | Title
+//
+// The Status cell (`fixed`, `affected`, ...) between Severity and Installed
+// shifts Fixed from cells[i+3] to cells[i+4]; a parser that always assumes
+// the legacy offset reads the Installed version as the fix, so the model's
+// targeted `go get <pkg>@<installed>` is a no-op and the gate stays red
+// (real incident: golang.org/x/mod v0.39.0 reported as fixed at v0.39.0
+// while trivy required v0.40.0).
 func parseTrivyLine(line, id string) ScannerFinding {
 	f := ScannerFinding{ID: id, Scanner: "trivy"}
 	cells := strings.Split(line, "│")
 	for i, cell := range cells {
-		if strings.TrimSpace(cell) == id {
-			if i > 0 {
-				f.Package = strings.TrimSpace(cells[i-1])
-			}
-			if i+3 < len(cells) {
-				f.FixedVersion = strings.TrimSpace(cells[i+3])
-			}
-			break
+		if strings.TrimSpace(cell) != id {
+			continue
 		}
+		if i > 0 {
+			f.Package = strings.TrimSpace(cells[i-1])
+		}
+		// The cell after the ID is Severity; the one after that is either
+		// Installed (legacy) or Status (current). Detect the current layout
+		// by the Status cell's value so both shapes parse.
+		fixedOffset := 3
+		if i+2 < len(cells) && trivyStatusValues[strings.TrimSpace(cells[i+2])] {
+			fixedOffset = 4
+		}
+		if i+fixedOffset < len(cells) {
+			f.FixedVersion = strings.TrimSpace(cells[i+fixedOffset])
+		}
+		break
 	}
 	return f
 }

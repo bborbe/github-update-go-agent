@@ -48,6 +48,24 @@ var _ = Describe("parseScannerOutput", func() {
 		Expect(rows[0].Scanner).To(Equal("trivy"))
 	})
 
+	It("parses the trivy shape with the Status column (real trivy ≥ 0.5x output)", func() {
+		// trivy's table gained a Status cell between Severity and Installed
+		// Version. The fixed version now sits one cell further right; a
+		// parser still assuming the old layout reads the Installed version
+		// as the fix (regression: golang.org/x/mod v0.37.0 reported as
+		// fixed at v0.39.0, so the model's targeted go get was a no-op and
+		// CI stayed red — GO-2026-6179/6180, CVE-2026-56864/56865).
+		rows := pkg.ParseScannerOutput(
+			"trivy",
+			"golang.org/x/mod │ CVE-2026-56864 │ HIGH │ fixed │ v0.39.0 │ 0.40.0 │ A malicious GOSUMDB was capable of serving arbitrary module\n",
+		)
+		Expect(rows).To(HaveLen(1))
+		Expect(rows[0].ID).To(Equal("CVE-2026-56864"))
+		Expect(rows[0].Package).To(Equal("golang.org/x/mod"))
+		Expect(rows[0].FixedVersion).To(Equal("0.40.0"))
+		Expect(rows[0].Scanner).To(Equal("trivy"))
+	})
+
 	It("returns an empty table for empty output", func() {
 		Expect(pkg.ParseScannerOutput("check", "")).To(BeEmpty())
 	})
