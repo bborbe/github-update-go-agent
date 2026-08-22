@@ -173,8 +173,10 @@ func (g *osExecGhCli) FindOpenPRByHead(
 	cmd.Env = g.cmdEnv()
 	out, err := cmd.Output()
 	if err != nil {
+		glog.V(2).Infof("gh pr list (repo=%s head=%s) failed: %v", repo, head, err)
 		return "", errors.Wrapf(ctx, err, "gh pr list --head %s", head)
 	}
+	glog.V(2).Infof("gh pr list (repo=%s head=%s) succeeded", repo, head)
 	var prs []struct {
 		URL string `json:"url"`
 	}
@@ -197,8 +199,10 @@ func (g *osExecGhCli) ViewPR(
 	cmd.Env = g.cmdEnv()
 	out, err := cmd.Output()
 	if err != nil {
+		glog.V(2).Infof("gh pr view (url=%s) failed: %v", prURL, err)
 		return "", false, errors.Wrapf(ctx, err, "gh pr view %s", prURL)
 	}
+	glog.V(2).Infof("gh pr view (url=%s) succeeded", prURL)
 	var pr struct {
 		State   string `json:"state"`
 		IsDraft bool   `json:"isDraft"`

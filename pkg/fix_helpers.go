@@ -18,25 +18,26 @@ import (
 
 // readFixRequired reads the build-fix task's required frontmatter fields.
 // Returns the first missing field name ("" when all present) plus the
-// resolved repo and episode SHA.
+// resolved repo and episode SHA. A cancelled ctx aborts with ctx.Err() rather
+// than silently returning empty values the caller would treat as present.
 func readFixRequired(
 	ctx context.Context,
 	md *agentlib.Markdown,
-) (missing, repo, episodeSHA string) {
+) (missing, repo, episodeSHA string, err error) {
 	for _, field := range fixRequiredFrontmatterFields {
 		select {
 		case <-ctx.Done():
-			return "", "", ""
+			return "", "", "", ctx.Err()
 		default:
 		}
 		v, _ := md.Frontmatter.String(field)
 		if strings.TrimSpace(v) == "" {
-			return field, "", ""
+			return field, "", "", nil
 		}
 	}
 	repo, _ = md.Frontmatter.String("repo")
 	episodeSHA, _ = md.Frontmatter.String("episode_sha")
-	return "", strings.TrimSpace(repo), strings.TrimSpace(episodeSHA)
+	return "", strings.TrimSpace(repo), strings.TrimSpace(episodeSHA), nil
 }
 
 // setupFixWorkdir creates (or re-creates) the ephemeral clone dir for a

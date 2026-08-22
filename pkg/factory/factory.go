@@ -190,29 +190,34 @@ func CreateBuildFixChainEmitter(
 		}()
 		sender := cdb.NewCommandObjectSender(syncProducer, topicPrefix, log.DefaultSamplerFactory)
 		createSender := task.NewCreateCommandSender(sender, "")
-		ownerRepo := splitRepo(repo)
-		fm := agentlib.TaskFrontmatter{
-			"task_type":   "github-update-go",
-			"assignee":    "github-update-go-agent",
-			"repo":        repo,
-			"episode_sha": episodeSHA,
-			"status":      "in_progress",
-			"phase":       "planning",
-		}
-		title := "Update Go " + repo + " at " + shortSHA(episodeSHA)
-		if len(ownerRepo) == 2 {
-			fm["clone_url"] = "git@github.com:" + repo + ".git"
-		}
-		cmd := task.CreateCommand{
-			Title:          title,
-			TaskIdentifier: agentlib.TaskIdentifier(deriveUpdateGoTaskID(repo, episodeSHA)),
-			Frontmatter:    fm,
-			Body:           buildChainBody(repo, episodeSHA, workflows),
-		}
+		cmd := buildChainCommand(repo, episodeSHA, workflows)
 		if err := createSender.SendCommand(ctx, cmd); err != nil {
 			return errors.Wrap(ctx, err, "send github-update-go chain task")
 		}
 		return nil
+	}
+}
+
+// buildChainCommand assembles the chained github-update-go task. The
+// clone_url frontmatter is set only for owner/repo inputs, so the updater's
+// HTTPS auth path has the explicit git@ remote.
+func buildChainCommand(repo, episodeSHA string, workflows []string) task.CreateCommand {
+	fm := agentlib.TaskFrontmatter{
+		"task_type":   "github-update-go",
+		"assignee":    "github-update-go-agent",
+		"repo":        repo,
+		"episode_sha": episodeSHA,
+		"status":      "in_progress",
+		"phase":       "planning",
+	}
+	if len(splitRepo(repo)) == 2 {
+		fm["clone_url"] = "git@github.com:" + repo + ".git"
+	}
+	return task.CreateCommand{
+		Title:          "Update Go " + repo + " at " + shortSHA(episodeSHA),
+		TaskIdentifier: agentlib.TaskIdentifier(deriveUpdateGoTaskID(repo, episodeSHA)),
+		Frontmatter:    fm,
+		Body:           buildChainBody(repo, episodeSHA, workflows),
 	}
 }
 

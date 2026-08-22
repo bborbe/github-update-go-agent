@@ -12,6 +12,7 @@ import (
 
 	agentlib "github.com/bborbe/agent"
 	claudelib "github.com/bborbe/agent/claude"
+	"github.com/bborbe/errors"
 	domain "github.com/bborbe/vault-cli/pkg/domain"
 	"github.com/golang/glog"
 
@@ -88,7 +89,10 @@ func (s *fixPlanningStep) Run(
 	ctx context.Context,
 	md *agentlib.Markdown,
 ) (*agentlib.Result, error) {
-	missingField, repo, episodeSHA := readFixRequired(ctx, md)
+	missingField, repo, episodeSHA, err := readFixRequired(ctx, md)
+	if err != nil {
+		return nil, errors.Wrap(ctx, err, "read required frontmatter")
+	}
 	if missingField != "" {
 		glog.V(2).
 			Infof("build-fix planning: missing frontmatter field=%s — escalating", missingField)
