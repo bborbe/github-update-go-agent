@@ -231,8 +231,10 @@ func (g *osExecGhCli) FetchFailedLogs(
 	listOut, err := listCmd.Output()
 	if err != nil {
 		// gh exits non-zero when no runs match the commit — treat as "no evidence".
+		glog.V(2).Infof("gh run list (repo=%s commit=%s) failed: %v", repo, episodeSHA, err)
 		return "", nil
 	}
+	glog.V(2).Infof("gh run list (repo=%s commit=%s) succeeded", repo, episodeSHA)
 	var runs []struct {
 		DatabaseID int64  `json:"databaseId"`
 		Conclusion string `json:"conclusion"`
@@ -271,6 +273,8 @@ func (g *osExecGhCli) FetchFailedLogs(
 	if err != nil {
 		return "", errors.Wrapf(ctx, err, "gh run view %d --log-failed", failingID)
 	}
+	glog.V(2).
+		Infof("gh run view %d --log-failed (repo=%s) succeeded: bytes=%d", failingID, repo, len(logOut))
 	return truncateToLines(string(logOut), 200), nil
 }
 

@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix: bot-review round 2 — mark the fix-step `ghToken` fields `display:"length"` (secret-field convention) and move the nil-producer guard inside `CreateBuildFixChainEmitter`'s returned closure so the factory body stays pure composition.
 - fix: bot-review round 3 — add `display:"length"` to the `osExecGhCli.ghToken` field and add `ctx.Done()` checks in the two `BuildEnv` merge loops (`buildClaudeEnv` now takes ctx; `cmd/run-task` Run loop returns `ctx.Err()` on cancellation).
 - fix: bot-review round 4 — add `display:"length"` to `AnthropicAuthToken` (main.go + cmd/run-task) and `PEMKeyFile`, and thread `ctx` through the fix-planning helpers (`readFixRequired`, `extractFailingWorkflowLogEvidence`, `parseFixPlan`, `writeSpecFile`) adding `ctx.Done()` cancellation checks in their loops.
+- fix: bot-review round 5 — replace the unrecognized `display:"password"` tag with `display:"length"` on `AnthropicAuthToken` (the argument library only knows `hidden`/`length`, so `password` fell through and printed the token verbatim), remove the duplicate nil-producer guard from `CreateBuildFixChainEmitter` (the caller owns the nil decision), and add boundary logs to `FetchFailedLogs`' `gh run list`/`run view` calls.
 
 ## v0.10.2
 
