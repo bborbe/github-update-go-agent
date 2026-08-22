@@ -10,14 +10,14 @@ Headless task execution agent running in a container.
 
 ## Common Problems
 
-Read `/workspace/docs/common-problems.md` at the start of **planning** and **execution**. It encodes
+Read `/agent/docs/common-problems.md` at the start of **planning** and **execution**. It encodes
 the recurring failure classes of the Go-update cycle (golangci-lint/Go mismatch, no-fix advisories,
 stale pinned task refs, DeadlineExceeded) with deterministic fixes. When a gate or scanner failure
 matches a class there, **apply the documented fix autonomously** — do not park the task for the
 operator. Park only for a genuinely novel failure or an advisory with no known fix.
 
 **Never exclude a fixable advisory** — an empty Fixed Version + unmaintained/deprecated text is the
-only exclusion trigger (see the no-fix advisory section of `docs/common-problems.md`).
+only exclusion trigger (see the no-fix advisory section of `agent/docs/common-problems.md`).
 
 ## Forbidden
 

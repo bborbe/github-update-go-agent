@@ -31,27 +31,27 @@ version to bump to.
 **Confirm**: The scanner row's Fixed Version is empty AND the advisory text says "unmaintained",
 "deprecated", or "unsafe by design" (e.g. GO-2026-5932 = `golang.org/x/crypto/openpgp`).
 
+**This class parks by design (D4) — do NOT attempt to suppress autonomously.** The planning gate
+deterministically parks a task whose plan carries `action: "park"` findings, because the operator's
+suppression decision must be made against the real finding (see the `parkMessage` design-D4 comment
+in `steps_planning.go`). An agent-side exclusion would hide a vulnerability the operator should
+review.
+
+**Your role**:
+1. Classify accurately — set `action: "park"` for an empty-Fixed-Version / unmaintained advisory
+   (a fixable one is `action: "fix"` and you DO bump it).
+2. In the park message, name the exact suppression surfaces the operator will touch:
+   `VULNCHECK_IGNORE` (Makefile / Makefile.precommit), `.trivyignore`, `.osv-scanner.toml`
+   `[[IgnoredVulns]]` — from the captured scanner table, never fabricated.
+3. Do NOT run `add-vuln-ignore.sh` or edit the repo's ignore files — that is the operator's call.
+
 **CRITICAL**: **Never exclude a fixable advisory.** If a Fixed Version exists, bump the dependency —
-excluding it hides real risk. Only empty-Fixed-Version / unmaintained advisories may be excluded.
+excluding it hides real risk. Only empty-Fixed-Version / unmaintained advisories may be parked (and
+they park, not auto-exclude).
 
-**Fix** (per-repo exclusion — the repo's own config files, exactly what the operator's
-`add-vuln-ignore.sh` does):
-1. `VULNCHECK_IGNORE ?= <existing> <GO-ID>` in `Makefile` OR `Makefile.precommit` (whichever declares
-   it; check both). If the line is multi-line (`\` continuation), append to the **last** continuation
-   line — never after a trailing `\`.
-2. Append `<GO-ID>` (one per line) to `.trivyignore`.
-3. Append an `[[IgnoredVulns]]` block to `.osv-scanner.toml`:
-   ```
-   [[IgnoredVulns]]
-   id = "<GO-ID>"
-   reason = "no-fix advisory — unmaintained/deprecated package"
-   ```
-   If osv-scanner still flags it, add the advisory's `GHSA-…` alias as a second block.
-4. Run `make precommit` / `make check` — confirm it prints "No unignored vulnerabilities found" (or
-   equivalent) and exits 0.
-
-**Do NOT**: touch `go.mod`/`go.sum` for this — there is nothing to bump. And never invent a
-suppression for an advisory that has a fix.
+**For the operator** (not the agent): the exclusion procedure is per-repo config edits —
+`VULNCHECK_IGNORE` in Makefile/Makefile.precommit, `<GO-ID>` in `.trivyignore`, an `[[IgnoredVulns]]`
+block in `.osv-scanner.toml` — see runbook `[[Exclude a No-Fix Vulnerability Across the Fleet]]`.
 
 ## 3. Stale pinned task ref
 
