@@ -35,7 +35,7 @@ import (
 // the Result body.
 type fixReviewStep struct {
 	ops     git.GitOps
-	ghToken string
+	ghToken string `display:"length"`
 }
 
 // NewFixReviewStep wires the build-fix ai_review verifier with its GitOps

@@ -48,7 +48,7 @@ const bugSpecFilenamePrefix = "bug-build-failure-"
 type fixExecutionStep struct {
 	ops       git.GitOps
 	gh        GhCli
-	ghToken   string
+	ghToken   string `display:"length"`
 	createCmd CreateCommandFunc
 }
 

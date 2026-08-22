@@ -40,7 +40,7 @@ type fixPlanningStep struct {
 	runner  claudelib.ClaudeRunner
 	ops     git.GitOps
 	gh      GhCli
-	ghToken string
+	ghToken string `display:"length"`
 }
 
 // NewFixPlanningStep wires the build-fix planning step with its Claude

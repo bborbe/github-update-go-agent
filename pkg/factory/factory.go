@@ -171,8 +171,9 @@ func CreateFileResultDeliverer(filePath string) agentlib.ResultDeliverer {
 // the controller's Kafka command bus (task.CreateCommandSender), exactly as
 // the github-build watcher does for build-fix tasks. The producer is passed
 // in pre-built — main.go owns its lifecycle (created + closed there), so the
-// factory stays pure composition with no error and no conditional. The Pattern
-// B Job emits at most one downstream task per run.
+// factory body stays pure composition with no error and no conditional; the
+// nil guard lives in the returned closure (anonymous-function exception). The
+// Pattern B Job emits at most one downstream task per run.
 //
 // A nil syncProducer means chain publishing is disabled (local CLI mode) —
 // the execution step records a chain_noop so a local replay still exercises
@@ -181,14 +182,14 @@ func CreateBuildFixChainEmitter(
 	syncProducer libkafka.SyncProducer,
 	topicPrefix base.TopicPrefix,
 ) updatepkg.CreateCommandFunc {
-	if syncProducer == nil {
-		return nil
-	}
 	return func(
 		ctx context.Context,
 		repo, episodeSHA string,
 		workflows []string,
 	) error {
+		if syncProducer == nil {
+			return nil
+		}
 		defer func() {
 			if err := syncProducer.Close(); err != nil {
 				glog.Warningf("close chain sync producer failed: %v", err)
