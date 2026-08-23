@@ -204,6 +204,13 @@ var _ = Describe("ReviewStep", func() {
 			_, _, ref, _ := ops.CloneAtRefArgsForCall(0)
 			Expect(ref).To(Equal("fix/update-go-6d1f27f"))
 		})
+
+		It("bases the tag check on origin/master, the PR base", func() {
+			_, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			_, _, base := ops.RevListArgsForCall(0)
+			Expect(base).To(Equal("origin/master"))
+		})
 	})
 
 	Describe("Your Move operator-action block", func() {
@@ -310,6 +317,7 @@ var _ = Describe("ReviewStep", func() {
 			Expect(err).To(BeNil())
 			Expect(review.Approved).To(BeFalse())
 			Expect(review.Checks.PROpen).To(BeFalse())
+			Expect(review.Notes).To(ContainSubstring("pr state is CLOSED, expected OPEN"))
 		})
 
 		It("writes no ## Your Move block on a rejected body", func() {
@@ -317,6 +325,37 @@ var _ = Describe("ReviewStep", func() {
 			Expect(err).To(BeNil())
 			_, ok := md.FindSection("## Your Move")
 			Expect(ok).To(BeFalse())
+		})
+	})
+
+	Describe("PR already merged", func() {
+		BeforeEach(func() {
+			gh.ViewPRReturns("MERGED", false, nil)
+		})
+
+		It("accepts the shipped PR as approved and routes human_review with no re-file", func() {
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusDone))
+			Expect(result.NextPhase).To(Equal("human_review"))
+			review, err := agentlib.ExtractSection[pkg.ReviewOutput](ctx, md, "## Review")
+			Expect(err).To(BeNil())
+			Expect(review.Approved).To(BeTrue())
+			Expect(review.Checks.PROpen).To(BeFalse())
+			Expect(review.Checks.PRDraft).To(BeFalse())
+			Expect(review.Notes).NotTo(ContainSubstring("expected OPEN"))
+			Expect(review.Notes).NotTo(ContainSubstring("draft-ness mismatch"))
+		})
+
+		It("bypasses the draft check for the shipped state", func() {
+			gh.ViewPRReturns("MERGED", true, nil)
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusDone))
+			review, err := agentlib.ExtractSection[pkg.ReviewOutput](ctx, md, "## Review")
+			Expect(err).To(BeNil())
+			Expect(review.Approved).To(BeTrue())
+			Expect(review.Notes).NotTo(ContainSubstring("draft-ness mismatch"))
 		})
 	})
 
@@ -466,18 +505,88 @@ var _ = Describe("ReviewStep", func() {
 		})
 	})
 
+	Describe("tag reachable from the base branch (release history)", func() {
+		BeforeEach(func() {
+			ops.RevListStub = func(_ context.Context, _, base string) ([]string, error) {
+				// The stale pinned ref would include master commits added after
+				// filing (e.g. a release commit); origin/master (the branch's
+				// actual base) yields only the branch's own commits.
+				if base == "origin/master" {
+					return []string{"f8b922c2"}, nil
+				}
+				return []string{"f8b922c2", "6e16a948"}, nil
+			}
+			ops.LsRemoteTagsReturns([]string{"6e16a948"}, nil)
+		})
+
+		It("excludes a release tag on master history and bases RevList on origin/master", func() {
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusDone))
+			review, err := agentlib.ExtractSection[pkg.ReviewOutput](ctx, md, "## Review")
+			Expect(err).To(BeNil())
+			Expect(review.Checks.NoNewTag).To(BeTrue())
+			Expect(review.Notes).NotTo(ContainSubstring("tag leaked"))
+			_, _, base := ops.RevListArgsForCall(0)
+			Expect(base).To(Equal("origin/master"))
+		})
+	})
+
 	Describe("tag leaked onto a branch commit", func() {
 		BeforeEach(func() {
 			ops.LsRemoteTagsReturns([]string{"deadbeef2"}, nil)
 		})
 
-		It("rejects with no_new_tag false", func() {
+		It("rejects with no_new_tag false and the genuine-leak note", func() {
 			result, err := step.Run(ctx, md)
 			Expect(err).To(BeNil())
 			Expect(result.Status).To(Equal(agentlib.AgentStatusFailed))
 			review, err := agentlib.ExtractSection[pkg.ReviewOutput](ctx, md, "## Review")
 			Expect(err).To(BeNil())
 			Expect(review.Checks.NoNewTag).To(BeFalse())
+			Expect(review.Notes).To(ContainSubstring("tag leaked"))
+		})
+	})
+
+	Describe("repro: release-tag-in-history + already-merged PR (spec 005)", func() {
+		BeforeEach(func() {
+			gh.ViewPRReturns("MERGED", false, nil)
+			ops.RevListReturns([]string{"f8b922c2"}, nil)      // the branch's own commit
+			ops.LsRemoteTagsReturns([]string{"6e16a948"}, nil) // legitimate release tag on master
+		})
+
+		It("approves the merged, clean-and-shipped PR with no re-file", func() {
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusDone))
+			Expect(result.NextPhase).To(Equal("human_review"))
+			review, err := agentlib.ExtractSection[pkg.ReviewOutput](ctx, md, "## Review")
+			Expect(err).To(BeNil())
+			Expect(review.Approved).To(BeTrue())
+			Expect(review.Notes).NotTo(ContainSubstring("tag leaked"))
+			Expect(review.Notes).NotTo(ContainSubstring("expected OPEN"))
+		})
+	})
+
+	Describe("rev-list / ls-remote failure", func() {
+		It("keeps NoNewTag false when git rev-list fails", func() {
+			ops.RevListReturns(nil, stderrors.New("rev-list boom"))
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusFailed))
+			review, _ := agentlib.ExtractSection[pkg.ReviewOutput](ctx, md, "## Review")
+			Expect(review.Checks.NoNewTag).To(BeFalse())
+			Expect(review.Notes).To(ContainSubstring("rev-list failed"))
+		})
+
+		It("keeps NoNewTag false when git ls-remote --tags fails", func() {
+			ops.LsRemoteTagsReturns(nil, stderrors.New("ls-remote boom"))
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusFailed))
+			review, _ := agentlib.ExtractSection[pkg.ReviewOutput](ctx, md, "## Review")
+			Expect(review.Checks.NoNewTag).To(BeFalse())
+			Expect(review.Notes).To(ContainSubstring("ls-remote --tags failed"))
 		})
 	})
 
