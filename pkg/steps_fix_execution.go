@@ -301,11 +301,19 @@ func (s *fixExecutionStep) branchExistsOnOrigin(ctx context.Context, repo, branc
 	if err == nil {
 		return true
 	}
-	if strings.Contains(err.Error(), "not found") ||
-		strings.Contains(err.Error(), "Remote branch") {
+	// CloneAtRef is a full clone + checkout of the branch ref. A missing branch
+	// surfaces as a checkout-stage error ("pathspec 'build-fixer/<sha>' did not
+	// match any file(s) known to git") rather than a clone-stage "Remote branch
+	// ... not found" — both mean the branch does NOT exist. The latter also
+	// covers the shallow/branchless clone shape. Anything else is a real error
+	// (auth/network) and must NOT be read as "branch exists" — falling through
+	// to the push would surface the real conflict there.
+	errText := err.Error()
+	if strings.Contains(errText, "not found") ||
+		strings.Contains(errText, "Remote branch") ||
+		strings.Contains(errText, "did not match any file(s)") {
 		return false
 	}
-	// Unknown error — assume exists to be safe (avoid duplicate pushes).
 	return true
 }
 

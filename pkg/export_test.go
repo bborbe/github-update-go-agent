@@ -70,6 +70,16 @@ var (
 	ParseFixPlanForTest = parseFixPlan
 	ShortSHAForTest     = shortSHA
 	SanitizeSlugForTest = sanitizeSlug
+	// BranchExistsOnOriginForTest exposes the spec-filing dedup pre-check so
+	// pkg_test can assert a missing branch is NOT read as "already filed" —
+	// regression for the pathspec-checkout false positive that skipped the push.
+	BranchExistsOnOriginForTest = func(ctx context.Context, step agentlib.Step, repo, branch string) bool {
+		es, ok := step.(*fixExecutionStep)
+		if !ok {
+			return false
+		}
+		return es.branchExistsOnOrigin(ctx, repo, branch)
+	}
 )
 
 // LLMJSONProbe is the typed shape pkg_test uses to exercise
