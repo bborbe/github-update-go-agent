@@ -165,15 +165,20 @@ func (s *fixPlanningStep) runDiagnosis(
 	repo, episodeSHA string,
 ) (*FixPlanOutput, *agentlib.Result) {
 	// Fetch the failing-workflow log evidence. The body's ## Failing Workflows
-	// table carries run URLs; fall back to `gh run view --log-failed` on the
-	// latest failing run for the episode when the body is sparse.
-	logEvidence := extractFailingWorkflowLogEvidence(ctx, md)
-	if strings.TrimSpace(logEvidence) == "" && s.gh != nil {
+	// table carries run URLs and job names — metadata, not the actual error
+	// text — so prefer `gh run view --log-failed` on the latest failing run for
+	// the episode when gh is available. Only a body that already carries a real
+	// log snippet (## Error / ## Log) short-circuits the gh round-trip.
+	logEvidence := ""
+	if s.gh != nil {
 		if r, err := s.gh.FetchFailedLogs(ctx, repo, episodeSHA); err == nil {
 			logEvidence = r
 		} else {
 			glog.V(2).Infof("build-fix planning: gh log fetch failed repo=%s err=%v", repo, err)
 		}
+	}
+	if strings.TrimSpace(logEvidence) == "" {
+		logEvidence = extractFailingWorkflowLogEvidence(ctx, md)
 	}
 	if strings.TrimSpace(logEvidence) == "" {
 		return &FixPlanOutput{

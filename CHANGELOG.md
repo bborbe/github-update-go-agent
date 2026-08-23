@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## Unreleased
+
+- fix: build-fix planning prefers `gh run view --log-failed` over the task body's Failing Workflows table — the table carries run URLs + job names (metadata), not the error text, so the diagnosis escalated `needs_input` on real failures it had no log access to. The gh fetch now runs first when gh is available; a body that already carries a real `## Error` / `## Log` snippet still short-circuits it.
+- fix: `extractFailingWorkflowLogEvidence` also matches the watcher's `## Error` log-section heading (the github-build watcher emits the log snippet under `## Error`, not `## Log`), so `include_logs`-enabled task bodies actually reach the diagnosis.
+
 ## v0.12.2
 
 - exclude no-fix docker/containerd advisories in checker config (GO-2026-4883/4887/5064/5338/5622/5932 v1 no-fix)
