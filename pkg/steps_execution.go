@@ -120,7 +120,9 @@ func (s *executionStep) ShouldRun(_ context.Context, _ *agentlib.Markdown) (bool
 //     model's labels) + frontmatter.
 //  3. PR-adopt guard — open PR for the deterministic branch → adopt, write
 //     ## Result, re-route (crash-window idempotency, design § 5.3).
-//  4. CloneAtRef + SwitchNewBranch fix/update-go-<ref:7>.
+//  4. Resolve current default-branch HEAD at run start, CloneAtRef at it, +
+//     SwitchNewBranch fix/update-go-<ref:7> (ref = pinned filing SHA —
+//     replay guard).
 //  5. Claude sub-call (file-edit + go/make only) — update + repair + CHANGELOG,
 //     bounded by claudeExecutionTimeout. On failure the gates still decide:
 //     green → salvage the work as a DRAFT PR, red → Failed with the Claude
@@ -170,7 +172,22 @@ func (s *executionStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentl
 
 	result := &ResultOutput{Branch: branch}
 	authedURL := injectToken(normalizeCloneURLToHTTPS(cloneURL), s.ghToken)
-	if err := s.ops.CloneAtRef(ctx, authedURL, ref, workdir); err != nil {
+	head, err := s.ops.ResolveDefaultBranchHead(ctx, authedURL)
+	if err != nil {
+		return s.fail(
+			ctx,
+			md,
+			result,
+			git.ClassifyError(err),
+			errors.Wrap(ctx, err, "resolve current default-branch HEAD"),
+		)
+	}
+	glog.V(2).Infof(
+		"execution: pinned ref=%s (provenance only); clone base=resolved HEAD=%s",
+		ref,
+		head,
+	)
+	if err := s.ops.CloneAtRef(ctx, authedURL, head, workdir); err != nil {
 		return s.fail(ctx, md, result, git.ClassifyError(err), err)
 	}
 	if err := s.ops.SwitchNewBranch(ctx, workdir, branch); err != nil {

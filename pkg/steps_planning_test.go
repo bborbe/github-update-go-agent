@@ -114,6 +114,7 @@ var _ = Describe("PlanningStep", func() {
 		ops = &mocks.GitOps{}
 		scope = &mocks.InstallationScope{}
 		scope.AllowsReturns(pkg.ScopeAllowed)
+		ops.ResolveDefaultBranchHeadReturns("0cafebabe1234567890abcdef1234567890abcdef", nil)
 		step = pkg.NewPlanningStep(
 			runner,
 			ops,
@@ -176,6 +177,7 @@ var _ = Describe("PlanningStep", func() {
 		It("does not clone", func() {
 			_, _ = step.Run(ctx, md)
 			Expect(ops.CloneAtRefCallCount()).To(Equal(0))
+			Expect(ops.ResolveDefaultBranchHeadCallCount()).To(Equal(0))
 		})
 
 		It("never mutates assignee/status and never writes ## Failure", func() {
@@ -322,6 +324,24 @@ jobs:
 		})
 	})
 
+	Describe("current-HEAD resolution failure", func() {
+		BeforeEach(func() {
+			ops.ResolveDefaultBranchHeadReturns(
+				"",
+				stderrors.New("git ls-remote --symref HEAD: Repository not found"),
+			)
+		})
+
+		It("fails naming the resolution step and never falls back to the stale pinned ref", func() {
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusFailed))
+			Expect(result.Message).To(ContainSubstring("resolve current default-branch HEAD"))
+			Expect(result.Message).To(ContainSubstring("Repository not found"))
+			Expect(ops.CloneAtRefCallCount()).To(Equal(0))
+		})
+	})
+
 	Describe("happy path", func() {
 		BeforeEach(func() {
 			setupFixture(fixtureMakefile)
@@ -337,14 +357,28 @@ jobs:
 			}`}, nil)
 		})
 
-		It("clones the token-injected HTTPS URL at the ref", func() {
-			_, err := step.Run(ctx, md)
-			Expect(err).To(BeNil())
-			Expect(ops.CloneAtRefCallCount()).To(Equal(1))
-			_, url, ref, _ := ops.CloneAtRefArgsForCall(0)
-			Expect(url).To(Equal("https://x-access-token:tok@github.com/bborbe/demo.git"))
-			Expect(ref).To(Equal("6d1f27fabcdef12345678901234567890abcdef1"))
-		})
+		It(
+			"clones the token-injected HTTPS URL at the resolved current HEAD, not the stale pinned ref",
+			func() {
+				_, err := step.Run(ctx, md)
+				Expect(err).To(BeNil())
+				Expect(ops.CloneAtRefCallCount()).To(Equal(1))
+				_, url, ref, _ := ops.CloneAtRefArgsForCall(0)
+				Expect(url).To(Equal("https://x-access-token:tok@github.com/bborbe/demo.git"))
+				Expect(ref).To(Equal("0cafebabe1234567890abcdef1234567890abcdef"))
+				Expect(ops.ResolveDefaultBranchHeadCallCount()).To(Equal(1))
+			},
+		)
+
+		It(
+			"keeps the pinned ref recorded for provenance — frontmatter unchanged after the run",
+			func() {
+				_, err := step.Run(ctx, md)
+				Expect(err).To(BeNil())
+				ref, _ := md.Frontmatter.String("ref")
+				Expect(ref).To(Equal("6d1f27fabcdef12345678901234567890abcdef1"))
+			},
+		)
 
 		It("embeds the parsed scanner table in the prompt as the only ID source", func() {
 			_, err := step.Run(ctx, md)

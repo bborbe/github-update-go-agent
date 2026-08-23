@@ -37,6 +37,14 @@ type GitOps interface {
 	// against origin). cloneURL MUST already include any auth token.
 	CloneAtRef(ctx context.Context, cloneURL, ref, workdir string) error
 
+	// ResolveDefaultBranchHead shells out `git ls-remote --symref <cloneURL> HEAD`
+	// and returns the commit SHA at the remote's default branch. The default
+	// branch MUST be master — the deterministic PR base and the review step's
+	// origin/master comparison depend on it — so a different default branch
+	// returns an error naming the branch (fail loud, never bump the wrong
+	// branch). cloneURL MUST already include any auth token.
+	ResolveDefaultBranchHead(ctx context.Context, cloneURL string) (string, error)
+
 	// SwitchNewBranch creates and switches to a new local branch
 	// (git switch -c <branch>).
 	SwitchNewBranch(ctx context.Context, workdir, branch string) error

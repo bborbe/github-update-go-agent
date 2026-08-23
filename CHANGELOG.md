@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## Unreleased
+
+- feat: the planning and execution phases resolve the task's clone ref to the repo's current default-branch HEAD at run start instead of the stale filing SHA — the go-version bump and its precommit gate always run against the repo's current tooling, the pinned SHA stays recorded for provenance and still names the deterministic work branch, and a current-HEAD resolution failure stops the run loudly rather than falling back to the stale base
+
 ## v0.12.3
 
 - fix: build-fix planning prefers `gh run view --log-failed` over the task body's Failing Workflows table — the table carries run URLs + job names (metadata), not the error text, so the diagnosis escalated `needs_input` on real failures it had no log access to. The gh fetch now runs first when gh is available; a body that already carries a real `## Error` / `## Log` snippet still short-circuits it.
