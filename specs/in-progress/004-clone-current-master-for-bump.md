@@ -1,7 +1,8 @@
 ---
-status: approved
+status: verifying
 approved: "2026-08-23T19:28:08Z"
 generating: "2026-08-23T19:40:05Z"
+verifying: "2026-08-23T20:46:58Z"
 branch: dark-factory/clone-current-master-for-bump
 ---
 
