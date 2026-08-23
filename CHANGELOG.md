@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 - fix: the ai_review step's no_new_tag check compares remote tags against only the update branch's own commits (git rev-list origin/master..HEAD) instead of the whole history reachable from the pinned filing ref — a legitimate release tag already on master is no longer misreported as a tag leaked from the update pipeline, while a tag on a branch-introduced commit still rejects the review
+- fix: the ai_review step accepts an already-MERGED update PR as the shipped success state instead of rejecting it with "pr state is MERGED, expected OPEN" — a merged task routes to human_review for the operator to close rather than publishing status=failed and re-filing the task forever
 
 ## v0.12.4
 

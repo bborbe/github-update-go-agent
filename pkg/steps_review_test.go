@@ -317,6 +317,7 @@ var _ = Describe("ReviewStep", func() {
 			Expect(err).To(BeNil())
 			Expect(review.Approved).To(BeFalse())
 			Expect(review.Checks.PROpen).To(BeFalse())
+			Expect(review.Notes).To(ContainSubstring("pr state is CLOSED, expected OPEN"))
 		})
 
 		It("writes no ## Your Move block on a rejected body", func() {
@@ -324,6 +325,37 @@ var _ = Describe("ReviewStep", func() {
 			Expect(err).To(BeNil())
 			_, ok := md.FindSection("## Your Move")
 			Expect(ok).To(BeFalse())
+		})
+	})
+
+	Describe("PR already merged", func() {
+		BeforeEach(func() {
+			gh.ViewPRReturns("MERGED", false, nil)
+		})
+
+		It("accepts the shipped PR as approved and routes human_review with no re-file", func() {
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusDone))
+			Expect(result.NextPhase).To(Equal("human_review"))
+			review, err := agentlib.ExtractSection[pkg.ReviewOutput](ctx, md, "## Review")
+			Expect(err).To(BeNil())
+			Expect(review.Approved).To(BeTrue())
+			Expect(review.Checks.PROpen).To(BeFalse())
+			Expect(review.Checks.PRDraft).To(BeFalse())
+			Expect(review.Notes).NotTo(ContainSubstring("expected OPEN"))
+			Expect(review.Notes).NotTo(ContainSubstring("draft-ness mismatch"))
+		})
+
+		It("bypasses the draft check for the shipped state", func() {
+			gh.ViewPRReturns("MERGED", true, nil)
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusDone))
+			review, err := agentlib.ExtractSection[pkg.ReviewOutput](ctx, md, "## Review")
+			Expect(err).To(BeNil())
+			Expect(review.Approved).To(BeTrue())
+			Expect(review.Notes).NotTo(ContainSubstring("draft-ness mismatch"))
 		})
 	})
 
@@ -513,6 +545,26 @@ var _ = Describe("ReviewStep", func() {
 			Expect(err).To(BeNil())
 			Expect(review.Checks.NoNewTag).To(BeFalse())
 			Expect(review.Notes).To(ContainSubstring("tag leaked"))
+		})
+	})
+
+	Describe("repro: release-tag-in-history + already-merged PR (spec 005)", func() {
+		BeforeEach(func() {
+			gh.ViewPRReturns("MERGED", false, nil)
+			ops.RevListReturns([]string{"f8b922c2"}, nil)      // the branch's own commit
+			ops.LsRemoteTagsReturns([]string{"6e16a948"}, nil) // legitimate release tag on master
+		})
+
+		It("approves the merged, clean-and-shipped PR with no re-file", func() {
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusDone))
+			Expect(result.NextPhase).To(Equal("human_review"))
+			review, err := agentlib.ExtractSection[pkg.ReviewOutput](ctx, md, "## Review")
+			Expect(err).To(BeNil())
+			Expect(review.Approved).To(BeTrue())
+			Expect(review.Notes).NotTo(ContainSubstring("tag leaked"))
+			Expect(review.Notes).NotTo(ContainSubstring("expected OPEN"))
 		})
 	})
 

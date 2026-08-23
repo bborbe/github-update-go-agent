@@ -96,7 +96,7 @@ func (s *reviewStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentlib.
 	}
 
 	checks := ReviewChecks{}
-	draftMatches := s.checkPR(ctx, result, &checks, &notes)
+	prAccepted := s.checkPR(ctx, result, &checks, &notes)
 
 	cloneURL, _ := md.Frontmatter.String("clone_url")
 	repo, _ := md.Frontmatter.String("repo")
@@ -118,7 +118,7 @@ func (s *reviewStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentlib.
 		s.checkNoNewTag(ctx, workdir, authedURL, &checks, &notes)
 	}
 
-	approved := checks.PROpen && draftMatches && checks.GateGreen &&
+	approved := prAccepted && checks.GateGreen &&
 		checks.VulnsClear && checks.ChangelogUnreleased && checks.NoNewTag
 	output := ReviewOutput{
 		Approved: approved,
@@ -165,7 +165,11 @@ func (s *reviewStep) finish(
 // approval flag and the notes, so the serialized pr_draft key does not
 // change meaning for downstream consumers. A mismatch means the PR is not
 // in the state the agent created it in (someone flipped it) — surfaced for
-// the operator, and per the check contract the review fails closed.
+// the operator, and per the check contract the review fails closed. A MERGED
+// PR is the shipped success state and is accepted without notes (the review
+// routes approved → human_review so the operator closes the task); only
+// non-shipped states (e.g. CLOSED) surface "pr state is X, expected OPEN" and
+// fail the review.
 func (s *reviewStep) checkPR(
 	ctx context.Context,
 	result *ResultOutput,
@@ -177,8 +181,16 @@ func (s *reviewStep) checkPR(
 		*notes = append(*notes, "gh pr view failed: "+err.Error())
 		return false
 	}
-	checks.PROpen = state == "OPEN"
 	checks.PRDraft = isDraft
+	if state == "MERGED" {
+		// MERGED is the shipped success state — the operator already merged
+		// the PR. Accept without notes so the review routes approved →
+		// human_review and the task is closed, not re-filed. No draft-ness
+		// check: a merged PR is never draft, and checks.PROpen stays false
+		// (raw — it is not open).
+		return true
+	}
+	checks.PROpen = state == "OPEN"
 	if !checks.PROpen {
 		*notes = append(*notes, "pr state is "+state+", expected OPEN")
 	}
@@ -187,7 +199,7 @@ func (s *reviewStep) checkPR(
 		*notes = append(*notes, "pr draft-ness mismatch: observed draft="+
 			strconv.FormatBool(isDraft)+", configured target="+s.prTarget.String())
 	}
-	return draftMatches
+	return checks.PROpen && draftMatches
 }
 
 // checkGates independently re-runs every planned gate target on the fresh

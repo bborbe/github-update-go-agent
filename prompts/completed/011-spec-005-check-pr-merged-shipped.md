@@ -1,8 +1,13 @@
 ---
-status: approved
+status: completed
 spec: [005-bug-ai-review-leaked-tag-and-merged-false-positive]
+summary: ai_review step now accepts an already-MERGED PR as the shipped success state (approved verdict routes to human_review, no status=failed re-file) while CLOSED still rejects, with AC3/AC4/AC5 unit tests and design.md + CHANGELOG updates
+execution_id: github-update-go-agent-exec-011-spec-005-check-pr-merged-shipped
+dark-factory-version: dev
 created: "2026-08-24T09:35:00Z"
 queued: "2026-08-23T23:30:12Z"
+started: "2026-08-23T23:34:37Z"
+completed: "2026-08-23T23:39:44Z"
 branch: dark-factory/bug-ai-review-leaked-tag-and-merged-false-positive
 ---
 

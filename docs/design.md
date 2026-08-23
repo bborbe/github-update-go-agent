@@ -159,7 +159,7 @@ Human reviews + promotes the draft (runbook [[Update or Fix GitHub Go Repositori
 |---|---|
 | Input | `## Plan` + `## Result` |
 | Output | `ReviewOutput{approved bool, checks{pr_open, pr_draft, gate_green, vulns_clear, changelog_unreleased, no_new_tag}, notes}` → `## Review` |
-| Side effects | `gh pr view --json state,isDraft`; fresh worktree @ branch; re-run gate targets; verify CHANGELOG bullet under `## Unreleased` and no new `## vX.Y.Z` header; `git ls-remote --tags` shows no tag at branch commits |
+| Side effects | `gh pr view --json state,isDraft` (a MERGED PR is the shipped state — accepted, no "expected OPEN" rejection); fresh worktree @ branch; re-run gate targets; verify CHANGELOG bullet under `## Unreleased` and no new `## vX.Y.Z` header; `git ls-remote --tags` shows no tag at branch-introduced commits (a tag on a base-reachable release-history commit is not a leak) |
 | Duration | 5–15 min |
 | Next on success | `human_review` (the ONLY writer of that phase; success semantics per doctrine) |
 | Failure | any check false → `## Review` with `approved: false` + `Status: failed` (controller parks; body keeps the verdict) |
@@ -167,7 +167,7 @@ Human reviews + promotes the draft (runbook [[Update or Fix GitHub Go Repositori
 | Postconditions | `## Review` present; on approval the body additionally opens with the plain-text `## Your Move` operator-action block |
 
 ## 4.4 State passing + invariants
-`## Plan` / `## Result` / `## Review` as typed JSON via `agentlib.MarshalSectionTyped` / `ExtractSection[T]` (never `strings.Index`). Invariants: `Result.branch == "fix/update-go-" + ref[:7]` (`ref` = the pinned frontmatter filing SHA, not the resolved HEAD); `Result.vulns_fixed ⊆ {v.id | v ∈ Plan.vulns, action=fix}`; `Review.checks.gate_green` derived from re-execution, not from `Result.gate_exit`. A `human_review`-routed task (ai_review approval) additionally opens with a plain-text `## Your Move` operator-action block — PR link + merge action + change summary — written via `FindSection`/`InsertSection`, not `MarshalSectionTyped` (deliberate exception: the block carries no JSON).
+`## Plan` / `## Result` / `## Review` as typed JSON via `agentlib.MarshalSectionTyped` / `ExtractSection[T]` (never `strings.Index`). Invariants: `Result.branch == "fix/update-go-" + ref[:7]` (`ref` = the pinned frontmatter filing SHA, not the resolved HEAD); `Result.vulns_fixed ⊆ {v.id | v ∈ Plan.vulns, action=fix}`; `Review.checks.gate_green` derived from re-execution, not from `Result.gate_exit`. `Review.checks.no_new_tag` compares remote tags against git rev-list origin/master..HEAD — only branch-introduced commits count; a tag on a base-reachable release-history commit is not a leak. A MERGED PR is the shipped success state and is accepted (routes human_review so the operator closes the task); only non-shipped states (e.g. CLOSED) are rejected with "expected OPEN". A `human_review`-routed task (ai_review approval) additionally opens with a plain-text `## Your Move` operator-action block — PR link + merge action + change summary — written via `FindSection`/`InsertSection`, not `MarshalSectionTyped` (deliberate exception: the block carries no JSON).
 
 ## 4.5 Non-goals
 Per goal: no watcher service, no auto-merge/ready, no auto-suppress, no NPM/Python, no major Go bumps (1.x→2.0 → `needs_input`), no trading monorepo, no full `updater` port, no capabilities beyond the prototype.
@@ -234,7 +234,7 @@ Own public/private repos; no third-party data; no LLM provider involved (D1).
 ## 8.1 Per-phase
 - planning: `## Plan` valid `PlanOutput` JSON on a real repo; park path fires on synthetic `Fixed: N/A` finding
 - execution: PR open (draft by default; ready when `PR_TARGET: ready`), gate exit 0 on branch, CHANGELOG bullet under `## Unreleased`, `git ls-remote --tags` unchanged
-- ai_review: `## Review` all-true on the happy path; seeded broken check (e.g. deleted PR) → `approved: false` + park
+- ai_review: `## Review` all-true on the happy path; seeded broken check (e.g. deleted PR) → `approved: false` + park; an already-MERGED PR is accepted as shipped (routes human_review, no re-file)
 
 ## 8.2 Overall
 Goal [[GitHub Update Go Agent - Base]] SC1–SC5 + DoD verbatim (autonomous e2e, prototype parity, deferred paths, replay idempotency, metrics; design doc committed, CRD dev→prod, kill switch rehearsed, App pair created, vault synced).
