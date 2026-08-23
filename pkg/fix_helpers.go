@@ -62,12 +62,18 @@ func setupFixWorkdir(md *agentlib.Markdown) string {
 // extractFailingWorkflowLogEvidence pulls the failing-workflow + log lines
 // from the task body so the diagnosis has concrete evidence without an extra
 // gh round-trip. Returns "" when the body carries neither.
+//
+// Headings are matched against what the github-build watcher actually emits:
+// the ## Failing Workflows table (run URLs + job names) and the ## Error
+// log snippet (when include_logs is enabled). ## Log is accepted as a legacy
+// alias. The table alone is metadata, not log content — callers must prefer a
+// gh log fetch (FetchFailedLogs) over relying on this body-only evidence.
 func extractFailingWorkflowLogEvidence(ctx context.Context, md *agentlib.Markdown) string {
 	if len(md.Sections) == 0 {
 		return ""
 	}
 	// Keep the ## Failing Workflows table (run URLs + job names) plus any
-	// ## Log section verbatim — those are the reproduction evidence.
+	// ## Error / ## Log section verbatim — those are the reproduction evidence.
 	var out []string
 	for _, sec := range md.Sections {
 		select {
@@ -76,7 +82,7 @@ func extractFailingWorkflowLogEvidence(ctx context.Context, md *agentlib.Markdow
 		default:
 		}
 		switch sec.Heading {
-		case "## Failing Workflows", "## Log":
+		case "## Failing Workflows", "## Error", "## Log":
 			out = append(out, strings.TrimSpace(sec.Body))
 		}
 	}
