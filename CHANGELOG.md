@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 - feat: the planning and execution phases resolve the task's clone ref to the repo's current default-branch HEAD at run start instead of the stale filing SHA — the go-version bump and its precommit gate always run against the repo's current tooling, the pinned SHA stays recorded for provenance and still names the deterministic work branch, and a current-HEAD resolution failure stops the run loudly rather than falling back to the stale base
+- docs: update `docs/design.md` clone-at-ref semantics to the run-start-resolution behavior — § 3.3 annotates the frontmatter `ref` as filing-time provenance/dedupe only, § 4.3 planning/execution record resolve-at-run-start side effects and the resolution-failure escalation, and § 4.4 clarifies the `Result.branch` invariant uses the pinned filing SHA rather than the resolved HEAD
 
 ## v0.12.3
 

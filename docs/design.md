@@ -90,9 +90,9 @@ task_identifier: <deterministic from (owner, repo, head_sha)>
 title: Update Go <owner>/<repo> at <sha:7>
 repo: <owner>/<repo>
 clone_url: git@github.com:<owner>/<repo>.git   # agent rewrites to https for App-token auth
-ref: <full HEAD SHA>
-current_go: <X.Y.Z>   # watcher signal only
-latest_go: <X.Y.Z>    # watcher signal only (D5: agent targets its image toolchain)
+ref: <full HEAD SHA>   # filing SHA — provenance + dedupe only; the agent clones the current default-branch HEAD resolved at run start
+current_go: <X.Y.Z>    # watcher signal only
+latest_go: <X.Y.Z>     # watcher signal only (D5: agent targets its image toolchain)
 ```
 
 Body = operator-readable header only; never a data source.
@@ -127,15 +127,15 @@ Human reviews + promotes the draft (runbook [[Update or Fix GitHub Go Repositori
 **planning**
 | Decision | Value |
 |---|---|
-| Input | frontmatter `repo`, `clone_url`, `ref`, `update_scope` (optional; default `both`) |
+| Input | frontmatter `repo`, `clone_url`, `ref`, `update_scope` (optional; default `both`) — `ref` is provenance/branch-name only; clone base is the resolved default-branch HEAD |
 | Output | `PlanOutput{go_bump{from,to}, dep_updates_expected bool, gate_targets []string, vulns []{id, package, fixed_version, action fix\|park, reason}, has_work bool}` → `## Plan` |
-| Side effects | bare-clone + worktree @ ref (read-only wrt origin); detect gate targets from Makefile (`precommit`, `check`, `vulncheck`); run the repo's own scanner targets; enumerate outdated deps |
+| Side effects | resolve the repo's current default-branch HEAD at run start; bare-clone + worktree @ resolved HEAD (read-only wrt origin); detect gate targets from Makefile (`precommit`, `check`, `vulncheck`); run the repo's own scanner targets; enumerate outdated deps |
 | Allowed tools | `Read, Grep, Glob, Bash(git:*), Bash(go:*), Bash(make:*)` — no Edit/Write, no push |
 | Model | Sonnet |
 | Prompt module | `pkg/prompts/planning.md` — lifted from the slash command's planning section + learning #3 (repo's own multi-scanner gate, never hardcoded `govulncheck`) |
 | Duration | < 5 min |
 | Next on success | `execution` (has_work) · `done`+`status: completed` (`no_update_needed`) |
-| Failure | any `park`-action vuln → `needs_input` naming CVEs (D4); nested/multi-module root → `needs_input`; clone/auth fail → `failed` |
+| Failure | any `park`-action vuln → `needs_input` naming CVEs (D4); nested/multi-module root → `needs_input`; clone/auth fail → `failed`; current-HEAD resolution fail → `failed` naming the resolution step (no fallback to the stale pinned ref) |
 | Preconditions | required frontmatter present; single Go module at repo root |
 | Postconditions | `## Plan` JSON present; phase advanced |
 
@@ -144,7 +144,7 @@ Human reviews + promotes the draft (runbook [[Update or Fix GitHub Go Repositori
 |---|---|
 | Input | frontmatter + `## Plan` (via `ExtractSection[PlanOutput]`) |
 | Output | `ResultOutput{outcome, branch, pr_url, gate_exit int, deps_updated int, vulns_fixed []string}` → `## Result` |
-| Side effects | worktree @ ref; `git switch -c fix/update-go-<sha:7>`; **update sequence per D2** (go-directive bump targeting image toolchain (D5) → excludes/replaces → `go get -u ./...` + `go mod tidy` → targeted `go get <pkg>@<fixed>` per plan → OSV/indirect cleanup) → **repair to green (bounded)**: Claude may edit code to fix compile/test breakage *caused by the bumps* (never unrelated refactors) → CHANGELOG bullet under `## Unreleased` → run ALL detected gate targets to exit 0 → commit (no attribution) → `git push --no-follow-tags -u origin <branch>` → `gh pr create` (`--draft` only when the target is draft) |
+| Side effects | worktree @ current default-branch HEAD (resolved at run start); `git switch -c fix/update-go-<ref:7>` (ref = pinned filing SHA — deterministic replay guard); **update sequence per D2** (go-directive bump targeting image toolchain (D5) → excludes/replaces → `go get -u ./...` + `go mod tidy` → targeted `go get <pkg>@<fixed>` per plan → OSV/indirect cleanup) → **repair to green (bounded)**: Claude may edit code to fix compile/test breakage *caused by the bumps* (never unrelated refactors) → CHANGELOG bullet under `## Unreleased` → run ALL detected gate targets to exit 0 → commit (no attribution) → `git push --no-follow-tags -u origin <branch>` → `gh pr create` (`--draft` only when the target is draft) |
 | Allowed tools (Claude sub-call only) | `Read, Grep, Glob, Edit, Write, Bash(go:*), Bash(make:*)` — **no git, no gh**: all git/PR side effects are the Go step's (releaser-lifted `GitOps` seam: `injectToken`/HTTPS-normalize/`RedactToken`, per-invocation `-c` bot identity, explicit `add -- <paths>`, committed-files guard incl. no-`.github/workflows`, push `--no-follow-tags`, `gh pr create` (`--draft` only when the target is draft)) |
 | Model | Sonnet |
 | Prompt module | `pkg/prompts/execution.md` — the slash command's execution section incl. the release-agent integration block (`## Unreleased` only, never tag) + repair-scope bounds |
@@ -167,7 +167,7 @@ Human reviews + promotes the draft (runbook [[Update or Fix GitHub Go Repositori
 | Postconditions | `## Review` present; on approval the body additionally opens with the plain-text `## Your Move` operator-action block |
 
 ## 4.4 State passing + invariants
-`## Plan` / `## Result` / `## Review` as typed JSON via `agentlib.MarshalSectionTyped` / `ExtractSection[T]` (never `strings.Index`). Invariants: `Result.branch == "fix/update-go-" + ref[:7]`; `Result.vulns_fixed ⊆ {v.id | v ∈ Plan.vulns, action=fix}`; `Review.checks.gate_green` derived from re-execution, not from `Result.gate_exit`. A `human_review`-routed task (ai_review approval) additionally opens with a plain-text `## Your Move` operator-action block — PR link + merge action + change summary — written via `FindSection`/`InsertSection`, not `MarshalSectionTyped` (deliberate exception: the block carries no JSON).
+`## Plan` / `## Result` / `## Review` as typed JSON via `agentlib.MarshalSectionTyped` / `ExtractSection[T]` (never `strings.Index`). Invariants: `Result.branch == "fix/update-go-" + ref[:7]` (`ref` = the pinned frontmatter filing SHA, not the resolved HEAD); `Result.vulns_fixed ⊆ {v.id | v ∈ Plan.vulns, action=fix}`; `Review.checks.gate_green` derived from re-execution, not from `Result.gate_exit`. A `human_review`-routed task (ai_review approval) additionally opens with a plain-text `## Your Move` operator-action block — PR link + merge action + change summary — written via `FindSection`/`InsertSection`, not `MarshalSectionTyped` (deliberate exception: the block carries no JSON).
 
 ## 4.5 Non-goals
 Per goal: no watcher service, no auto-merge/ready, no auto-suppress, no NPM/Python, no major Go bumps (1.x→2.0 → `needs_input`), no trading monorepo, no full `updater` port, no capabilities beyond the prototype.

@@ -1,8 +1,12 @@
 ---
-status: approved
+status: completed
 spec: [004-clone-current-master-for-bump]
+execution_id: github-update-go-agent-exec-009-spec-004-design-doc-clone-ref-semantics
+dark-factory-version: dev
 created: "2026-08-23T19:40:00Z"
 queued: "2026-08-23T19:39:25Z"
+started: "2026-08-23T20:45:54Z"
+completed: "2026-08-23T20:46:58Z"
 ---
 
 # Update docs/design.md clone-at-ref semantics to run-start resolution
