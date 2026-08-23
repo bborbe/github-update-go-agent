@@ -67,7 +67,7 @@ type executionStep struct {
 	gh             GhCli
 	gate           GateRunner
 	bulk           BulkUpdater
-	ghToken        string
+	ghToken        string `display:"length"`
 	prTarget       PRTarget
 	autoMergeLabel string
 	defaultScope   UpdateScope

@@ -62,7 +62,7 @@ type planningStep struct {
 	runner       claudelib.ClaudeRunner
 	ops          git.GitOps
 	gate         GateRunner
-	ghToken      string
+	ghToken      string `display:"length"`
 	scope        InstallationScope
 	defaultScope UpdateScope
 }
