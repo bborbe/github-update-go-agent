@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## Unreleased
+
+- fix: the ai_review step's no_new_tag check compares remote tags against only the update branch's own commits (git rev-list origin/master..HEAD) instead of the whole history reachable from the pinned filing ref — a legitimate release tag already on master is no longer misreported as a tag leaked from the update pipeline, while a tag on a branch-introduced commit still rejects the review
+
 ## v0.12.4
 
 - feat: the planning and execution phases resolve the task's clone ref to the repo's current default-branch HEAD at run start instead of the stale filing SHA — the go-version bump and its precommit gate always run against the repo's current tooling, the pinned SHA stays recorded for provenance and still names the deterministic work branch, and a current-HEAD resolution failure stops the run loudly rather than falling back to the stale base

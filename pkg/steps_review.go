@@ -99,7 +99,6 @@ func (s *reviewStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentlib.
 	draftMatches := s.checkPR(ctx, result, &checks, &notes)
 
 	cloneURL, _ := md.Frontmatter.String("clone_url")
-	ref, _ := md.Frontmatter.String("ref")
 	repo, _ := md.Frontmatter.String("repo")
 	authedURL := injectToken(normalizeCloneURLToHTTPS(cloneURL), s.ghToken)
 
@@ -116,7 +115,7 @@ func (s *reviewStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentlib.
 	} else {
 		s.checkGates(ctx, workdir, plan, &checks, &notes)
 		s.checkChangelog(ctx, workdir, &checks, &notes)
-		s.checkNoNewTag(ctx, workdir, authedURL, ref, &checks, &notes)
+		s.checkNoNewTag(ctx, workdir, authedURL, &checks, &notes)
 	}
 
 	approved := checks.PROpen && draftMatches && checks.GateGreen &&
@@ -258,19 +257,18 @@ func (s *reviewStep) checkChangelog(
 	checks.ChangelogUnreleased = true
 }
 
-// checkNoNewTag verifies the remote holds no tag pointing at any branch
-// commit (git ls-remote --tags unchanged with respect to the branch work).
+// checkNoNewTag verifies the remote holds no tag pointing at any commit the
+// update branch itself introduced (git ls-remote --tags vs
+// git rev-list origin/master..HEAD). A tag on a commit already reachable from
+// the PR base — legitimate release history on master — is not a leak; only a
+// tag at a branch-introduced commit fails the check (fail-closed).
 func (s *reviewStep) checkNoNewTag(
 	ctx context.Context,
-	workdir, authedURL, ref string,
+	workdir, authedURL string,
 	checks *ReviewChecks,
 	notes *[]string,
 ) {
-	if ref == "" {
-		*notes = append(*notes, "frontmatter ref missing — cannot compute branch commits")
-		return
-	}
-	branchCommits, err := s.ops.RevList(ctx, workdir, ref)
+	branchCommits, err := s.ops.RevList(ctx, workdir, "origin/master")
 	if err != nil {
 		*notes = append(*notes, "rev-list failed: "+err.Error())
 		return
