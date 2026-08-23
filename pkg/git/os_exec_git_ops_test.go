@@ -183,6 +183,29 @@ var _ = Describe("osExecGitOps boundary contracts", func() {
 		Expect(shas).To(BeEmpty())
 	})
 
+	It("ResolveDefaultBranchHead returns the master tip SHA", func() {
+		head, err := ops.ResolveDefaultBranchHead(ctx, source)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(head).To(Equal(gitRun(source, "rev-parse", "master")))
+	})
+
+	It(
+		"ResolveDefaultBranchHead fails loud naming the branch when the default branch is not master",
+		func() {
+			other := filepath.Join(tmp, "default-main")
+			Expect(os.MkdirAll(other, 0o750)).To(Succeed())
+			gitRun(other, "init", "-b", "main")
+			Expect(os.WriteFile(filepath.Join(other, "MARKER.txt"), []byte("main\n"), 0o600)).
+				To(Succeed())
+			gitRun(other, "add", "MARKER.txt")
+			gitRun(other, "commit", "-m", "main commit")
+			_, err := ops.ResolveDefaultBranchHead(ctx, other)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("refs/heads/main"))
+			Expect(err.Error()).To(ContainSubstring("refs/heads/master"))
+		},
+	)
+
 	It("RevList returns only the branch's own commits", func() {
 		dest := filepath.Join(tmp, "cloned-revlist")
 		Expect(ops.CloneAtRef(ctx, source, "master", dest)).To(Succeed())

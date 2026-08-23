@@ -53,25 +53,26 @@ const suppressionSurfacesHint = "an operator-approved suppression would touch: "
 	"see [[Exclude a No-Fix Vulnerability Across the Fleet]] (add-vuln-ignore.sh), " +
 	"then re-delegate"
 
-// planningStep implements agentlib.Step for the planning phase: clone at
-// ref, detect + run the repo's gate targets, parse the scanner findings into
-// the ground-truth table, run the Claude inspection call against that table,
-// validate every plan ID verbatim, classify, park-or-advance.
+// planningStep implements agentlib.Step for the planning phase: resolve the
+// current default-branch HEAD at run start, clone at it, detect + run the
+// repo's gate targets, parse the scanner findings into the ground-truth
+// table, run the Claude inspection call against that table, validate every
+// plan ID verbatim, classify, park-or-advance.
 type planningStep struct {
 	runner       claudelib.ClaudeRunner
 	ops          git.GitOps
 	gate         GateRunner
-	ghToken      string
+	ghToken      string `display:"length"`
 	scope        InstallationScope
 	defaultScope UpdateScope
 }
 
 // NewPlanningStep wires the planning step with its Claude runner (inspection
-// LLM), the GitOps seam (clone at ref), the GateRunner (repo gate detection
-// + full scanner-output capture), the GitHub token (HTTPS auth URL
-// transformation), the installation-scope allowlist check, and the default
-// update scope (UPDATE_SCOPE env; frontmatter `update_scope` overrides per
-// task).
+// LLM), the GitOps seam (resolve the current default-branch HEAD at run
+// start and clone at it), the GateRunner (repo gate detection + full
+// scanner-output capture), the GitHub token (HTTPS auth URL transformation),
+// the installation-scope allowlist check, and the default update scope
+// (UPDATE_SCOPE env; frontmatter `update_scope` overrides per task).
 func NewPlanningStep(
 	runner claudelib.ClaudeRunner,
 	ops git.GitOps,
@@ -104,7 +105,9 @@ func (s *planningStep) ShouldRun(_ context.Context, _ *agentlib.Markdown) (bool,
 //  1. Required-frontmatter validation → NeedsInput (message only; the step
 //     NEVER writes ## Failure and NEVER mutates assignee/status — the
 //     controller owns the escalation envelope).
-//  2. Clone at ref via GitOps → Failed on clone/auth error.
+//  2. Resolve the repo's current default-branch HEAD at run start; clone at
+//     it via GitOps → Failed naming the resolution step on resolution error,
+//     or on clone/auth error.
 //  3. Detect gate targets from the Makefile in Go, run each via the
 //     GateRunner, and capture the full raw scanner output (no gate target →
 //     NeedsInput; a failing target with no parseable findings → Failed).
@@ -141,9 +144,8 @@ func (s *planningStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentli
 
 	workdir := s.setupAndCleanupWorkdir(md, repo)
 
-	authedURL := injectToken(normalizeCloneURLToHTTPS(cloneURL), s.ghToken)
-	if err := s.ops.CloneAtRef(ctx, authedURL, ref, workdir); err != nil {
-		return s.failClone(repo, err), nil
+	if failResult := s.resolveAndClone(ctx, md, repo, cloneURL, ref, workdir); failResult != nil {
+		return failResult, nil
 	}
 
 	if failResult := s.ciPinPreflight(ctx, workdir, repo); failResult != nil {
@@ -213,6 +215,32 @@ func (s *planningStep) setupAndCleanupWorkdir(md *agentlib.Markdown, repo string
 		}
 	}()
 	return workdir
+}
+
+// resolveAndClone runs the run-start resolution (`git ls-remote --symref HEAD`)
+// and clones the resolved HEAD into workdir. The pinned ref is recorded in
+// the V(2) log alongside the resolved HEAD so the provenance stays observable
+// but never reaches the clone base. A resolution failure stops planning here —
+// the run does NOT fall back to the stale pinned ref (spec 004 failure mode 1).
+func (s *planningStep) resolveAndClone(
+	ctx context.Context,
+	_ *agentlib.Markdown,
+	repo, cloneURL, ref, workdir string,
+) *agentlib.Result {
+	authedURL := injectToken(normalizeCloneURLToHTTPS(cloneURL), s.ghToken)
+	head, err := s.ops.ResolveDefaultBranchHead(ctx, authedURL)
+	if err != nil {
+		return s.failResolve(repo, err)
+	}
+	glog.V(2).Infof(
+		"planning: pinned ref=%s (provenance only); clone base=resolved HEAD=%s",
+		ref,
+		head,
+	)
+	if err := s.ops.CloneAtRef(ctx, authedURL, head, workdir); err != nil {
+		return s.failClone(repo, err)
+	}
+	return nil
 }
 
 // ciPinPreflight is the prevention gate for hardcoded CI Go toolchain pins.
@@ -320,6 +348,15 @@ func (s *planningStep) failClone(repo string, err error) *agentlib.Result {
 		return failed("git auth failure — check App installation for " + repo)
 	}
 	return failed("clone failed: " + git.RedactToken(err.Error()))
+}
+
+// failResolve maps a current-HEAD resolution error onto a failed Result that
+// names the resolution step. The run must NOT fall back to the stale pinned
+// ref (spec 004 failure mode 1) — a resolution failure stops planning here.
+func (s *planningStep) failResolve(repo string, err error) *agentlib.Result {
+	return failed(
+		"resolve current default-branch HEAD for " + repo + ": " + git.RedactToken(err.Error()),
+	)
 }
 
 // parkFindings returns the park-action vulns of the plan.

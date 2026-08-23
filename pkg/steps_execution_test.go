@@ -67,6 +67,7 @@ var _ = Describe("ExecutionStep", func() {
 		gate = &mocks.GateRunner{}
 		bulk = &mocks.BulkUpdater{}
 		bulk.RunReturns(pkg.BulkUpdateResult{Ran: true, Output: "ok"}, nil)
+		ops.ResolveDefaultBranchHeadReturns("0cafebabe1234567890abcdef1234567890abcdef", nil)
 		step = pkg.NewExecutionStep(
 			runner,
 			ops,
@@ -153,29 +154,32 @@ var _ = Describe("ExecutionStep", func() {
 	})
 
 	Describe("happy path", func() {
-		It("clones at ref, branches deterministically, pushes, opens a draft PR", func() {
-			result, err := step.Run(ctx, md)
-			Expect(err).To(BeNil())
-			Expect(result.Status).To(Equal(agentlib.AgentStatusDone))
-			Expect(result.NextPhase).To(Equal("ai_review"))
+		It(
+			"resolves the current HEAD, clones at it, branches deterministically from the pinned ref, pushes, opens a draft PR",
+			func() {
+				result, err := step.Run(ctx, md)
+				Expect(err).To(BeNil())
+				Expect(result.Status).To(Equal(agentlib.AgentStatusDone))
+				Expect(result.NextPhase).To(Equal("ai_review"))
 
-			_, url, ref, _ := ops.CloneAtRefArgsForCall(0)
-			Expect(url).To(Equal("https://x-access-token:tok@github.com/bborbe/demo.git"))
-			Expect(ref).To(Equal("6d1f27fabcdef12345678901234567890abcdef1"))
+				_, url, ref, _ := ops.CloneAtRefArgsForCall(0)
+				Expect(url).To(Equal("https://x-access-token:tok@github.com/bborbe/demo.git"))
+				Expect(ref).To(Equal("0cafebabe1234567890abcdef1234567890abcdef"))
 
-			_, _, branch := ops.SwitchNewBranchArgsForCall(0)
-			Expect(branch).To(Equal("fix/update-go-6d1f27f"))
+				_, _, branch := ops.SwitchNewBranchArgsForCall(0)
+				Expect(branch).To(Equal("fix/update-go-6d1f27f"))
 
-			_, _, pushBranch := ops.PushArgsForCall(0)
-			Expect(pushBranch).To(Equal("fix/update-go-6d1f27f"))
+				_, _, pushBranch := ops.PushArgsForCall(0)
+				Expect(pushBranch).To(Equal("fix/update-go-6d1f27f"))
 
-			_, _, base, head, title, _, gotTarget, gotLabel := gh.CreatePRArgsForCall(0)
-			Expect(base).To(Equal("master"))
-			Expect(head).To(Equal("fix/update-go-6d1f27f"))
-			Expect(title).To(Equal("update go module dependencies"))
-			Expect(gotTarget).To(Equal(pkg.PRTargetDraft))
-			Expect(gotLabel).To(Equal(""))
-		})
+				_, _, base, head, title, _, gotTarget, gotLabel := gh.CreatePRArgsForCall(0)
+				Expect(base).To(Equal("master"))
+				Expect(head).To(Equal("fix/update-go-6d1f27f"))
+				Expect(title).To(Equal("update go module dependencies"))
+				Expect(gotTarget).To(Equal(pkg.PRTargetDraft))
+				Expect(gotLabel).To(Equal(""))
+			},
+		)
 
 		It("re-runs every planned gate target", func() {
 			_, err := step.Run(ctx, md)
@@ -207,6 +211,25 @@ var _ = Describe("ExecutionStep", func() {
 			Expect(out.DepsUpdated).To(Equal(5))
 			// invariant: subset of plan fix-action ids
 			Expect(out.VulnsFixed).To(Equal([]string{"GO-2026-1234"}))
+		})
+	})
+
+	Describe("current-HEAD resolution failure", func() {
+		BeforeEach(func() {
+			ops.ResolveDefaultBranchHeadReturns(
+				"",
+				stderrors.New("git ls-remote --symref HEAD: could not read Username"),
+			)
+		})
+
+		It("fails naming the resolution step with no clone, no push, no PR", func() {
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusFailed))
+			Expect(result.Message).To(ContainSubstring("resolve current default-branch HEAD"))
+			Expect(ops.CloneAtRefCallCount()).To(Equal(0))
+			Expect(ops.PushCallCount()).To(Equal(0))
+			Expect(gh.CreatePRCallCount()).To(Equal(0))
 		})
 	})
 

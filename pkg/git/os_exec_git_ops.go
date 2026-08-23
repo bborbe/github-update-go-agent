@@ -104,6 +104,63 @@ func (g *osExecGitOps) SwitchNewBranch(ctx context.Context, workdir, branch stri
 	return nil
 }
 
+// ResolveDefaultBranchHead returns the commit SHA at the remote's default
+// branch, using `git ls-remote --symref <cloneURL> HEAD`. The first output
+// line is the symref `ref: refs/heads/<branch>\tHEAD`; the second is the
+// SHA. A non-master default branch is an error: the deterministic PR base
+// (master) and the review step's origin/master comparison both depend on
+// master, and silently bumping the wrong branch would be the kind of bug
+// this code is the only defense against.
+func (g *osExecGitOps) ResolveDefaultBranchHead(
+	ctx context.Context,
+	cloneURL string,
+) (string, error) {
+	// #nosec G204 -- cloneURL is authed by caller from validated frontmatter
+	cmd := exec.CommandContext(ctx, "git", "ls-remote", "--symref", cloneURL, "HEAD")
+	cmd.Env = g.cmdEnv()
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return "", errors.Errorf(
+			ctx,
+			"git ls-remote --symref HEAD: %s",
+			redactToken(strings.TrimSpace(stderr.String())),
+		)
+	}
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	if len(lines) < 2 || !strings.HasPrefix(lines[0], "ref: ") {
+		return "", errors.Errorf(
+			ctx,
+			"git ls-remote --symref HEAD: no default-branch symref in %q",
+			string(out),
+		)
+	}
+	defaultRef := strings.Fields(lines[0])[1]
+	if defaultRef != "refs/heads/master" {
+		return "", errors.Errorf(
+			ctx,
+			"default branch is %s, expected refs/heads/master",
+			defaultRef,
+		)
+	}
+	shaFields := strings.Fields(lines[1])
+	if len(shaFields) == 0 {
+		return "", errors.Errorf(
+			ctx,
+			"git ls-remote --symref HEAD: no SHA for default branch in %q",
+			string(out),
+		)
+	}
+	sha := shaFields[0]
+	glog.V(2).Infof(
+		"git ls-remote --symref HEAD: default=%s head=%s",
+		defaultRef,
+		sha,
+	)
+	return sha, nil
+}
+
 // ChangedFiles returns all uncommitted repo-relative paths via
 // `git status --porcelain` (staged + unstaged + untracked).
 func (g *osExecGitOps) ChangedFiles(ctx context.Context, workdir string) ([]string, error) {
