@@ -6,14 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
-## Unreleased
+## v0.12.4
 
 - feat: the planning and execution phases resolve the task's clone ref to the repo's current default-branch HEAD at run start instead of the stale filing SHA — the go-version bump and its precommit gate always run against the repo's current tooling, the pinned SHA stays recorded for provenance and still names the deterministic work branch, and a current-HEAD resolution failure stops the run loudly rather than falling back to the stale base
 - docs: update `docs/design.md` clone-at-ref semantics to the run-start-resolution behavior — § 3.3 annotates the frontmatter `ref` as filing-time provenance/dedupe only, § 4.3 planning/execution record resolve-at-run-start side effects and the resolution-failure escalation, and § 4.4 clarifies the `Result.branch` invariant uses the pinned filing SHA rather than the resolved HEAD
+- fix: spec-filing dedup `branchExistsOnOrigin` no longer reads a checkout-stage "pathspec ... did not match any file(s)" error as "branch exists". `CloneAtRef` is a full clone + checkout, so a missing `build-fixer/<sha>` branch surfaces at checkout, not as the clone-stage "Remote branch ... not found" — the old classifier fell through to assume-exists and skipped the push, producing `already_filed` with no branch actually on origin. Found by the dev e2e (v0.12.3 ran planning → `file_spec` from real gh logs, then dedup-skipped the push). Regression test added.
 
 ## v0.12.3
-
-- fix: spec-filing dedup `branchExistsOnOrigin` no longer reads a checkout-stage "pathspec ... did not match any file(s)" error as "branch exists". `CloneAtRef` is a full clone + checkout, so a missing `build-fixer/<sha>` branch surfaces at checkout, not as the clone-stage "Remote branch ... not found" — the old classifier fell through to assume-exists and skipped the push, producing `already_filed` with no branch actually on origin. Found by the dev e2e (v0.12.3 ran planning → `file_spec` from real gh logs, then dedup-skipped the push). Regression test added.
 
 - fix: build-fix planning prefers `gh run view --log-failed` over the task body's Failing Workflows table — the table carries run URLs + job names (metadata), not the error text, so the diagnosis escalated `needs_input` on real failures it had no log access to. The gh fetch now runs first when gh is available; a body that already carries a real `## Error` / `## Log` snippet still short-circuits it.
 - fix: `extractFailingWorkflowLogEvidence` also matches the watcher's `## Error` log-section heading (the github-build watcher emits the log snippet under `## Error`, not `## Log`), so `include_logs`-enabled task bodies actually reach the diagnosis.
