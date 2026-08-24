@@ -21,6 +21,7 @@ var (
 	IsMissingLabelError      = isMissingLabelError
 	ParseScannerOutput       = parseScannerOutput
 	DetectGateTargets        = detectGateTargets
+	LoadSuppressedVulnIDs    = loadSuppressedVulnIDs
 	ValidatePlanAgainstTable = validatePlanAgainstTable
 	RenderScannerTable       = renderScannerTable
 	ParkMessage              = parkMessage

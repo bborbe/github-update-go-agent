@@ -45,6 +45,27 @@ func (t ScannerTable) Contains(id string) bool {
 	return false
 }
 
+// FilterSuppressed returns a copy of the table without rows whose ID is in
+// suppressed. The planning stage must not present operator-approved no-fix
+// suppressions to the model as park-worthy findings: the gate targets run
+// against those very configs (and pass), yet their echoed output can still
+// list the suppressed IDs — captured naively, the task re-parks on a
+// suppression the operator already approved (design D4). Nil/empty suppressed
+// returns the table unchanged.
+func (t ScannerTable) FilterSuppressed(suppressed map[string]bool) ScannerTable {
+	if len(suppressed) == 0 {
+		return t
+	}
+	filtered := make(ScannerTable, 0, len(t))
+	for _, row := range t {
+		if suppressed[row.ID] {
+			continue
+		}
+		filtered = append(filtered, row)
+	}
+	return filtered
+}
+
 // Row returns the first row whose ID equals id exactly.
 func (t ScannerTable) Row(id string) (ScannerFinding, bool) {
 	for _, row := range t {
@@ -138,6 +159,171 @@ func parseScannerOutput(target string, raw string) []ScannerFinding {
 		findings = append(findings, scannerFindingForLine(target, line, id))
 	}
 	return findings
+}
+
+// scannerFindingForLine builds one finding row from an ID-bearing scanner
+// output line, choosing the shape by the separators present.
+//
+// suppressedIDRegexp matches an advisory ID on its own inside a suppression
+// surface line — an `id = "GO-2026-4923"` TOML entry, a bare `.trivyignore`
+// line, or a `VULNCHECK_IGNORE` value token. Word-boundary anchors keep the
+// match zero-width so a separator is never consumed: with `\s`/`"` anchors,
+// FindAllStringSubmatch consumed the trailing space of one ID and the next
+// ID lost its required leading separator (only the first ID ever matched).
+// The boundaries also pin the whole token so a longer ID (GO-2026-50260) is
+// never matched by its prefix (GO-2026-5026) — the `\d+` is greedy, so the
+// full digit run is captured and the trailing `\b` fails inside a longer ID.
+var suppressedIDRegexp = regexp.MustCompile(
+	`\b(GO-\d{4}-\d+|CVE-\d{4}-\d+|GHSA-[0-9A-Za-z]{4}-[0-9A-Za-z]{4}-[0-9A-Za-z]{4})\b`,
+)
+
+// loadSuppressedVulnIDs reads the repo's three fleet-convention suppression
+// surfaces in workdir and returns the set of advisory IDs the operator has
+// approved as no-fix (design D4):
+//
+//   - .osv-scanner.toml — [[IgnoredVulns]] entries (`id = "..."`)
+//   - .trivyignore — one advisory ID per line, `#` comments allowed
+//   - Makefile / Makefile.precommit — `VULNCHECK_IGNORE ?= GO-... GO-...`
+//
+// Missing surfaces are not errors — a repo without suppressions returns an
+// empty set. A surface that exists but cannot be read is an error.
+func loadSuppressedVulnIDs(ctx context.Context, workdir string) (map[string]bool, error) {
+	suppressed := make(map[string]bool)
+
+	for _, load := range []func(context.Context, string, map[string]bool) error{
+		loadOSVScannerSuppressions,
+		loadTrivySuppressions,
+		loadVulnCheckIgnoreSuppressions,
+	} {
+		if err := load(ctx, workdir, suppressed); err != nil {
+			return nil, err
+		}
+	}
+
+	return suppressed, nil
+}
+
+// loadOSVScannerSuppressions reads `.osv-scanner.toml` [[IgnoredVulns]] entries
+// (`id = "..."` lines). A missing file is not an error.
+func loadOSVScannerSuppressions(
+	ctx context.Context,
+	workdir string,
+	suppressed map[string]bool,
+) error {
+	path := filepath.Join(workdir, ".osv-scanner.toml")
+	content, err := os.ReadFile(
+		path,
+	) // #nosec G304 -- workdir is os.TempDir-rooted; filename is constant
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return errors.Wrapf(ctx, err, "read suppression surface %s", path)
+	}
+	for _, line := range strings.Split(string(content), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "id") {
+			continue
+		}
+		if id := extractSuppressedID(line); id != "" {
+			suppressed[id] = true
+		}
+	}
+	return nil
+}
+
+// loadTrivySuppressions reads `.trivyignore` — one advisory ID per line,
+// `#` comments and blank lines allowed. A missing file is not an error.
+func loadTrivySuppressions(ctx context.Context, workdir string, suppressed map[string]bool) error {
+	path := filepath.Join(workdir, ".trivyignore")
+	content, err := os.ReadFile(
+		path,
+	) // #nosec G304 -- workdir is os.TempDir-rooted; filename is constant
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return errors.Wrapf(ctx, err, "read suppression surface %s", path)
+	}
+	for _, line := range strings.Split(string(content), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if id := extractSuppressedID(line); id != "" {
+			suppressed[id] = true
+		}
+	}
+	return nil
+}
+
+// loadVulnCheckIgnoreSuppressions reads `VULNCHECK_IGNORE ?= ...` from
+// Makefile and Makefile.precommit. The value is a space-separated ID list;
+// `?=` is the fleet form, `=`/`:=` also accepted. The value may span `\`
+// continuation lines (osv-scanner gotchas) — accumulate before extracting,
+// so no ID in a continued value is missed. A missing file is not an error.
+func loadVulnCheckIgnoreSuppressions(
+	ctx context.Context,
+	workdir string,
+	suppressed map[string]bool,
+) error {
+	for _, name := range []string{"Makefile", "Makefile.precommit"} {
+		mkPath := filepath.Join(workdir, name)
+		content, err := os.ReadFile(
+			mkPath,
+		) // #nosec G304 -- workdir is os.TempDir-rooted; name is constant
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return errors.Wrapf(ctx, err, "read suppression surface %s", mkPath)
+		}
+		extractVulnCheckIgnore(string(content), suppressed)
+	}
+	return nil
+}
+
+// extractVulnCheckIgnore scans content for `VULNCHECK_IGNORE ...=` lines and
+// records every advisory ID in their values. A value may span `\` continuation
+// lines — accumulate the continued value before extracting so no ID is missed.
+func extractVulnCheckIgnore(content string, suppressed map[string]bool) {
+	lines := strings.Split(content, "\n")
+	for i := 0; i < len(lines); i++ {
+		line := strings.TrimSpace(lines[i])
+		if !strings.Contains(line, "VULNCHECK_IGNORE") {
+			continue
+		}
+		// Take the value after the assignment operator; skip a bare
+		// reference like `$(VULNCHECK_IGNORE)` (no `=`).
+		eq := strings.Index(line, "=")
+		if eq < 0 {
+			continue
+		}
+		value := line[eq+1:]
+		for strings.HasSuffix(value, "\\") {
+			i++
+			if i >= len(lines) {
+				break
+			}
+			value = strings.TrimSuffix(value, "\\") + " " + strings.TrimSpace(lines[i])
+		}
+		for _, m := range suppressedIDRegexp.FindAllStringSubmatch(value, -1) {
+			if m[1] != "" {
+				suppressed[m[1]] = true
+			}
+		}
+	}
+}
+
+// extractSuppressedID returns the advisory ID found anywhere in line, or ""
+// when the line carries none. Used across all three suppression surfaces; a
+// line never carries more than one ID in practice (TOML one per entry, trivy
+// one per line, VULNCHECK_IGNORE value tokens are whitespace-separated).
+func extractSuppressedID(line string) string {
+	if m := suppressedIDRegexp.FindStringSubmatch(line); m != nil {
+		return m[1]
+	}
+	return ""
 }
 
 // scannerFindingForLine builds one finding row from an ID-bearing scanner

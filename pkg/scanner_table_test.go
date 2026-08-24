@@ -238,6 +238,123 @@ var _ = Describe("ScannerTable", func() {
 	})
 })
 
+var _ = Describe("loadSuppressedVulnIDs", func() {
+	var (
+		ctx     context.Context
+		workdir string
+	)
+	writeFile := func(name, content string) {
+		Expect(os.WriteFile(filepath.Join(workdir, name), []byte(content), 0o644)).To(Succeed())
+	}
+
+	BeforeEach(func() {
+		ctx = context.Background()
+		var err error
+		workdir, err = os.MkdirTemp("", "suppressed-test-")
+		Expect(err).To(BeNil())
+	})
+	AfterEach(func() {
+		Expect(os.RemoveAll(workdir)).To(Succeed())
+	})
+
+	It("returns an empty set when no suppression surface exists", func() {
+		suppressed, err := pkg.LoadSuppressedVulnIDs(ctx, workdir)
+		Expect(err).To(BeNil())
+		Expect(suppressed).To(BeEmpty())
+	})
+
+	It("reads [[IgnoredVulns]] ids from .osv-scanner.toml", func() {
+		writeFile(".osv-scanner.toml", `
+[[IgnoredVulns]]
+id = "GO-2026-5064"
+reason = "docker indirect, no fix"
+
+[[IgnoredVulns]]
+id = "GHSA-pxq6-2prw-chj9"
+reason = "no fix"
+`)
+		suppressed, err := pkg.LoadSuppressedVulnIDs(ctx, workdir)
+		Expect(err).To(BeNil())
+		Expect(suppressed).To(HaveKey("GO-2026-5064"))
+		Expect(suppressed).To(HaveKey("GHSA-pxq6-2prw-chj9"))
+	})
+
+	It("reads one ID per line from .trivyignore with comments", func() {
+		writeFile(".trivyignore", `# fleet no-fix
+GO-2026-5932 # x/crypto no fix
+CVE-2026-56864
+`)
+		suppressed, err := pkg.LoadSuppressedVulnIDs(ctx, workdir)
+		Expect(err).To(BeNil())
+		Expect(suppressed).To(HaveKey("GO-2026-5932"))
+		Expect(suppressed).To(HaveKey("CVE-2026-56864"))
+	})
+
+	It("reads VULNCHECK_IGNORE from Makefile", func() {
+		writeFile("Makefile", "VULNCHECK_IGNORE ?= GO-2026-4923 GO-2026-5338\n")
+		suppressed, err := pkg.LoadSuppressedVulnIDs(ctx, workdir)
+		Expect(err).To(BeNil())
+		Expect(suppressed).To(HaveKey("GO-2026-4923"))
+		Expect(suppressed).To(HaveKey("GO-2026-5338"))
+	})
+
+	It("reads VULNCHECK_IGNORE from Makefile.precommit", func() {
+		writeFile("Makefile.precommit", "VULNCHECK_IGNORE ?= GO-2026-5622\n")
+		suppressed, err := pkg.LoadSuppressedVulnIDs(ctx, workdir)
+		Expect(err).To(BeNil())
+		Expect(suppressed).To(HaveKey("GO-2026-5622"))
+	})
+
+	It("accumulates VULNCHECK_IGNORE across continuation lines", func() {
+		writeFile("Makefile", "VULNCHECK_IGNORE ?= GO-2026-4923 GO-2026-5338 \\\n\tGO-2026-5622\n")
+		suppressed, err := pkg.LoadSuppressedVulnIDs(ctx, workdir)
+		Expect(err).To(BeNil())
+		Expect(suppressed).To(HaveKey("GO-2026-4923"))
+		Expect(suppressed).To(HaveKey("GO-2026-5338"))
+		Expect(suppressed).To(HaveKey("GO-2026-5622"))
+	})
+
+	It("does not misread a longer ID as its prefix in the same surface", func() {
+		// GO-2026-50260 present in the same Makefile list as GO-2026-5026: the
+		// regex must capture each verbatim, never truncate the longer ID to its
+		// shorter prefix (spec: exact ID matching, never substring).
+		writeFile("Makefile", "VULNCHECK_IGNORE ?= GO-2026-5026 GO-2026-50260\n")
+		suppressed, err := pkg.LoadSuppressedVulnIDs(ctx, workdir)
+		Expect(err).To(BeNil())
+		Expect(suppressed).To(HaveKey("GO-2026-5026"))
+		Expect(suppressed).To(HaveKey("GO-2026-50260"))
+	})
+
+	It("errors on an unreadable suppression surface", func() {
+		Expect(os.Mkdir(filepath.Join(workdir, ".trivyignore"), 0o755)).To(Succeed())
+		suppressed, err := pkg.LoadSuppressedVulnIDs(ctx, workdir)
+		Expect(err).NotTo(BeNil())
+		Expect(err.Error()).To(ContainSubstring(".trivyignore"))
+		Expect(suppressed).To(BeNil())
+	})
+})
+
+var _ = Describe("ScannerTable.FilterSuppressed", func() {
+	It("returns the table unchanged when suppressed is empty", func() {
+		table := pkg.ScannerTable{{ID: "GO-2026-1234"}, {ID: "GO-2026-5932"}}
+		Expect(table.FilterSuppressed(nil)).To(Equal(table))
+	})
+
+	It("drops rows whose ID is suppressed", func() {
+		table := pkg.ScannerTable{{ID: "GO-2026-1234"}, {ID: "GO-2026-5932"}}
+		filtered := table.FilterSuppressed(map[string]bool{"GO-2026-5932": true})
+		Expect(filtered).To(HaveLen(1))
+		Expect(filtered[0].ID).To(Equal("GO-2026-1234"))
+	})
+
+	It("keeps a longer ID when only its prefix is suppressed (exact match)", func() {
+		table := pkg.ScannerTable{{ID: "GO-2026-50260"}, {ID: "GO-2026-5026"}}
+		filtered := table.FilterSuppressed(map[string]bool{"GO-2026-5026": true})
+		Expect(filtered).To(HaveLen(1))
+		Expect(filtered[0].ID).To(Equal("GO-2026-50260"))
+	})
+})
+
 var _ = Describe("parkMessage", func() {
 	It("carries the verbatim scanner row and the three suppression surfaces", func() {
 		table := pkg.ScannerTable{
