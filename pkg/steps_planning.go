@@ -352,10 +352,38 @@ func (s *planningStep) runInspection(
 		return nil, nil, failed("parse planning output: " + err.Error())
 	}
 	plan.GateTargets = targets
+	// Drop operator-approved no-fix suppressions from the plan's vulns the
+	// same way they were dropped from the table. The model may still echo a
+	// suppressed ID (it appears in the task body's prior ## Failure text even
+	// though it is absent from the scanner table); validating such a plan
+	// against the filtered table would hard-fail instead of parking, replacing
+	// the fixed re-park with a new failure (observed 2026-08-24: hue #1f653078
+	// "plan validation: vuln id ... not found in captured scanner output").
+	if len(suppressed) > 0 {
+		plan.Vulns = filterSuppressedVulns(plan.Vulns, suppressed)
+	}
 	if err := validatePlanAgainstTable(ctx, plan, table); err != nil {
 		return nil, nil, failed("plan validation: " + err.Error())
 	}
 	return plan, table, nil
+}
+
+// filterSuppressedVulns returns a copy of vulns without entries whose ID is in
+// suppressed. Operator-approved no-fix suppressions are not actionable and must
+// not drive parking; the model echoing one from prior failure text should be
+// ignored, not fail validation.
+func filterSuppressedVulns(vulns []PlanVuln, suppressed map[string]bool) []PlanVuln {
+	if len(suppressed) == 0 {
+		return vulns
+	}
+	filtered := make([]PlanVuln, 0, len(vulns))
+	for _, v := range vulns {
+		if suppressed[v.ID] {
+			continue
+		}
+		filtered = append(filtered, v)
+	}
+	return filtered
 }
 
 // failClone maps a clone error onto an actionable failed Result.

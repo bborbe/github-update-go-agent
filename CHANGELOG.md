@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- fix: planning's plan-validation is now suppression-synced — `filterSuppressedVulns` drops operator-approved no-fix IDs from the plan's vulns before `validatePlanAgainstTable`, mirroring the scanner-table filter from v0.12.6. The model can still echo a suppressed ID (it appears in the task body's prior `## Failure` text even though it is absent from the filtered scanner table); validating such a plan against the filtered table hard-failed with `plan validation: vuln id ... not found in captured scanner output` (observed 2026-08-24 on hue), replacing the fixed re-park with a new failure.
+
 ## v0.12.6
 
 - fix: planning's scanner table is now suppression-aware — `loadSuppressedVulnIDs` reads the repo's three fleet-convention suppression surfaces (`.osv-scanner.toml` `[[IgnoredVulns]]`, `.trivyignore`, `VULNCHECK_IGNORE` in Makefile/Makefile.precommit, including `\` continuation lines) and `FilterSuppressed` drops those IDs before the model sees them. Previously the gate targets' echoed output (Makefile source, osv-scanner ignored-vuln listings) leaked operator-approved no-fix IDs into the captured table, so planning re-parked a task on a suppression the operator already approved even though the gate passed (observed 2026-08-24 on hue: all 8 suppressed IDs re-flagged at planning after the SC6 suppressions landed).

@@ -213,6 +213,27 @@ var _ = Describe("validatePlanAgainstTable", func() {
 	})
 })
 
+var _ = Describe("filterSuppressedVulns", func() {
+	It("returns the vulns unchanged when suppressed is empty", func() {
+		vulns := []pkg.PlanVuln{{ID: "GO-2026-1234"}, {ID: "GO-2026-5932"}}
+		Expect(pkg.FilterSuppressedVulns(vulns, nil)).To(Equal(vulns))
+	})
+
+	It("drops plan vulns whose ID is suppressed", func() {
+		vulns := []pkg.PlanVuln{{ID: "GO-2026-1234"}, {ID: "GHSA-pxq6-2prw-chj9"}}
+		filtered := pkg.FilterSuppressedVulns(vulns, map[string]bool{"GHSA-pxq6-2prw-chj9": true})
+		Expect(filtered).To(HaveLen(1))
+		Expect(filtered[0].ID).To(Equal("GO-2026-1234"))
+	})
+
+	It("keeps a non-suppressed longer ID when only its prefix is suppressed (exact match)", func() {
+		vulns := []pkg.PlanVuln{{ID: "GO-2026-50260"}, {ID: "GO-2026-5026"}}
+		filtered := pkg.FilterSuppressedVulns(vulns, map[string]bool{"GO-2026-5026": true})
+		Expect(filtered).To(HaveLen(1))
+		Expect(filtered[0].ID).To(Equal("GO-2026-50260"))
+	})
+})
+
 var _ = Describe("ScannerTable", func() {
 	It("Contains and Row match IDs exactly", func() {
 		table := pkg.ScannerTable{{ID: "GO-2026-5026"}}
