@@ -315,6 +315,22 @@ func (s *planningStep) runInspection(
 		table = append(table, rows...)
 	}
 
+	// Drop operator-approved no-fix suppressions from the table before the
+	// model sees it. The gate targets run against the repo's suppression
+	// configs and pass, yet their echoed output can still list the suppressed
+	// IDs — captured naively, planning re-parks on a suppression the operator
+	// already approved (design D4; observed 2026-08-24: hue's planning parked
+	// on all 8 IDs present in .osv-scanner.toml despite the gate passing).
+	suppressed, err := loadSuppressedVulnIDs(ctx, workdir)
+	if err != nil {
+		return nil, nil, failed("load suppressed vuln IDs: " + err.Error())
+	}
+	if len(suppressed) > 0 {
+		table = table.FilterSuppressed(suppressed)
+		glog.V(2).
+			Infof("planning: filtered %d suppressed vuln IDs from scanner table", len(suppressed))
+	}
+
 	taskContent, err := md.Marshal(ctx)
 	if err != nil {
 		return nil, nil, failed("marshal task content: " + err.Error())
