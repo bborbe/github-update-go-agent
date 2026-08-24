@@ -23,6 +23,7 @@ var (
 	DetectGateTargets        = detectGateTargets
 	LoadSuppressedVulnIDs    = loadSuppressedVulnIDs
 	ValidatePlanAgainstTable = validatePlanAgainstTable
+	FilterSuppressedVulns    = filterSuppressedVulns
 	RenderScannerTable       = renderScannerTable
 	ParkMessage              = parkMessage
 	ExtractToolResultBodies  = extractToolResultBodies
