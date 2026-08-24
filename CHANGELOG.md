@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.12.7
 
 - fix: planning's plan-validation is now suppression-synced — `filterSuppressedVulns` drops operator-approved no-fix IDs from the plan's vulns before `validatePlanAgainstTable`, mirroring the scanner-table filter from v0.12.6. The model can still echo a suppressed ID (it appears in the task body's prior `## Failure` text even though it is absent from the filtered scanner table); validating such a plan against the filtered table hard-failed with `plan validation: vuln id ... not found in captured scanner output` (observed 2026-08-24 on hue), replacing the fixed re-park with a new failure.
 
