@@ -333,11 +333,11 @@ var _ = Describe("ReviewStep", func() {
 			gh.ViewPRReturns("MERGED", false, nil)
 		})
 
-		It("accepts the shipped PR as approved and routes human_review with no re-file", func() {
+		It("accepts the shipped PR as approved and routes done (auto-complete)", func() {
 			result, err := step.Run(ctx, md)
 			Expect(err).To(BeNil())
 			Expect(result.Status).To(Equal(agentlib.AgentStatusDone))
-			Expect(result.NextPhase).To(Equal("human_review"))
+			Expect(result.NextPhase).To(Equal("done"))
 			review, err := agentlib.ExtractSection[pkg.ReviewOutput](ctx, md, "## Review")
 			Expect(err).To(BeNil())
 			Expect(review.Approved).To(BeTrue())
@@ -345,6 +345,14 @@ var _ = Describe("ReviewStep", func() {
 			Expect(review.Checks.PRDraft).To(BeFalse())
 			Expect(review.Notes).NotTo(ContainSubstring("expected OPEN"))
 			Expect(review.Notes).NotTo(ContainSubstring("draft-ness mismatch"))
+		})
+
+		It("writes no ## Your Move block when the PR already merged", func() {
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.NextPhase).To(Equal("done"))
+			_, ok := md.FindSection("## Your Move")
+			Expect(ok).To(BeFalse())
 		})
 
 		It("bypasses the draft check for the shipped state", func() {
@@ -555,11 +563,11 @@ var _ = Describe("ReviewStep", func() {
 			ops.LsRemoteTagsReturns([]string{"6e16a948"}, nil) // legitimate release tag on master
 		})
 
-		It("approves the merged, clean-and-shipped PR with no re-file", func() {
+		It("approves the merged, clean-and-shipped PR and routes done (auto-complete)", func() {
 			result, err := step.Run(ctx, md)
 			Expect(err).To(BeNil())
 			Expect(result.Status).To(Equal(agentlib.AgentStatusDone))
-			Expect(result.NextPhase).To(Equal("human_review"))
+			Expect(result.NextPhase).To(Equal("done"))
 			review, err := agentlib.ExtractSection[pkg.ReviewOutput](ctx, md, "## Review")
 			Expect(err).To(BeNil())
 			Expect(review.Approved).To(BeTrue())

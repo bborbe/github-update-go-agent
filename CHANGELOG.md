@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - feat: gate planning on the target repo's `.maintainer.yaml` `goUpdate.autoUpdate` consent flag — a repo that has not opted in (flag absent, false, or `.maintainer.yaml` missing) is skipped with a named `auto_update_disabled` reason and no update work; a transport fetch failure is non-fatal and surfaces as a `ConfigFetchWarning` on the `## Plan` block (distinguishable from a deliberate `false`), while malformed YAML / non-boolean value fails closed to `human_review` with `error_category=invalid_config`. Mirrors `github-releaser-agent`'s spec-059 gate; runs before clone so a skipped repo costs one contents-API round trip.
 
+## v0.15.0
+
+- feat: opt into `autoMerge.trivial` — mechanically trivial update PRs (go.mod / Dockerfile / CHANGELOG / workflow bumps) get the auto-merge label from github-pr-watcher, so GitHub-native auto-merge lands them once checks + review are green
+
+## v0.14.0
+
+- feat: ai_review on an already-merged PR routes `done` instead of `human_review` — when the update PR has shipped (MERGED state), the task auto-completes with no `## Your Move` block and no manual close, closing the merge-detection tail on the agent side
+
 ## v0.13.1
 
 - fix: the execution step's forbidden-workflow-path guard now classifies `.github/workflows/*` changes instead of unconditionally refusing — a maintainer dep-bump's deterministic regeneration (content differs from origin/master base) is committed, a byte-identical no-op regeneration is skipped, and a brand-new workflow file (no base version) still refuses. The model is architecturally forbidden from editing workflows (no git/gh tools, prompt prohibition, App lacks Workflows permission — design D3), so a workflow change at commit time can only be the update's own regeneration.

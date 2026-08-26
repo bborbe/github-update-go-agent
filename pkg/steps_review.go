@@ -73,10 +73,13 @@ func (s *reviewStep) ShouldRun(_ context.Context, _ *agentlib.Markdown) (bool, e
 //  4. changelog_unreleased — CHANGELOG has an ## Unreleased bullet and no
 //     new version header vs master.
 //  5. no_new_tag — `git ls-remote --tags` shows no tag at any branch commit.
-//  6. All true → ## Review approved + ## Your Move operator-action block +
-//     Done/NextPhase human_review (the ONLY writer of that phase; success
-//     semantics per doctrine). Any false → ## Review approved:false +
-//     Status Failed, NO NextPhase, NO ## Your Move block.
+//  6. All true → ## Review approved + Done/NextPhase human_review (the ONLY
+//     writer of that phase; success semantics per doctrine) with the
+//     ## Your Move operator-action block — EXCEPT a PR already MERGED, which
+//     routes Done/NextPhase done (the update shipped; the task auto-completes
+//     without a human close) and writes no ## Your Move (nothing left for the
+//     operator). Any false → ## Review approved:false + Status Failed, NO
+//     NextPhase, NO ## Your Move block.
 func (s *reviewStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentlib.Result, error) {
 	result, err := agentlib.ExtractSection[ResultOutput](ctx, md, "## Result")
 	if err != nil || result == nil {
@@ -92,11 +95,11 @@ func (s *reviewStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentlib.
 		return s.finish(ctx, md, ReviewOutput{
 			Approved: false,
 			Notes:    "## Result carries no pr_url/branch — nothing to verify",
-		})
+		}, false)
 	}
 
 	checks := ReviewChecks{}
-	prAccepted := s.checkPR(ctx, result, &checks, &notes)
+	prAccepted, prMerged := s.checkPR(ctx, result, &checks, &notes)
 
 	cloneURL, _ := md.Frontmatter.String("clone_url")
 	repo, _ := md.Frontmatter.String("repo")
@@ -125,19 +128,21 @@ func (s *reviewStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentlib.
 		Checks:   checks,
 		Notes:    notesFor(notes),
 	}
-	if output.Approved {
+	if output.Approved && !prMerged {
 		writeYourMoveSection(ctx, md, result, plan)
 	}
-	return s.finish(ctx, md, output)
+	return s.finish(ctx, md, output, prMerged)
 }
 
-// finish writes ## Review and maps approved → Done/human_review,
-// rejected → Failed with NO NextPhase (the controller parks; human_review
-// is reserved for end-of-pipeline success).
+// finish writes ## Review and maps approved → Done/human_review, or — when
+// the PR is already MERGED (the update shipped) — Done/done so the task
+// auto-completes; rejected → Failed with NO NextPhase (the controller parks;
+// human_review is reserved for end-of-pipeline success).
 func (s *reviewStep) finish(
 	ctx context.Context,
 	md *agentlib.Markdown,
 	output ReviewOutput,
+	prMerged bool,
 ) (*agentlib.Result, error) {
 	section, err := agentlib.MarshalSectionTyped(ctx, "## Review", output)
 	if err != nil {
@@ -146,6 +151,13 @@ func (s *reviewStep) finish(
 	md.ReplaceSection(section)
 
 	if output.Approved {
+		if prMerged {
+			glog.V(2).Infof("ai_review: approved — PR merged, routing done")
+			return &agentlib.Result{
+				Status:    agentlib.AgentStatusDone,
+				NextPhase: domain.TaskPhaseDone.String(),
+			}, nil
+		}
 		glog.V(2).Infof("ai_review: approved — routing human_review")
 		return &agentlib.Result{
 			Status:    agentlib.AgentStatusDone,
@@ -167,28 +179,29 @@ func (s *reviewStep) finish(
 // in the state the agent created it in (someone flipped it) — surfaced for
 // the operator, and per the check contract the review fails closed. A MERGED
 // PR is the shipped success state and is accepted without notes (the review
-// routes approved → human_review so the operator closes the task); only
-// non-shipped states (e.g. CLOSED) surface "pr state is X, expected OPEN" and
-// fail the review.
+// routes approved → done so the task auto-completes); only non-shipped
+// states (e.g. CLOSED) surface "pr state is X, expected OPEN" and fail the
+// review. The second return value reports the merged state so finish() can
+// route done vs human_review.
 func (s *reviewStep) checkPR(
 	ctx context.Context,
 	result *ResultOutput,
 	checks *ReviewChecks,
 	notes *[]string,
-) bool {
+) (accepted, merged bool) {
 	state, isDraft, err := s.gh.ViewPR(ctx, result.PRURL)
 	if err != nil {
 		*notes = append(*notes, "gh pr view failed: "+err.Error())
-		return false
+		return false, false
 	}
 	checks.PRDraft = isDraft
 	if state == "MERGED" {
 		// MERGED is the shipped success state — the operator already merged
-		// the PR. Accept without notes so the review routes approved →
-		// human_review and the task is closed, not re-filed. No draft-ness
-		// check: a merged PR is never draft, and checks.PROpen stays false
-		// (raw — it is not open).
-		return true
+		// the PR. Accept without notes so the review routes approved → done
+		// and the task auto-completes, not re-filed. No draft-ness check: a
+		// merged PR is never draft, and checks.PROpen stays false (raw — it
+		// is not open).
+		return true, true
 	}
 	checks.PROpen = state == "OPEN"
 	if !checks.PROpen {
@@ -199,7 +212,7 @@ func (s *reviewStep) checkPR(
 		*notes = append(*notes, "pr draft-ness mismatch: observed draft="+
 			strconv.FormatBool(isDraft)+", configured target="+s.prTarget.String())
 	}
-	return checks.PROpen && draftMatches
+	return checks.PROpen && draftMatches, false
 }
 
 // checkGates independently re-runs every planned gate target on the fresh
