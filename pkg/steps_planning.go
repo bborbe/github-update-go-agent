@@ -6,6 +6,7 @@ package pkg
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -20,6 +21,7 @@ import (
 	"github.com/golang/glog"
 
 	"github.com/bborbe/github-update-go-agent/pkg/git"
+	"github.com/bborbe/github-update-go-agent/pkg/maintainerconfig"
 	"github.com/bborbe/github-update-go-agent/pkg/prompts"
 )
 
@@ -59,35 +61,40 @@ const suppressionSurfacesHint = "an operator-approved suppression would touch: "
 // table, run the Claude inspection call against that table, validate every
 // plan ID verbatim, classify, park-or-advance.
 type planningStep struct {
-	runner       claudelib.ClaudeRunner
-	ops          git.GitOps
-	gate         GateRunner
-	ghToken      string `display:"length"`
-	scope        InstallationScope
-	defaultScope UpdateScope
+	runner           claudelib.ClaudeRunner
+	ops              git.GitOps
+	gate             GateRunner
+	ghToken          string `display:"length"`
+	scope            InstallationScope
+	maintainerConfig maintainerconfig.Fetcher
+	defaultScope     UpdateScope
 }
 
 // NewPlanningStep wires the planning step with its Claude runner (inspection
 // LLM), the GitOps seam (resolve the current default-branch HEAD at run
 // start and clone at it), the GateRunner (repo gate detection + full
 // scanner-output capture), the GitHub token (HTTPS auth URL transformation),
-// the installation-scope allowlist check, and the default update scope
-// (UPDATE_SCOPE env; frontmatter `update_scope` overrides per task).
+// the installation-scope allowlist check, the .maintainer.yaml consent
+// gate (goUpdate.autoUpdate — mirror of github-releaser-agent spec 059),
+// and the default update scope (UPDATE_SCOPE env; frontmatter `update_scope`
+// overrides per task).
 func NewPlanningStep(
 	runner claudelib.ClaudeRunner,
 	ops git.GitOps,
 	gate GateRunner,
 	ghToken string,
 	scope InstallationScope,
+	maintainerConfig maintainerconfig.Fetcher,
 	defaultScope UpdateScope,
 ) agentlib.Step {
 	return &planningStep{
-		runner:       runner,
-		ops:          ops,
-		gate:         gate,
-		ghToken:      ghToken,
-		scope:        scope,
-		defaultScope: defaultScope,
+		runner:           runner,
+		ops:              ops,
+		gate:             gate,
+		ghToken:          ghToken,
+		scope:            scope,
+		maintainerConfig: maintainerConfig,
+		defaultScope:     defaultScope,
 	}
 }
 
@@ -133,6 +140,14 @@ func (s *planningStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentli
 		return needsInput("repo " + repo + " is not in the GitHub App installation's " +
 			"repository list (per-stage allowlist) — add it to the installation or " +
 			"route the task to a stage whose App covers it"), nil
+	}
+
+	// Consent gate (F-?): a repo that has not opted into goUpdate.autoUpdate
+	// in its .maintainer.yaml is skipped with a named reason — no update work,
+	// no operator escalation. Runs before clone: the fetch is a contents-API
+	// call, not a clone, so a skipped repo costs one HTTP round trip.
+	if failResult := s.gateOnAutoUpdate(ctx, md, repo, ref); failResult != nil {
+		return failResult, nil
 	}
 
 	// Resolve the update scope (frontmatter `update_scope` overrides the
@@ -271,6 +286,160 @@ func (s *planningStep) ciPinPreflight(
 		"committed-files guard rejects .github/workflows/**). Fix manually: replace the single " +
 		"`go-version:` value with `go-version-file: go.mod` (keep `cache: true`), push to master, " +
 		"then re-delegate this task.")
+}
+
+// gateOnAutoUpdate is the .maintainer.yaml consent gate (mirror of
+// github-releaser-agent's resolveMaintainerConfig, spec 059, adapted to the
+// update-go skip semantics). A repo that has not opted into
+// `goUpdate.autoUpdate` is skipped with a named reason — no update work, no
+// operator escalation. Semantics:
+//
+//   - File absent (ErrFileNotFound)   → skip, reason `auto_update_disabled`, no warning
+//   - Transport / 5xx / timeout       → skip + ConfigFetchWarning (non-fatal;
+//     distinguishable from a deliberate false)
+//   - Malformed YAML / non-boolean    → fail-closed: PlanOutcomeFailed +
+//     ErrorCategoryInvalidConfig + InvalidField=goUpdate.autoUpdate, routed
+//     to human_review (a config typo on a high-trust field must not be
+//     silently downgraded to a skip)
+//   - File present, AutoUpdate==false → skip, reason `auto_update_disabled`
+//   - File present, AutoUpdate==true  → proceed (nil)
+//
+// Runs before clone: the fetch is a contents-API call, not a clone, so a
+// skipped repo costs one HTTP round trip. The gate never writes
+// .maintainer.yaml (read-only consent check).
+func (s *planningStep) gateOnAutoUpdate(
+	ctx context.Context,
+	md *agentlib.Markdown,
+	repo, ref string,
+) *agentlib.Result {
+	owner, name, ok := parseOwnerRepo(repo)
+	if !ok {
+		glog.V(2).Infof("planning: malformed repo=%q — escalating", repo)
+		return failed("malformed repo " + repo + " (want owner/name)")
+	}
+	bytes, err := s.maintainerConfig.Fetch(ctx, owner, name, ref)
+	if err != nil {
+		if stderrors.Is(err, maintainerconfig.ErrFileNotFound) {
+			glog.V(2).Infof(
+				"planning: .maintainer.yaml absent at ref=%s — skipping repo=%s (auto_update_disabled)",
+				ref, repo,
+			)
+			return s.skipAutoUpdate(
+				md,
+				"goUpdate.autoUpdate is absent (no .maintainer.yaml)",
+				"",
+			)
+		}
+		// Transport / non-404 error: skip + warning, NOT fail-closed (see
+		// sibling spec 059 § Failure Modes — transient GitHub flakes are
+		// usually recoverable; the operator can re-fire).
+		glog.Warningf("planning: .maintainer.yaml fetch failed (treated as skip): %v", err)
+		return s.skipAutoUpdate(
+			md,
+			".maintainer.yaml fetch failed (treated as auto_update_disabled)",
+			".maintainer.yaml fetch failed (treated as goUpdate.autoUpdate=false): "+err.Error(),
+		)
+	}
+	cfg, err := maintainerconfig.Parse(ctx, bytes)
+	if err != nil {
+		// YAML parse error or non-boolean value: fail-closed. Route to
+		// human_review so an operator fixes the typo rather than the repo
+		// silently dropping off the sweep.
+		glog.V(2).Infof("planning: invalid .maintainer.yaml: field=goUpdate.autoUpdate err=%v", err)
+		return s.failInvalidConfig(ctx, md, "goUpdate.autoUpdate", err)
+	}
+	if !cfg.GoUpdate.AutoUpdate {
+		glog.V(2).Infof(
+			"planning: goUpdate.autoUpdate=false — skipping repo=%s (auto_update_disabled)",
+			repo,
+		)
+		return s.skipAutoUpdate(
+			md,
+			"goUpdate.autoUpdate is false in .maintainer.yaml",
+			"",
+		)
+	}
+	glog.V(2).Infof("planning: .maintainer.yaml consent OK repo=%s goUpdate.autoUpdate=true", repo)
+	return nil
+}
+
+// skipAutoUpdate writes a no_update_needed ## Plan carrying the named
+// auto_update_disabled reason and completes the task (Done/NextPhase done).
+// A skip is a deliberate terminal, NOT an escalation: the repo opted out,
+// so there is nothing for an operator to do.
+func (s *planningStep) skipAutoUpdate(
+	md *agentlib.Markdown,
+	reason, warning string,
+) *agentlib.Result {
+	plan := &PlanOutput{
+		Outcome:            PlanOutcomeNoUpdateNeeded,
+		HasWork:            false,
+		Reason:             "auto_update_disabled: " + reason,
+		ConfigFetchWarning: warning,
+	}
+	if err := writePlanSection(context.Background(), md, plan); err != nil {
+		glog.Warningf("planning: write skip plan failed: %v", err)
+	}
+	return &agentlib.Result{
+		Status:    agentlib.AgentStatusDone,
+		NextPhase: domain.TaskPhaseDone.String(),
+		Message:   "auto_update_disabled: " + reason,
+	}
+}
+
+// failInvalidConfig routes a malformed .maintainer.yaml to human_review with
+// the typed invalid-config shape on the ## Plan block (mirror of the
+// sibling's failInvalidConfig). The task page is the audit surface — a
+// reader can grep for `error_category=invalid_config` on `## Plan`.
+func (s *planningStep) failInvalidConfig(
+	ctx context.Context,
+	md *agentlib.Markdown,
+	field string,
+	cause error,
+) *agentlib.Result {
+	msg := ""
+	if cause != nil {
+		msg = cause.Error()
+	}
+	plan := &PlanOutput{
+		Outcome:       PlanOutcomeFailed,
+		ErrorCategory: ErrorCategoryInvalidConfig,
+		InvalidField:  field,
+		InvalidValue:  extractInvalidValue(msg),
+		Reason:        "invalid .maintainer.yaml: " + field,
+	}
+	if err := writePlanSection(ctx, md, plan); err != nil {
+		glog.Warningf("planning: write invalid-config plan failed: %v", err)
+	}
+	return &agentlib.Result{
+		Status:    agentlib.AgentStatusFailed,
+		NextPhase: domain.TaskPhaseHumanReview.String(),
+		Message:   "invalid .maintainer.yaml: " + field + ": " + msg,
+	}
+}
+
+// extractInvalidValue pulls the raw bad value out of the wrapped parse error
+// message so it lands verbatim in the task-page block. The yaml.v3 error
+// format is e.g. "yaml: unmarshal errors: line 2: cannot unmarshal !!str
+// `yes` into bool". We surface the offending token; on parse-format drift,
+// fall back to the full error string so the field is never blank.
+func extractInvalidValue(msg string) string {
+	if i := strings.Index(msg, "`"); i >= 0 {
+		if j := strings.Index(msg[i+1:], "`"); j >= 0 {
+			return msg[i+1 : i+1+j]
+		}
+	}
+	return msg
+}
+
+// parseOwnerRepo splits "owner/name" into its two segments. Returns ok=false
+// on malformed input (missing slash, empty segment).
+func parseOwnerRepo(s string) (owner, name string, ok bool) {
+	parts := strings.SplitN(s, "/", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return "", "", false
+	}
+	return parts[0], parts[1], true
 }
 
 // runInspection detects the repo's gate targets in Go, runs each one via
