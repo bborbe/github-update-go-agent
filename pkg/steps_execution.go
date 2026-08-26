@@ -696,6 +696,13 @@ func (s *executionStep) classifyWorkflowChanges(
 	offending []string,
 ) (legit, noop []string, err error) {
 	for _, p := range offending {
+		// Each iteration shells out (ShowFile runs a git subprocess) — check
+		// ctx.Done() between paths, same shape as rerunGates.
+		select {
+		case <-ctx.Done():
+			return nil, nil, errors.Wrap(ctx, ctx.Err(), "workflow regeneration check cancelled")
+		default:
+		}
 		// #nosec G304 -- p comes from the repo's own git-status changed-files
 		// list (agent-controlled, same trust boundary as the `git add -- <paths>`
 		// pathspec annotated G204 in os_exec_git_ops.go); workdir is os.TempDir-
