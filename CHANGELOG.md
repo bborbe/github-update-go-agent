@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- feat: ai_review on an already-merged PR routes `done` instead of `human_review` — when the update PR has shipped (MERGED state), the task auto-completes with no `## Your Move` block and no manual close, closing the merge-detection tail on the agent side
+
 ## v0.13.1
 
 - fix: the execution step's forbidden-workflow-path guard now classifies `.github/workflows/*` changes instead of unconditionally refusing — a maintainer dep-bump's deterministic regeneration (content differs from origin/master base) is committed, a byte-identical no-op regeneration is skipped, and a brand-new workflow file (no base version) still refuses. The model is architecturally forbidden from editing workflows (no git/gh tools, prompt prohibition, App lacks Workflows permission — design D3), so a workflow change at commit time can only be the update's own regeneration.
