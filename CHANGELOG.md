@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- fix: the execution step's forbidden-workflow-path guard now classifies `.github/workflows/*` changes instead of unconditionally refusing — a maintainer dep-bump's deterministic regeneration (content differs from origin/master base) is committed, a byte-identical no-op regeneration is skipped, and a brand-new workflow file (no base version) still refuses. The model is architecturally forbidden from editing workflows (no git/gh tools, prompt prohibition, App lacks Workflows permission — design D3), so a workflow change at commit time can only be the update's own regeneration.
+
 ## v0.13.0
 
 - feat: publish agent image to Docker Hub on tag push — builds at the exact tag so the embedded version always matches (version-true by construction), closing the recurring "released tag has no image" gap
