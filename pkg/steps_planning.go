@@ -325,6 +325,7 @@ func (s *planningStep) gateOnAutoUpdate(
 				ref, repo,
 			)
 			return s.skipAutoUpdate(
+				ctx,
 				md,
 				"goUpdate.autoUpdate is absent (no .maintainer.yaml)",
 				"",
@@ -335,6 +336,7 @@ func (s *planningStep) gateOnAutoUpdate(
 		// usually recoverable; the operator can re-fire).
 		glog.Warningf("planning: .maintainer.yaml fetch failed (treated as skip): %v", err)
 		return s.skipAutoUpdate(
+			ctx,
 			md,
 			".maintainer.yaml fetch failed (treated as auto_update_disabled)",
 			".maintainer.yaml fetch failed (treated as goUpdate.autoUpdate=false): "+err.Error(),
@@ -354,6 +356,7 @@ func (s *planningStep) gateOnAutoUpdate(
 			repo,
 		)
 		return s.skipAutoUpdate(
+			ctx,
 			md,
 			"goUpdate.autoUpdate is false in .maintainer.yaml",
 			"",
@@ -368,6 +371,7 @@ func (s *planningStep) gateOnAutoUpdate(
 // A skip is a deliberate terminal, NOT an escalation: the repo opted out,
 // so there is nothing for an operator to do.
 func (s *planningStep) skipAutoUpdate(
+	ctx context.Context,
 	md *agentlib.Markdown,
 	reason, warning string,
 ) *agentlib.Result {
@@ -377,7 +381,7 @@ func (s *planningStep) skipAutoUpdate(
 		Reason:             "auto_update_disabled: " + reason,
 		ConfigFetchWarning: warning,
 	}
-	if err := writePlanSection(context.Background(), md, plan); err != nil {
+	if err := writePlanSection(ctx, md, plan); err != nil {
 		glog.Warningf("planning: write skip plan failed: %v", err)
 	}
 	return &agentlib.Result{
