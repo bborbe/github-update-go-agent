@@ -5,9 +5,11 @@
 package pkg
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -512,10 +514,9 @@ func (s *executionStep) commitPushAndOpenPR(
 	if isNoEffectiveChange(changed) {
 		return s.noEffectiveChange(ctx, md, changed)
 	}
-	if offending := workflowPaths(changed); len(offending) > 0 {
-		return s.fail(ctx, md, result, git.ErrorCategoryUnexpectedDiff,
-			errors.Errorf(ctx,
-				"update touched forbidden workflow paths %v — refusing to commit", offending))
+	changed, err = s.filterWorkflowRegen(ctx, workdir, changed)
+	if err != nil {
+		return s.fail(ctx, md, result, git.ErrorCategoryUnexpectedDiff, err)
 	}
 
 	// Deterministic CHANGELOG guarantee (Defects 2/3/5). The model's bullet is
@@ -543,15 +544,16 @@ func (s *executionStep) commitPushAndOpenPR(
 	}
 
 	// Post-commit guard (belt + suspenders): the release trust model depends
-	// on the commit containing only the guarded change set.
+	// on the commit containing only the guarded change set. Mirrors the
+	// pre-commit classification: legitimately-regenerated workflow files (the
+	// update's own doing, committed above) are allowed; a no-op regeneration
+	// or an unrelated edit in the commit is still refused.
 	committed, err := s.ops.CommittedFiles(ctx, workdir)
 	if err != nil {
 		return s.fail(ctx, md, result, git.ErrorCategoryUnknown, err)
 	}
-	if offending := workflowPaths(committed); len(offending) > 0 {
-		return s.fail(ctx, md, result, git.ErrorCategoryUnexpectedDiff,
-			errors.Errorf(ctx,
-				"commit contains forbidden workflow paths %v — refusing to push", offending))
+	if err := s.verifyCommittedWorkflows(ctx, workdir, committed); err != nil {
+		return s.fail(ctx, md, result, git.ErrorCategoryUnexpectedDiff, err)
 	}
 
 	if err := s.ops.Push(ctx, workdir, branch); err != nil {
@@ -672,6 +674,119 @@ func workflowPaths(paths []string) []string {
 		}
 	}
 	return offending
+}
+
+// classifyWorkflowChanges splits changed `.github/workflows/*` paths into
+// legitimate regenerations (the update's own doing — include in the commit)
+// and no-op regenerations (byte-identical to base — skip). The model is
+// architecturally forbidden from editing workflows (no git/gh tools in its
+// tool scope, the execution prompt forbids `.github/workflows/`, and the
+// GitHub App lacks the Workflows permission — design D3), so a workflow-file
+// content change present at commit time can only be a deterministic
+// regeneration side-effect of the update's own tooling (e.g. a maintainer
+// dep-bump rewriting `.github/workflows/*`, `.golangci.yml`,
+// `.maintainer.yaml`).
+//
+// A path whose base (origin/master) version cannot be read is a brand-new
+// workflow file the update could not have regenerated — an unrelated edit,
+// reported as an error so the caller keeps the forbidden-path guard.
+func (s *executionStep) classifyWorkflowChanges(
+	ctx context.Context,
+	workdir string,
+	offending []string,
+) (legit, noop []string, err error) {
+	for _, p := range offending {
+		// #nosec G304 -- p comes from the repo's own git-status changed-files
+		// list (agent-controlled, same trust boundary as the `git add -- <paths>`
+		// pathspec annotated G204 in os_exec_git_ops.go); workdir is os.TempDir-
+		// rooted.
+		work, rerr := os.ReadFile(filepath.Join(workdir, p))
+		if rerr != nil {
+			return nil, nil, errors.Wrap(ctx, rerr, "read working-tree workflow file "+p)
+		}
+		base, berr := s.ops.ShowFile(ctx, workdir, "origin/master", p)
+		if berr != nil {
+			return nil, nil, errors.Wrap(ctx, berr, "read base workflow file "+p)
+		}
+		if bytes.Equal(work, base) {
+			noop = append(noop, p)
+		} else {
+			legit = append(legit, p)
+		}
+	}
+	return legit, noop, nil
+}
+
+// filterWorkflowRegen applies the forbidden-workflow-path guard to the changed
+// set and returns the filtered list to commit. The guard is belt+suspenders
+// against the model silently rewriting CI (design D3: App lacks Workflows
+// permission; the execution prompt forbids `.github/workflows/`). But a
+// maintainer dep-bump can legitimately REGENERATE `.github/workflows/*` (and
+// `.golangci.yml` / `.maintainer.yaml`) in the working tree as a deterministic
+// side-effect of the update's own tooling. Distinguish the two:
+//   - legit regeneration (content differs from base) → include in commit
+//   - no-op regeneration (byte-identical to base)     → skip
+//   - brand-new workflow file (no base version)        → still fail
+func (s *executionStep) filterWorkflowRegen(
+	ctx context.Context,
+	workdir string,
+	changed []string,
+) ([]string, error) {
+	offending := workflowPaths(changed)
+	if len(offending) == 0 {
+		return changed, nil
+	}
+	legit, noop, err := s.classifyWorkflowChanges(ctx, workdir, offending)
+	if err != nil {
+		return nil, errors.Errorf(ctx,
+			"update touched forbidden workflow paths %v — refusing to commit", offending)
+	}
+	if len(noop) > 0 {
+		glog.V(2).Infof(
+			"execution: workflow regeneration no-op, skipping paths=%v", noop)
+		changed = dropPaths(changed, noop)
+	}
+	if len(legit) > 0 {
+		glog.V(2).Infof(
+			"execution: workflow regeneration legit, committing paths=%v", legit)
+	}
+	return changed, nil
+}
+
+// verifyCommittedWorkflows is the post-commit belt+suspenders guard: the
+// committed set must contain no workflow paths other than legitimately-
+// regenerated ones (committed by filterWorkflowRegen above). A no-op
+// regeneration or an unrelated edit in the commit is refused before push.
+func (s *executionStep) verifyCommittedWorkflows(
+	ctx context.Context,
+	workdir string,
+	committed []string,
+) error {
+	offending := workflowPaths(committed)
+	if len(offending) == 0 {
+		return nil
+	}
+	if _, noop, err := s.classifyWorkflowChanges(ctx, workdir, offending); err != nil ||
+		len(noop) > 0 {
+		return errors.Errorf(ctx,
+			"commit contains forbidden workflow paths %v — refusing to push", offending)
+	}
+	return nil
+}
+
+// dropPaths returns paths with every entry in drop removed, preserving order.
+func dropPaths(paths, drop []string) []string {
+	dropSet := make(map[string]struct{}, len(drop))
+	for _, d := range drop {
+		dropSet[d] = struct{}{}
+	}
+	out := make([]string, 0, len(paths))
+	for _, p := range paths {
+		if _, ok := dropSet[p]; !ok {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // intersectFixVulns enforces the design § 4.4 invariant

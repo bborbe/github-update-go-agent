@@ -7,6 +7,8 @@ package pkg_test
 import (
 	"context"
 	stderrors "errors"
+	"os"
+	"path/filepath"
 
 	agentlib "github.com/bborbe/agent"
 	claudelib "github.com/bborbe/agent/claude"
@@ -413,6 +415,97 @@ body
 			Expect(result.Message).To(ContainSubstring(".github/workflows/ci.yml"))
 			Expect(ops.CommitCallCount()).To(Equal(0))
 			Expect(ops.PushCallCount()).To(Equal(0))
+		})
+
+		Context("legit workflow regeneration (the update's own doing)", func() {
+			BeforeEach(func() {
+				// The maintainer dep-bump rewrote .github/workflows/ci.yml in the
+				// working tree (content differs from origin/master's base) as a
+				// deterministic side-effect of the update's own tooling. The
+				// guard must commit it, not refuse — and the post-commit guard
+				// must recognize the committed regenerated file as legitimate.
+				ops.CommittedFilesReturns(
+					[]string{"go.mod", ".github/workflows/ci.yml"},
+					nil,
+				)
+				ops.CloneAtRefCalls(func(ctx context.Context, _, _, workdir string) error {
+					if err := os.MkdirAll(filepath.Join(workdir, ".github", "workflows"), 0o755); err != nil {
+						return err
+					}
+					return os.WriteFile(
+						filepath.Join(workdir, ".github", "workflows", "ci.yml"),
+						[]byte("regenerated ci\n"),
+						0o644,
+					)
+				})
+				ops.ShowFileCalls(func(_ context.Context, _, ref, path string) ([]byte, error) {
+					if ref != "origin/master" || path != ".github/workflows/ci.yml" {
+						return nil, stderrors.New("unexpected ShowFile")
+					}
+					return []byte("original ci\n"), nil
+				})
+			})
+
+			It("commits the legitimately-regenerated workflow file", func() {
+				result, err := step.Run(ctx, md)
+				Expect(err).To(BeNil())
+				Expect(result.Status).To(Equal(agentlib.AgentStatusDone))
+				Expect(result.NextPhase).To(Equal("ai_review"))
+				Expect(ops.CommitCallCount()).To(Equal(1))
+				_, _, _, paths := ops.CommitArgsForCall(0)
+				Expect(paths).To(ContainElement(".github/workflows/ci.yml"))
+				Expect(ops.PushCallCount()).To(Equal(1))
+				Expect(gh.CreatePRCallCount()).To(Equal(1))
+			})
+		})
+
+		Context("no-op workflow regeneration", func() {
+			BeforeEach(func() {
+				// The regeneration produced content byte-identical to base — a
+				// no-op. The guard must skip it (exclude from the commit) instead
+				// of hard-failing. The CHANGELOG step re-fetches the changed set
+				// after the guard drops the no-op file, so the second fetch no
+				// longer lists it (matching a real git status where the regenerated
+				// file equals origin/master).
+				ops.ChangedFilesReturnsOnCall(
+					0,
+					[]string{"go.mod", ".github/workflows/ci.yml"},
+					nil,
+				)
+				ops.ChangedFilesReturnsOnCall(
+					1,
+					[]string{"go.mod"},
+					nil,
+				)
+				ops.CloneAtRefCalls(func(ctx context.Context, _, _, workdir string) error {
+					if err := os.MkdirAll(filepath.Join(workdir, ".github", "workflows"), 0o755); err != nil {
+						return err
+					}
+					return os.WriteFile(
+						filepath.Join(workdir, ".github", "workflows", "ci.yml"),
+						[]byte("same ci\n"),
+						0o644,
+					)
+				})
+				ops.ShowFileCalls(func(_ context.Context, _, ref, path string) ([]byte, error) {
+					if ref != "origin/master" || path != ".github/workflows/ci.yml" {
+						return nil, stderrors.New("unexpected ShowFile")
+					}
+					return []byte("same ci\n"), nil
+				})
+			})
+
+			It("skips the no-op workflow file and commits the rest", func() {
+				result, err := step.Run(ctx, md)
+				Expect(err).To(BeNil())
+				Expect(result.Status).To(Equal(agentlib.AgentStatusDone))
+				Expect(result.NextPhase).To(Equal("ai_review"))
+				Expect(ops.CommitCallCount()).To(Equal(1))
+				_, _, _, paths := ops.CommitArgsForCall(0)
+				Expect(paths).NotTo(ContainElement(".github/workflows/ci.yml"))
+				Expect(ops.PushCallCount()).To(Equal(1))
+				Expect(gh.CreatePRCallCount()).To(Equal(1))
+			})
 		})
 	})
 
