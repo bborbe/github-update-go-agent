@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- feat: opt into `autoMerge.trivial` — mechanically trivial update PRs (go.mod / Dockerfile / CHANGELOG / workflow bumps) get the auto-merge label from github-pr-watcher, so GitHub-native auto-merge lands them once checks + review are green
+
 ## v0.14.0
 
 - feat: ai_review on an already-merged PR routes `done` instead of `human_review` — when the update PR has shipped (MERGED state), the task auto-completes with no `## Your Move` block and no manual close, closing the merge-detection tail on the agent side
