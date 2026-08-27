@@ -1,10 +1,14 @@
-name: Publish Image
+name: Validate Tag Build
 
-# Publishes the agent image to Docker Hub on every tag push. Builds at the
-# exact tag so the embedded version always matches the tag (version-true by
-# construction — closes the "released tag has no image" gap and the
-# pre-merge-tree drift where v0.9.6 shipped Go 1.26.6 from an off-tag build).
-# Registry push only; no cluster mutation — the nuke deploy mirrors + rolls
+# Build-only validation on every tag push. Builds at the exact tag so the
+# embedded version always matches the tag (version-true by construction) —
+# catches a release tag that would not build BEFORE any image is published.
+#
+# NO image is pushed here, deliberately (decision 2026-08-27): publishing to
+# Docker Hub is a manual, human-owned action per [[Build and publish
+# github-update-go-agent image on release]] — the operator runs `make buca`
+# (VERSION=<tag>) when an image is actually needed. A docker-build-agent is
+# planned later to take over that duty. The nuke deploy mirrors + rolls
 # separately.
 
 on:
@@ -13,7 +17,7 @@ on:
       - 'v*'
 
 jobs:
-  publish:
+  validate-build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -31,16 +35,7 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Publish image
-        run: make build && make upload
+      - name: Build image at the exact tag
+        run: make build
         env:
           VERSION: ${{ github.ref_name }}
-
-      - name: Verify published image
-        run: docker manifest inspect docker.io/bborbe/github-update-go-agent:${{ github.ref_name }}

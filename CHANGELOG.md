@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- change: tag-push CI no longer auto-publishes the agent image to Docker Hub — it validates the tag builds (version-true, catches a broken release before publish) and publishing is a deliberate manual action (`make buca` per the "Build and publish github-update-go-agent image on release" task) until a docker-build-agent takes over (decision 2026-08-27)
+
 ## v0.17.0
 
 - feat: agent startup logs the embedded `BUILD_GIT_VERSION` (`github-update-go-agent started phase=… version=…`) on every run — the job log now stamps which agent version executed, so `kubectl logs <job-pod> | grep -i version` shows the pinned tag (SC3 of the version-skew guard)
