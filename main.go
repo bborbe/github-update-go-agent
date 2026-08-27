@@ -117,6 +117,12 @@ type application struct {
 
 	PushgatewayURL string `required:"false" arg:"pushgateway-url" env:"PUSHGATEWAY_URL" usage:"Prometheus PushGateway URL"          default:"http://pushgateway:9090"`
 	TaskType       string `required:"false" arg:"task-type"       env:"TASK_TYPE"       usage:"Task type label for metric grouping" default:"unknown"`
+
+	// Version is the image's embedded BUILD_GIT_VERSION (Dockerfile ARG → ENV,
+	// set from `git describe` at build time). Logged at startup so the job log
+	// stamps which agent version ran — the C4 half of the version-skew guard's
+	// SC3 (job log records the agent version).
+	Version string `required:"false" arg:"version" env:"BUILD_GIT_VERSION" usage:"Embedded build version (BUILD_GIT_VERSION from the image)"`
 }
 
 func (a *application) Run(ctx context.Context, _ libsentry.Client) error {
@@ -144,7 +150,7 @@ func (a *application) Run(ctx context.Context, _ libsentry.Client) error {
 	}()
 	start := libtime.NewCurrentDateTime().Now().Time()
 
-	glog.V(2).Infof("github-update-go-agent started phase=%s", a.Phase)
+	glog.Infof("github-update-go-agent started phase=%s version=%s", a.Phase, a.Version)
 
 	deliverer, provider, cleanup, err := a.buildRun(ctx, prTarget, updateScope)
 	if err != nil {
