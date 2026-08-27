@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.16.0
 
 - feat: gate planning on the target repo's `.maintainer.yaml` `goUpdate.autoUpdate` consent flag — a repo that has not opted in (flag absent, false, or `.maintainer.yaml` missing) is skipped with a named `auto_update_disabled` reason and no update work; a transport fetch failure is non-fatal and surfaces as a `ConfigFetchWarning` on the `## Plan` block (distinguishable from a deliberate `false`), while malformed YAML / non-boolean value fails closed to `human_review` with `error_category=invalid_config`. Mirrors `github-releaser-agent`'s spec-059 gate; runs before clone so a skipped repo costs one contents-API round trip.
 
