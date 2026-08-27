@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.17.0
 
 - feat: agent startup logs the embedded `BUILD_GIT_VERSION` (`github-update-go-agent started phase=… version=…`) on every run — the job log now stamps which agent version executed, so `kubectl logs <job-pod> | grep -i version` shows the pinned tag (SC3 of the version-skew guard)
 
