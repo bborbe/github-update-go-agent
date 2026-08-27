@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- change: remove the tag-triggered build workflow entirely — no CI build on tag push at all. Building + uploading the agent image is a purely local, deliberate action via `make buca` (VERSION=<tag>), tracked by the "Build and publish github-update-go-agent image on release" task (assignee bborbe), until a docker-build-agent takes over (decision 2026-08-27; supersedes v0.17.1's build-only validation)
+
 ## v0.17.1
 
 - change: tag-push CI no longer auto-publishes the agent image to Docker Hub — it validates the tag builds (version-true, catches a broken release before publish) and publishing is a deliberate manual action (`make buca` per the "Build and publish github-update-go-agent image on release" task) until a docker-build-agent takes over (decision 2026-08-27)
