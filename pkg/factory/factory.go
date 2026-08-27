@@ -29,6 +29,7 @@ import (
 
 	updatepkg "github.com/bborbe/github-update-go-agent/pkg"
 	"github.com/bborbe/github-update-go-agent/pkg/git"
+	"github.com/bborbe/github-update-go-agent/pkg/maintainerconfig"
 )
 
 const serviceName = "github-update-go-agent"
@@ -323,6 +324,7 @@ func CreateAgent(
 		gateRunner,
 		ghToken,
 		updatepkg.NewGhInstallationScope(ghToken),
+		maintainerconfig.NewHTTPFetcher(ghToken),
 		updateScope,
 	)
 	executionRunner := CreateClaudeRunner(

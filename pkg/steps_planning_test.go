@@ -12,11 +12,13 @@ import (
 
 	agentlib "github.com/bborbe/agent"
 	claudelib "github.com/bborbe/agent/claude"
+	domain "github.com/bborbe/vault-cli/pkg/domain"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"github.com/bborbe/github-update-go-agent/mocks"
 	pkg "github.com/bborbe/github-update-go-agent/pkg"
+	"github.com/bborbe/github-update-go-agent/pkg/maintainerconfig"
 )
 
 const planningTaskMD = `---
@@ -70,12 +72,13 @@ var fixtureMakefileBroken = ".PHONY: check\n" +
 
 var _ = Describe("PlanningStep", func() {
 	var (
-		ctx    context.Context
-		runner *mocks.ClaudeRunnerMock
-		ops    *mocks.GitOps
-		scope  *mocks.InstallationScope
-		step   agentlib.Step
-		md     *agentlib.Markdown
+		ctx              context.Context
+		runner           *mocks.ClaudeRunnerMock
+		ops              *mocks.GitOps
+		scope            *mocks.InstallationScope
+		maintainerConfig *mocks.MaintainerConfigFetcher
+		step             agentlib.Step
+		md               *agentlib.Markdown
 	)
 
 	// setupFixture makes CloneAtRef create the workdir and write the given
@@ -113,14 +116,20 @@ var _ = Describe("PlanningStep", func() {
 		runner = &mocks.ClaudeRunnerMock{}
 		ops = &mocks.GitOps{}
 		scope = &mocks.InstallationScope{}
+		maintainerConfig = &mocks.MaintainerConfigFetcher{}
 		scope.AllowsReturns(pkg.ScopeAllowed)
 		ops.ResolveDefaultBranchHeadReturns("0cafebabe1234567890abcdef1234567890abcdef", nil)
+		// Default consent: repo opted in, so the gate passes and the test
+		// exercises the downstream inspection path. Gate-specific specs
+		// override this return.
+		maintainerConfig.FetchReturns([]byte("goUpdate:\n  autoUpdate: true\n"), nil)
 		step = pkg.NewPlanningStep(
 			runner,
 			ops,
 			pkg.NewOSExecGateRunner(),
 			"tok",
 			scope,
+			maintainerConfig,
 			pkg.UpdateScopeBoth,
 		)
 		var err error
@@ -155,6 +164,78 @@ var _ = Describe("PlanningStep", func() {
 				Expect(ops.CloneAtRefCallCount()).To(Equal(1))
 			},
 		)
+	})
+
+	Describe(".maintainer.yaml consent gate (goUpdate.autoUpdate)", func() {
+		It("proceeds when goUpdate.autoUpdate=true (no fetch call surfaced on plan)", func() {
+			maintainerConfig.FetchReturns([]byte("goUpdate:\n  autoUpdate: true\n"), nil)
+			runner.RunReturns(nil, stderrors.New("stop here"))
+			_, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(ops.CloneAtRefCallCount()).To(Equal(1))
+		})
+
+		It("skips with auto_update_disabled when goUpdate.autoUpdate=false", func() {
+			maintainerConfig.FetchReturns([]byte("goUpdate:\n  autoUpdate: false\n"), nil)
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusDone))
+			Expect(result.NextPhase).To(Equal(domain.TaskPhaseDone.String()))
+			Expect(result.Message).To(ContainSubstring("auto_update_disabled"))
+			// No clone — the gate short-circuits before any update work.
+			Expect(ops.CloneAtRefCallCount()).To(Equal(0))
+		})
+
+		It("skips with auto_update_disabled when .maintainer.yaml is absent (404)", func() {
+			maintainerConfig.FetchReturns(nil, maintainerconfig.ErrFileNotFound)
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusDone))
+			Expect(result.Message).To(ContainSubstring("auto_update_disabled"))
+			Expect(ops.CloneAtRefCallCount()).To(Equal(0))
+		})
+
+		It("skips with auto_update_disabled + ConfigFetchWarning on transport error", func() {
+			maintainerConfig.FetchReturns(nil, stderrors.New("http 502"))
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusDone))
+			Expect(result.Message).To(ContainSubstring("auto_update_disabled"))
+			Expect(ops.CloneAtRefCallCount()).To(Equal(0))
+			// The ## Plan block carries the warning so the skip is
+			// distinguishable from a deliberate false.
+			section, err := agentlib.ExtractSection[pkg.PlanOutput](ctx, md, "## Plan")
+			Expect(err).To(BeNil())
+			Expect(section.ConfigFetchWarning).NotTo(BeEmpty())
+			Expect(section.Outcome).To(Equal(pkg.PlanOutcomeNoUpdateNeeded))
+		})
+
+		It("fails closed to human_review on malformed YAML (invalid_config)", func() {
+			maintainerConfig.FetchReturns([]byte("goUpdate: [unclosed"), nil)
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusFailed))
+			Expect(result.NextPhase).To(Equal(domain.TaskPhaseHumanReview.String()))
+			Expect(result.Message).To(ContainSubstring("invalid .maintainer.yaml"))
+			Expect(ops.CloneAtRefCallCount()).To(Equal(0))
+			section, err := agentlib.ExtractSection[pkg.PlanOutput](ctx, md, "## Plan")
+			Expect(err).To(BeNil())
+			Expect(section.Outcome).To(Equal(pkg.PlanOutcomeFailed))
+			Expect(section.ErrorCategory).To(Equal(pkg.ErrorCategoryInvalidConfig))
+			Expect(section.InvalidField).To(Equal("goUpdate.autoUpdate"))
+		})
+
+		It("fails closed to human_review on non-boolean goUpdate.autoUpdate", func() {
+			// `yes` is a valid YAML 1.1 boolean (yaml.v3 resolves it to true);
+			// use a genuine non-boolean scalar so ParseStrict errors.
+			maintainerConfig.FetchReturns([]byte("goUpdate:\n  autoUpdate: sometimes\n"), nil)
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusFailed))
+			Expect(result.NextPhase).To(Equal(domain.TaskPhaseHumanReview.String()))
+			Expect(result.Message).To(ContainSubstring("invalid .maintainer.yaml"))
+			Expect(ops.CloneAtRefCallCount()).To(Equal(0))
+		})
 	})
 
 	Describe("missing required frontmatter", func() {
