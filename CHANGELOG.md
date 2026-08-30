@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.17.3
 
 - fix: add X11 development headers (`libx11-dev`, `libxtst-dev`, `libxkbcommon-dev`, `libxinerama-dev`, `libxcursor-dev`) to the runtime image so repos depending on `github.com/go-vgo/robotgo` can compile in-pod. Without them `go test` fails at `X11/Xlib.h: No such file or directory`, `make precommit` exits 2, the task reports `failed`, and the dispatcher re-runs it every ~5 minutes against the single job slot — observed on `bborbe/beactive` 2026-08-30 (4 identical failures in 18 minutes). Costs 48.7 MB (+3.2%, 49 packages); `tesseract-ocr-dev`/`leptonica-dev` deliberately excluded as `gosseract` never enters the compiled path
 
