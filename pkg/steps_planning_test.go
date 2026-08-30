@@ -406,7 +406,7 @@ jobs:
 			Expect(result.Status).To(Equal(agentlib.AgentStatusNeedsInput))
 			Expect(
 				result.Message,
-			).To(MatchRegexp(`gate target "check" failed \(exit [0-9-]+\)`))
+			).To(MatchRegexp(`gate target "check" failed \(exit [0-9-]+\) with no parseable findings`))
 			Expect(result.Message).To(ContainSubstring("make: something broken"))
 			Expect(result.Message).To(ContainSubstring("a re-run reproduces the identical result"))
 			Expect(result.Message).To(ContainSubstring("Fix the target"))

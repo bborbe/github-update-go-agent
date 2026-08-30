@@ -1,8 +1,9 @@
 ---
-status: prompted
+status: verifying
 approved: "2026-08-30T22:49:29Z"
 generating: "2026-08-30T22:49:29Z"
 prompted: "2026-08-30T22:56:12Z"
+verifying: "2026-08-30T23:05:35Z"
 branch: dark-factory/bug-gate-failure-respawn-loop
 ---
 
