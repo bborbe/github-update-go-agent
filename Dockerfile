@@ -19,7 +19,15 @@ FROM ${DOCKER_REGISTRY}/alpine:3.23 AS alpine
 # gate dies with `npm: No such file or directory` (exit 127) at planning, so the
 # task can never pass and retries forever — observed on bborbe/backup, 2026-08-19.
 # Costs 7.5 MB; node is already here for the Claude CLI.
+# X11 dev headers: repos depending on github.com/go-vgo/robotgo (a cgo GUI-automation
+# library) cannot compile without them — `go test` dies at `X11/Xlib.h: No such file or
+# directory`, so `make precommit` exits 2, the task reports failed, and the dispatcher
+# re-runs it every ~5 min forever against the single job slot. Observed on bborbe/beactive,
+# 2026-08-30: 4 identical failures in 18 minutes. Costs 48.7 MB (+3.2% of the image; 49 packages).
+# tesseract/leptonica are deliberately NOT added: gosseract is an indirect dependency that
+# never enters the compiled path, and including it would cost 92 MB for nothing.
 RUN apk --no-cache add ca-certificates curl bash git github-cli make jq util-linux nodejs npm gcc musl-dev \
+      libx11-dev libxtst-dev libxkbcommon-dev libxinerama-dev libxcursor-dev \
  && npm install -g --omit=dev --no-optional @anthropic-ai/claude-code \
  && npm cache clean --force \
  && rm -rf /root/.npm /tmp/*
