@@ -117,7 +117,7 @@ func (s *planningStep) ShouldRun(_ context.Context, _ *agentlib.Markdown) (bool,
 //     or on clone/auth error.
 //  3. Detect gate targets from the Makefile in Go, run each via the
 //     GateRunner, and capture the full raw scanner output (no gate target →
-//     NeedsInput; a failing target with no parseable findings → Failed).
+//     NeedsInput; a failing target with no parseable findings → NeedsInput).
 //  4. Claude inspection call against the parsed Scanner Findings table →
 //     parse PlanOutput; validate every vuln ID verbatim against the table
 //     (a fabricated or prefix-colliding ID → Failed naming it).
@@ -480,9 +480,12 @@ func (s *planningStep) runInspection(
 		if runErr != nil && len(rows) == 0 {
 			glog.V(2).
 				Infof("planning: gate target %s failed exit=%d rows=0 output=%q", target, exitCode, output)
-			return nil, nil, failed(fmt.Sprintf(
-				"gate target %q failed (exit %d) with no parseable findings: %s",
-				target, exitCode, truncateTail(output, gateTailMaxBytes),
+			return nil, nil, needsInput(fmt.Sprintf(
+				"gate target %q failed (exit %d) with no parseable findings — this gate is "+
+					"broken for repo %s: a re-run reproduces the identical result, so the agent "+
+					"never retries it. Fix the target in the repo (or point it at tooling the "+
+					"agent image provides) and push — the next HEAD re-triggers. Output tail:\n%s",
+				target, exitCode, repo, truncateTail(output, gateTailMaxBytes),
 			))
 		}
 		table = append(table, rows...)

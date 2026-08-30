@@ -135,7 +135,7 @@ Human reviews + promotes the draft (runbook [[Update or Fix GitHub Go Repositori
 | Prompt module | `pkg/prompts/planning.md` — lifted from the slash command's planning section + learning #3 (repo's own multi-scanner gate, never hardcoded `govulncheck`) |
 | Duration | < 5 min |
 | Next on success | `execution` (has_work) · `done`+`status: completed` (`no_update_needed`) |
-| Failure | any `park`-action vuln → `needs_input` naming CVEs (D4); nested/multi-module root → `needs_input`; clone/auth fail → `failed`; current-HEAD resolution fail → `failed` naming the resolution step (no fallback to the stale pinned ref) |
+| Failure | any `park`-action vuln → `needs_input` naming CVEs (D4); nested/multi-module root → `needs_input`; gate target fails with no parseable findings → `needs_input` (broken gate parks, never auto-retried — spec 006); clone/auth fail → `failed`; current-HEAD resolution fail → `failed` naming the resolution step (no fallback to the stale pinned ref) |
 | Preconditions | required frontmatter present; single Go module at repo root |
 | Postconditions | `## Plan` JSON present; phase advanced |
 

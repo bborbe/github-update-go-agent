@@ -1,8 +1,9 @@
 ---
-status: prompted
+status: verifying
 approved: "2026-08-23T23:05:38Z"
 generating: "2026-08-23T23:06:05Z"
 prompted: "2026-08-23T23:14:58Z"
+verifying: "2026-08-30T22:40:26Z"
 branch: dark-factory/bug-ai-review-leaked-tag-and-merged-false-positive
 ---
 
