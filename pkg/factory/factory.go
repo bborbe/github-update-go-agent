@@ -210,11 +210,26 @@ func closeChainProducer(producer libkafka.SyncProducer) {
 func buildChainCommand(repo, episodeSHA string, workflows []string) task.CreateCommand {
 	fm := chainFrontmatter(repo, episodeSHA)
 	return task.CreateCommand{
-		Title:          "Update Go " + repo + " at " + shortSHA(episodeSHA),
+		Title:          computeChainTitle(repo, episodeSHA),
 		TaskIdentifier: agentlib.TaskIdentifier(deriveUpdateGoTaskID(repo, episodeSHA)),
 		Frontmatter:    fm,
 		Body:           buildChainBody(repo, episodeSHA, workflows),
 	}
+}
+
+// computeChainTitle renders the chained task title in the frozen form
+// "Update Go <owner>-<repo> <sha[:7]>", byte-identical to
+// github-update-go-watcher's ComputeTaskTitle.
+//
+// Dash, not slash-and-"at": task.CreateCommand.Validate rejects '/' in a
+// title (it is derived verbatim into the vault filename), and the chain
+// publishes through that validator — so the slash form made every chain emit
+// fail with "title contains forbidden character '/'", leaving a correctly
+// diagnosed repo with no updater task. strings.ReplaceAll rather than
+// splitRepo so a malformed repo string still yields a validatable title
+// instead of silently keeping the slash.
+func computeChainTitle(repo, episodeSHA string) string {
+	return "Update Go " + strings.ReplaceAll(repo, "/", "-") + " " + shortSHA(episodeSHA)
 }
 
 // chainFrontmatter builds the chained task's frontmatter, adding clone_url
