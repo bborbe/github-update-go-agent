@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- fix: build-fix planning now parses the diagnosis verdict through `parseJSONResponse`'s extraction strategies instead of a bare `json.Unmarshal` — a model that answers in prose before the verdict JSON no longer lands the run in `## Failure` with `invalid character 'B' looking for beginning of value`, and a run with no recoverable verdict fails with a readable `no JSON object found` reason (observed on prod pod `build-fix-agent-63897e93-20260902194936`, bborbe/http episode `c052eef`, 2026-09-02)
+
 ## v0.17.5
 
 - fix: the build-fixer's `chain_update` path now emits the chained `github-update-go` task title in the frozen `Update Go <owner>-<repo> <sha[:7]>` dash form instead of `Update Go <owner>/<repo> at <sha>` — `task.CreateCommand.Validate` rejects `/` in a title, so every chain emit previously failed with `title contains forbidden character '/'` and left a correctly diagnosed repo with no updater task (observed on bborbe/http 2026-09-02, episode `c052eef`)
