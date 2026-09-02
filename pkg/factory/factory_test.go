@@ -13,6 +13,7 @@ import (
 	claudelib "github.com/bborbe/agent/claude"
 	delivery "github.com/bborbe/agent/delivery"
 	libkafka "github.com/bborbe/kafka"
+	kafkamocks "github.com/bborbe/kafka/mocks"
 	domain "github.com/bborbe/vault-cli/pkg/domain"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -133,6 +134,37 @@ var _ = Describe("CreateKafkaResultDeliverer", func() {
 			nil,
 		)
 		Expect(deliverer).NotTo(BeNil())
+	})
+})
+
+var _ = Describe("CreateBuildFixChainEmitter", func() {
+	var (
+		ctx          context.Context
+		fakeProducer *kafkamocks.KafkaSyncProducer
+	)
+
+	BeforeEach(func() {
+		ctx = context.Background()
+		fakeProducer = &kafkamocks.KafkaSyncProducer{}
+		fakeProducer.SendMessageReturns(0, 0, nil)
+	})
+
+	It("emits the chained task without closing the producer (single close owner)", func() {
+		emitter := factory.CreateBuildFixChainEmitter(fakeProducer, "")
+		Expect(emitter(ctx, "bborbe/demo", "abcdef1", nil)).To(Succeed())
+		Expect(fakeProducer.SendMessageCallCount()).To(Equal(1))
+		// Regression guard: the emitter must never close the producer — main's
+		// cleanup is the single close owner. Closing here too double-closes it,
+		// and sarama v1.60.2 AsyncClose is not idempotent: the second shutdown
+		// panics with "send on closed channel" (async_producer.go:1653).
+		Expect(fakeProducer.CloseCallCount()).To(Equal(0))
+	})
+
+	It("keeps the producer open so main's cleanup closes it exactly once", func() {
+		emitter := factory.CreateBuildFixChainEmitter(fakeProducer, "")
+		Expect(emitter(ctx, "bborbe/demo", "abcdef1", nil)).To(Succeed())
+		Expect(fakeProducer.Close()).To(Succeed())
+		Expect(fakeProducer.CloseCallCount()).To(Equal(1))
 	})
 })
 

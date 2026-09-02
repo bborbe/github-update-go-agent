@@ -24,7 +24,6 @@ import (
 	"github.com/bborbe/log"
 	libtime "github.com/bborbe/time"
 	domain "github.com/bborbe/vault-cli/pkg/domain"
-	"github.com/golang/glog"
 	"github.com/google/uuid"
 
 	updatepkg "github.com/bborbe/github-update-go-agent/pkg"
@@ -171,8 +170,12 @@ func CreateFileResultDeliverer(filePath string) agentlib.ResultDeliverer {
 // emission: a CreateCommandFunc that publishes a github-update-go task via
 // the controller's Kafka command bus (task.CreateCommandSender), exactly as
 // the github-build watcher does for build-fix tasks. The producer is passed
-// in pre-built — main.go owns its lifecycle (created + closed there) and its
-// nil decision (buildChainEmitter returns a nil createCmd when no brokers are
+// in pre-built — main.go is the single close owner: it creates the producer
+// and its cleanup func closes it exactly once. The emitter must never close
+// the producer itself — main's cleanup closes the same producer after the
+// run, and sarama v1.60.2's AsyncClose is not idempotent: a second Close
+// panics with "send on closed channel" in asyncProducer.shutdown. The nil
+// decision lives in buildChainEmitter (nil createCmd when no brokers are
 // configured), so the factory body stays pure composition with no error and
 // no conditional. The Pattern B Job emits at most one downstream task per run.
 func CreateBuildFixChainEmitter(
@@ -184,7 +187,6 @@ func CreateBuildFixChainEmitter(
 		repo, episodeSHA string,
 		workflows []string,
 	) error {
-		defer closeChainProducer(syncProducer)
 		sender := cdb.NewCommandObjectSender(syncProducer, topicPrefix, log.DefaultSamplerFactory)
 		createSender := task.NewCreateCommandSender(sender, "")
 		cmd := buildChainCommand(repo, episodeSHA, workflows)
@@ -192,15 +194,6 @@ func CreateBuildFixChainEmitter(
 			return errors.Wrap(ctx, err, "send github-update-go chain task")
 		}
 		return nil
-	}
-}
-
-// closeChainProducer closes the chain emitter's sync producer, warning on
-// failure. Extracted as a named func so the emitter closure contains no
-// conditional (factory no-conditional-in-body rule).
-func closeChainProducer(producer libkafka.SyncProducer) {
-	if err := producer.Close(); err != nil {
-		glog.Warningf("close chain sync producer failed: %v", err)
 	}
 }
 
