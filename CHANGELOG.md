@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - fix: build-fix planning now parses the diagnosis verdict through `parseJSONResponse`'s extraction strategies instead of a bare `json.Unmarshal` — a model that answers in prose before the verdict JSON no longer lands the run in `## Failure` with `invalid character 'B' looking for beginning of value`, and a run with no recoverable verdict fails with a readable `no JSON object found` reason (observed on prod pod `build-fix-agent-63897e93-20260902194936`, bborbe/http episode `c052eef`, 2026-09-02)
 
+## v0.17.6
+
+- fix: the build-fixer's `chain_update` chain emitter no longer closes its sarama sync producer — main's cleanup is now the single close owner. The emitter previously closed the producer and main's cleanup closed it again; sarama v1.60.2's `AsyncClose` is not idempotent, so the second close panicked with `send on closed channel` in `asyncProducer.shutdown` (async_producer.go:1653) after the result was delivered, making every `chain_update` build-fix Job exit `Error` instead of `Completed` (observed on pod `build-fix-agent-68a7f962-20260902121539-g84hn`, nuke-prod, 2026-09-02). Adds a regression test pinning the single-close-owner contract and bumps `golang.org/x/crypto` to v0.56.0 (GO-2026-6354, GO-2026-6355) to clear the vulncheck gate
+>>>>>>> origin/master
+
 ## v0.17.5
 
 - fix: the build-fixer's `chain_update` path now emits the chained `github-update-go` task title in the frozen `Update Go <owner>-<repo> <sha[:7]>` dash form instead of `Update Go <owner>/<repo> at <sha>` — `task.CreateCommand.Validate` rejects `/` in a title, so every chain emit previously failed with `title contains forbidden character '/'` and left a correctly diagnosed repo with no updater task (observed on bborbe/http 2026-09-02, episode `c052eef`)
