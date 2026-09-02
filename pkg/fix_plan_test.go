@@ -48,6 +48,37 @@ var _ = Describe("fix plan helpers", func() {
 			_, err := updatepkg.ParseFixPlanForTest(ctx, `{"verdict":`)
 			Expect(err).To(HaveOccurred())
 		})
+
+		// The regression: parseFixPlan used a bare json.Unmarshal, so a model
+		// that answered in prose before the verdict JSON failed with
+		// "invalid character 'B' looking for beginning of value" and every
+		// such run landed in ## Failure (prod pod
+		// build-fix-agent-63897e93-20260902194936, episode c052eef,
+		// 2026-09-02). Routing through parseJSONResponse's extraction
+		// strategies recovers the verdict from prose-wrapped output.
+		DescribeTable(
+			"recovers a JSON verdict wrapped in model prose",
+			func(response string) {
+				plan, err := updatepkg.ParseFixPlanForTest(ctx, response)
+				Expect(err).To(BeNil())
+				Expect(plan.Verdict).To(Equal(updatepkg.FixVerdictChainUpdate))
+				Expect(plan.EpisodeSHA).To(Equal("c052eef633bebc2d125ab8262e0284ee62ac0b32"))
+			},
+			Entry("prose before JSON", `Based on the collected evidence, I can now make a determination. Let me synthesize: {"verdict":"chain_update","reason":"golangci-lint v2.11.3 pinned in go.mod cannot parse Go 1.27 export data","failing_workflows":["CI"],"episode_sha":"c052eef633bebc2d125ab8262e0284ee62ac0b32"}`),
+			Entry("prose before fenced JSON", `I'm unable to complete this task. {"verdict":"chain_update","reason":"r","episode_sha":"c052eef633bebc2d125ab8262e0284ee62ac0b32"}`),
+			Entry("prose after JSON", `{"verdict":"chain_update","reason":"r","episode_sha":"c052eef633bebc2d125ab8262e0284ee62ac0b32"} Let me verify this conclusion.`),
+			Entry("fenced block with leading prose", "Here is the diagnosis:\n```json\n{\"verdict\":\"chain_update\",\"reason\":\"r\",\"episode_sha\":\"c052eef633bebc2d125ab8262e0284ee62ac0b32\"}\n```\nEnd of synthesis."),
+		)
+
+		It("still fails cleanly when no JSON verdict is recoverable", func() {
+			_, err := updatepkg.ParseFixPlanForTest(
+				ctx,
+				"Based on the collected evidence, I can now make a determination. Let me synthesize:",
+			)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("unmarshal build-fix plan"))
+			Expect(err.Error()).NotTo(ContainSubstring("invalid character"))
+		})
 	})
 
 	Describe("shortSHA", func() {

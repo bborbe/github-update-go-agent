@@ -6,7 +6,6 @@ package pkg
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -96,6 +95,15 @@ func extractFailingWorkflowLogEvidence(ctx context.Context, md *agentlib.Markdow
 // (the runner returns the marshaled FixPlanOutput in Output). A verdict
 // outside the four known values is an error — a fabricated verdict must fail
 // loud rather than route to an arbitrary phase.
+//
+// Parsing goes through parseJSONResponse, NOT a bare json.Unmarshal: the
+// model occasionally answers in prose before the verdict JSON ("Based on the
+// collected evidence..."), and a direct unmarshal of that output fails with
+// "invalid character 'B' looking for beginning of value" — which landed every
+// such run in ## Failure before the verdict could even be evaluated
+// (observed on prod pod build-fix-agent-63897e93-20260902194936, episode
+// c052eef, 2026-09-02). The three extraction strategies in llmjson.go
+// recover a JSON verdict from prose-wrapped output.
 func parseFixPlan(ctx context.Context, raw string) (*FixPlanOutput, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -105,8 +113,8 @@ func parseFixPlan(ctx context.Context, raw string) (*FixPlanOutput, error) {
 			"parse build-fix plan",
 		)
 	}
-	var plan FixPlanOutput
-	if err := json.Unmarshal([]byte(raw), &plan); err != nil {
+	plan, err := parseJSONResponse[FixPlanOutput](ctx, raw)
+	if err != nil {
 		return nil, errors.Wrap(ctx, err, "unmarshal build-fix plan")
 	}
 	valid := false
@@ -128,7 +136,7 @@ func parseFixPlan(ctx context.Context, raw string) (*FixPlanOutput, error) {
 			"invalid build-fix verdict",
 		)
 	}
-	return &plan, nil
+	return plan, nil
 }
 
 // writeFixPlanSection replaces the ## Fix Plan section with the typed JSON.
