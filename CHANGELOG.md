@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.17.5
 
 - fix: the build-fixer's `chain_update` path now emits the chained `github-update-go` task title in the frozen `Update Go <owner>-<repo> <sha[:7]>` dash form instead of `Update Go <owner>/<repo> at <sha>` — `task.CreateCommand.Validate` rejects `/` in a title, so every chain emit previously failed with `title contains forbidden character '/'` and left a correctly diagnosed repo with no updater task (observed on bborbe/http 2026-09-02, episode `c052eef`)
 
