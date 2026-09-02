@@ -196,7 +196,16 @@ func (s *fixPlanningStep) runDiagnosis(
 
 	plan, err := parseFixPlan(ctx, claudeResult.Result)
 	if err != nil {
-		return nil, failed("parse build-fix diagnosis output: " + truncate(err.Error()))
+		// The model produced no usable verdict (prose-only, malformed, or a
+		// fabricated verdict). That is ambiguous evidence — escalate to
+		// needs_input with a readable reason instead of ## Failure with an
+		// opaque unmarshal error (design § 7.1: ambiguous evidence → operator,
+		// controller owns the envelope). The 2026-09-02 c052eef incident saw
+		// the model's prose opening crash parseFixPlan and the task die in
+		// ## Failure.
+		return nil, needsInput(
+			"model produced no usable fix-plan verdict: " + truncate(err.Error()),
+		)
 	}
 	return plan, nil
 }

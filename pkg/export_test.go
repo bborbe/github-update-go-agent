@@ -72,6 +72,16 @@ var (
 	ParseFixPlanForTest = parseFixPlan
 	ShortSHAForTest     = shortSHA
 	SanitizeSlugForTest = sanitizeSlug
+	// RunDiagnosisForTest exposes the build-fix planning step's diagnosis call
+	// so pkg_test can assert the no-recoverable-JSON → needs_input escalation
+	// (2026-09-02 c052eef incident) and the prose-recovery path end to end.
+	RunDiagnosisForTest = func(step agentlib.Step, md *agentlib.Markdown, repo, episodeSHA string) (*FixPlanOutput, *agentlib.Result) {
+		fs, ok := step.(*fixPlanningStep)
+		if !ok {
+			return nil, nil
+		}
+		return fs.runDiagnosis(context.Background(), md, repo, episodeSHA)
+	}
 	// BranchExistsOnOriginForTest exposes the spec-filing dedup pre-check so
 	// pkg_test can assert a missing branch is NOT read as "already filed" —
 	// regression for the pathspec-checkout false positive that skipped the push.

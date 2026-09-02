@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- fix: the build-fixer's planning phase no longer crashes `parseFixPlan` when the diagnosis model answers in prose — parsing now routes through the shared `parseJSONResponse` extraction (prose-prefixed and fenced JSON verdict blocks are recovered; observed on bborbe/http 2026-09-02, episode `c052eef`, `invalid character 'B' looking for beginning of value`). A model output with no usable verdict now escalates to `needs_input` with a readable reason instead of `## Failure` with an opaque unmarshal error, and the diagnosis prompt now states the injected evidence is the complete set — no clone/gh/web access is attempted, ending the denied-tool retry loop
+
 ## v0.17.6
 
 - fix: the build-fixer's `chain_update` chain emitter no longer closes its sarama sync producer — main's cleanup is now the single close owner. The emitter previously closed the producer and main's cleanup closed it again; sarama v1.60.2's `AsyncClose` is not idempotent, so the second close panicked with `send on closed channel` in `asyncProducer.shutdown` (async_producer.go:1653) after the result was delivered, making every `chain_update` build-fix Job exit `Error` instead of `Completed` (observed on pod `build-fix-agent-68a7f962-20260902121539-g84hn`, nuke-prod, 2026-09-02). Adds a regression test pinning the single-close-owner contract and bumps `golang.org/x/crypto` to v0.56.0 (GO-2026-6354, GO-2026-6355) to clear the vulncheck gate
