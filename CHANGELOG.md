@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- chore: update github.com/bborbe/agent to v0.85.1, github.com/bborbe/cqrs to v0.6.10, github.com/bborbe/errors to v1.6.0, github.com/bborbe/kafka to v1.25.11, github.com/bborbe/maintainer to v0.50.4, github.com/bborbe/sentry to v1.10.0, github.com/bborbe/service to v1.10.10, github.com/bborbe/time to v1.27.11, github.com/bborbe/vault-cli to v0.120.0, github.com/onsi/gomega to v1.43.0
+
 ## v0.17.7
 
 - fix: the build-fixer's planning phase no longer crashes `parseFixPlan` when the diagnosis model answers in prose — parsing now routes through the shared `parseJSONResponse` extraction (prose-prefixed and fenced JSON verdict blocks are recovered; observed on bborbe/http 2026-09-02, episode `c052eef`, `invalid character 'B' looking for beginning of value`). A model output with no usable verdict now escalates to `needs_input` with a readable reason instead of `## Failure` with an opaque unmarshal error, and the diagnosis prompt now states the injected evidence is the complete set — no clone/gh/web access is attempted, ending the denied-tool retry loop
