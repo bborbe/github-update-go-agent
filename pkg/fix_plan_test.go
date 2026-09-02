@@ -48,6 +48,47 @@ var _ = Describe("fix plan helpers", func() {
 			_, err := updatepkg.ParseFixPlanForTest(ctx, `{"verdict":`)
 			Expect(err).To(HaveOccurred())
 		})
+
+		// Repro for the 2026-09-02 prod incident (episode c052eef): the model
+		// prefaced its JSON verdict with prose, and parseFixPlan's direct
+		// json.Unmarshal rejected the leading text ("invalid character 'B'
+		// looking for beginning of value"). A verdict block must be recovered
+		// from prose via the llmjson extraction strategies.
+		It("recovers a JSON verdict block preceded by prose — the c052eef prod shape", func() {
+			plan, err := updatepkg.ParseFixPlanForTest(
+				ctx,
+				"Based on the collected evidence, I can now make a determination. "+
+					"Let me synthesize:\n"+
+					`{"verdict":"chain_update","reason":"stale dependency in go.mod","episode_sha":"c052eef"}`,
+			)
+			Expect(err).To(BeNil())
+			Expect(plan.Verdict).To(Equal(updatepkg.FixVerdictChainUpdate))
+			Expect(plan.EpisodeSHA).To(Equal("c052eef"))
+		})
+
+		It("recovers a fenced JSON verdict block preceded by prose", func() {
+			plan, err := updatepkg.ParseFixPlanForTest(
+				ctx,
+				"Here is my analysis:\n```json\n"+
+					`{"verdict":"file_spec","reason":"test bug","episode_sha":"abc1234"}`+
+					"\n```",
+			)
+			Expect(err).To(BeNil())
+			Expect(plan.Verdict).To(Equal(updatepkg.FixVerdictFileSpec))
+			Expect(plan.EpisodeSHA).To(Equal("abc1234"))
+		})
+
+		// Repro for the same incident's prose-only tail: the model's final
+		// message had NO recoverable JSON at all. Parse must fail — but the
+		// failure is exactly what the no-recoverable-JSON → needs_input
+		// escalation path (subsequent subtask) must handle gracefully.
+		It("fails on prose-only output with no recoverable JSON (documented repro)", func() {
+			_, err := updatepkg.ParseFixPlanForTest(
+				ctx,
+				"Based on the collected evidence, I can now make a determination. Let me synthesize:",
+			)
+			Expect(err).To(HaveOccurred())
+		})
 	})
 
 	Describe("shortSHA", func() {

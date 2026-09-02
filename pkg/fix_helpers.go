@@ -6,7 +6,6 @@ package pkg
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -96,6 +95,14 @@ func extractFailingWorkflowLogEvidence(ctx context.Context, md *agentlib.Markdow
 // (the runner returns the marshaled FixPlanOutput in Output). A verdict
 // outside the four known values is an error — a fabricated verdict must fail
 // loud rather than route to an arbitrary phase.
+//
+// Parsing routes through parseJSONResponse so a prose-prefixed or fenced
+// verdict block is recovered (2026-09-02 prod incident, episode c052eef: the
+// model's prose opening "Based on the collected evidence..." made a direct
+// json.Unmarshal reject the output with "invalid character 'B' looking for
+// beginning of value"). Output with no recoverable JSON fails with the
+// "unmarshal llm json response" marker — the caller escalates that to
+// needs_input rather than crashing into ## Failure.
 func parseFixPlan(ctx context.Context, raw string) (*FixPlanOutput, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -105,9 +112,9 @@ func parseFixPlan(ctx context.Context, raw string) (*FixPlanOutput, error) {
 			"parse build-fix plan",
 		)
 	}
-	var plan FixPlanOutput
-	if err := json.Unmarshal([]byte(raw), &plan); err != nil {
-		return nil, errors.Wrap(ctx, err, "unmarshal build-fix plan")
+	plan, err := parseJSONResponse[FixPlanOutput](ctx, raw)
+	if err != nil {
+		return nil, errors.Wrap(ctx, err, "parse build-fix plan")
 	}
 	valid := false
 	for _, v := range AvailableFixVerdicts {
@@ -128,7 +135,7 @@ func parseFixPlan(ctx context.Context, raw string) (*FixPlanOutput, error) {
 			"invalid build-fix verdict",
 		)
 	}
-	return &plan, nil
+	return plan, nil
 }
 
 // writeFixPlanSection replaces the ## Fix Plan section with the typed JSON.

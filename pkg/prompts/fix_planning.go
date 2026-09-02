@@ -41,6 +41,11 @@ Below is the failing-workflow and log evidence from the task:
 
 %s
 
+The evidence above is the COMPLETE evidence set — the repo clone, gh, and
+web access are NOT available to you. Do not attempt to clone the repository,
+run gh, or browse the web; classify strictly from the evidence above. If the
+evidence above is genuinely insufficient to classify, choose needs_input.
+
 Return EXACTLY a JSON object, no prose, no markdown fence, of the form:
 {"verdict":"<one of the four values>","reason":"<one-sentence diagnosis naming the evidence you based it on>","failing_workflows":["<workflow names, if known>"],"episode_sha":"%s"}
 
