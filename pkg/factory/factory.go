@@ -228,11 +228,17 @@ func computeChainTitle(repo, episodeSHA string) string {
 // chainFrontmatter builds the chained task's frontmatter, adding clone_url
 // for owner/repo inputs so the updater's HTTPS auth path has the explicit
 // git@ remote.
+//
+// ref is the episode SHA — the updater clones at it (the update-go agent's
+// requiredFrontmatterFields are repo, clone_url, ref; omitting ref made every
+// chain-emitted task fail planning with "required frontmatter field missing:
+// ref", observed on the c052eef chain 2026-09-03).
 func chainFrontmatter(repo, episodeSHA string) agentlib.TaskFrontmatter {
 	fm := agentlib.TaskFrontmatter{
 		"task_type":   "github-update-go",
 		"assignee":    "github-update-go-agent",
 		"repo":        repo,
+		"ref":         episodeSHA,
 		"episode_sha": episodeSHA,
 		"status":      "in_progress",
 		"phase":       "planning",
