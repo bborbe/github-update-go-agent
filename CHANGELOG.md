@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.17.10
 
 - fix: `chainFrontmatter` now emits `ref` (the episode SHA) on chained `github-update-go` tasks — the updater's `requiredFrontmatterFields` (`repo`, `clone_url`, `ref`) previously rejected every chain-emitted task with `required frontmatter field missing: ref`, leaving the task in `## Failure` and re-dispatching pointlessly (observed on the bborbe/http `c052eef` chain, 2026-09-03; unblocked live by a hand-patched ref, proving the fix shape)
 
