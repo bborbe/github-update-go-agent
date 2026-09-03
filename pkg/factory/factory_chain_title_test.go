@@ -59,4 +59,32 @@ var _ = Describe("computeChainTitle", func() {
 		Entry("bare name", "http"),
 		Entry("nested path", "bborbe/sub/http"),
 	)
+
+	// The regression: chainFrontmatter omitted ref, so every chain-emitted
+	// github-update-go task failed the updater's requiredFrontmatterFields
+	// (repo, clone_url, ref) with "required frontmatter field missing: ref"
+	// (observed on the c052eef chain, 2026-09-03 — the task sat in ## Failure
+	// and was re-dispatched pointlessly until ref was hand-patched). The
+	// episode SHA is the ref the updater clones at.
+	Describe("frontmatter", func() {
+		It("carries ref equal to the episode SHA", func() {
+			cmd := factory.BuildChainCommand(
+				"bborbe/http",
+				"c052eef633bebc2d125ab8262e0284ee62ac0b32",
+				[]string{"CI"},
+			)
+			Expect(cmd.Frontmatter["ref"]).To(Equal("c052eef633bebc2d125ab8262e0284ee62ac0b32"))
+		})
+
+		It("covers the updater's required field set (repo, clone_url, ref)", func() {
+			cmd := factory.BuildChainCommand(
+				"bborbe/http",
+				"c052eef633bebc2d125ab8262e0284ee62ac0b32",
+				[]string{"CI"},
+			)
+			for _, field := range []string{"repo", "clone_url", "ref"} {
+				Expect(cmd.Frontmatter[field]).NotTo(BeEmpty(), "field %s must be present", field)
+			}
+		})
+	})
 })
