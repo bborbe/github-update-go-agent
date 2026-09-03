@@ -1,7 +1,13 @@
 ---
-spec: ["bug-gate-timeout-not-signaled"]
-status: draft
+status: completed
+spec: [bug-gate-timeout-not-signaled]
+summary: Added gateOutputIsTimeout classifier so the planning step's empty-on-error gate escalation names Go test-timeout hangs in the NeedsInput headline (generic message byte-for-byte unchanged for other failures), with unit test and CHANGELOG entry
+execution_id: github-update-go-agent-gate-signal-exec-013-gate-timeout-signal
+dark-factory-version: dev
 created: "2026-09-03T21:35:00Z"
+queued: "2026-09-03T19:30:40Z"
+started: "2026-09-03T19:30:41Z"
+completed: "2026-09-03T19:40:35Z"
 ---
 <summary>
 - When a repo gate target fails with no parseable scanner findings, the planning step escalates a single generic sentence (`gate target "X" failed (exit N) with no parseable findings — this gate is broken for repo R`) regardless of WHY it failed.

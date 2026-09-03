@@ -70,6 +70,13 @@ var fixtureMakefileBroken = ".PHONY: check\n" +
 	"check:\n" +
 	"\t@echo 'make: something broken' >&2; exit 1\n"
 
+// fixtureMakefileTimedOut defines a gate target that fails by hanging — its
+// output carries Go's test-timeout panic text and no advisory IDs, so it
+// exercises the timeout-classified variant of the empty-on-error escalation.
+var fixtureMakefileTimedOut = ".PHONY: check\n" +
+	"check:\n" +
+	"\t@echo 'panic: test timed out after 10m0s' >&2; exit 1\n"
+
 // fixtureMakefileBrokenWithFindings defines a gate target that exits non-zero
 // while still emitting a parseable advisory row — only the zero-rows-on-error
 // case parks (spec 006 Desired Behavior 3: rows still join the scanner table).
@@ -408,6 +415,26 @@ jobs:
 				result.Message,
 			).To(MatchRegexp(`gate target "check" failed \(exit [0-9-]+\) with no parseable findings`))
 			Expect(result.Message).To(ContainSubstring("make: something broken"))
+			Expect(result.Message).To(ContainSubstring("a re-run reproduces the identical result"))
+			Expect(result.Message).To(ContainSubstring("Fix the target"))
+			Expect(result.Message).To(ContainSubstring("next HEAD"))
+			Expect(result.Status).NotTo(Equal(agentlib.AgentStatusFailed))
+		})
+	})
+
+	Describe("gate target timeout (empty-on-error parks NeedsInput, names the timeout)", func() {
+		BeforeEach(func() {
+			setupFixture(fixtureMakefileTimedOut)
+		})
+
+		It("parks NeedsInput naming the timeout, exit code, and repair action", func() {
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusNeedsInput))
+			Expect(
+				result.Message,
+			).To(MatchRegexp(`gate target "check" failed \(exit [0-9-]+\) — test timed out with no parseable findings`))
+			Expect(result.Message).To(ContainSubstring("panic: test timed out after 10m0s"))
 			Expect(result.Message).To(ContainSubstring("a re-run reproduces the identical result"))
 			Expect(result.Message).To(ContainSubstring("Fix the target"))
 			Expect(result.Message).To(ContainSubstring("next HEAD"))

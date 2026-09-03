@@ -480,13 +480,7 @@ func (s *planningStep) runInspection(
 		if runErr != nil && len(rows) == 0 {
 			glog.V(2).
 				Infof("planning: gate target %s failed exit=%d rows=0 output=%q", target, exitCode, output)
-			return nil, nil, needsInput(fmt.Sprintf(
-				"gate target %q failed (exit %d) with no parseable findings — this gate is "+
-					"broken for repo %s: a re-run reproduces the identical result, so the agent "+
-					"never retries it. Fix the target in the repo (or point it at tooling the "+
-					"agent image provides) and push — the next HEAD re-triggers. Output tail:\n%s",
-				target, exitCode, repo, truncateTail(output, gateTailMaxBytes),
-			))
+			return nil, nil, needsInput(gateFailureMessage(target, exitCode, repo, output))
 		}
 		table = append(table, rows...)
 	}
@@ -542,6 +536,35 @@ func (s *planningStep) runInspection(
 		return nil, nil, failed("plan validation: " + err.Error())
 	}
 	return plan, table, nil
+}
+
+// gateOutputIsTimeout reports whether the captured gate output carries Go's
+// test-timeout signature. The signature is present in both the panic line
+// (`panic: test timed out after 10m0s`) and the -v/Ginkgo summary line
+// (`FAIL … 600.035s`), so a single case-insensitive substring match covers
+// every hang shape — no regexp needed.
+func gateOutputIsTimeout(output string) bool {
+	return strings.Contains(strings.ToLower(output), "test timed out")
+}
+
+// gateFailureMessage assembles the empty-on-error gate escalation. A Go
+// test-timeout hang and a fast lint error have byte-identical "no parseable
+// findings" tails, so the classifier distinguishes them for the operator: the
+// timeout headline names it, every other failure keeps the generic form. The
+// repair guidance sentences and the bounded output tail are identical in both
+// shapes.
+func gateFailureMessage(target string, exitCode int, repo, output string) string {
+	headline := "gate target %q failed (exit %d) with no parseable findings"
+	if gateOutputIsTimeout(output) {
+		headline = "gate target %q failed (exit %d) — test timed out with no parseable findings"
+	}
+	return fmt.Sprintf(
+		headline+" — this gate is "+
+			"broken for repo %s: a re-run reproduces the identical result, so the agent "+
+			"never retries it. Fix the target in the repo (or point it at tooling the "+
+			"agent image provides) and push — the next HEAD re-triggers. Output tail:\n%s",
+		target, exitCode, repo, truncateTail(output, gateTailMaxBytes),
+	)
 }
 
 // filterSuppressedVulns returns a copy of vulns without entries whose ID is in
