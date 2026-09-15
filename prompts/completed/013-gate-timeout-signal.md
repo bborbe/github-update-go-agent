@@ -1,6 +1,6 @@
 ---
 status: completed
-spec: [bug-gate-timeout-not-signaled]
+unlinked: 'spec bug-gate-timeout-not-signaled does not exist in this repo -- it matches no spec in specs/, carries no number, and appears nowhere else. Every other prompt here links a numbered spec. The work this prompt describes shipped; only the reference was dangling. Unlinked 2026-09-15, not relinked: there is no correct spec to point at.'
 summary: Added gateOutputIsTimeout classifier so the planning step's empty-on-error gate escalation names Go test-timeout hangs in the NeedsInput headline (generic message byte-for-byte unchanged for other failures), with unit test and CHANGELOG entry
 execution_id: github-update-go-agent-gate-signal-exec-013-gate-timeout-signal
 dark-factory-version: dev
