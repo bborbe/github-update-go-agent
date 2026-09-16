@@ -9,6 +9,7 @@ import (
 	stderrors "errors"
 	"os"
 	"path/filepath"
+	"strings"
 
 	agentlib "github.com/bborbe/agent"
 	claudelib "github.com/bborbe/agent/claude"
@@ -742,6 +743,256 @@ jobs:
 			Expect(err).To(BeNil())
 			Expect(result.Status).To(Equal(agentlib.AgentStatusNeedsInput))
 			Expect(result.Message).To(Equal("no fixed version available"))
+		})
+	})
+
+	Describe("external advisory ingestion", func() {
+		// advisoryTaskMD renders the planning fixture task with an `advisory`
+		// block spliced into its frontmatter.
+		advisoryTaskMD := func(advisoryBlock string) string {
+			return "---\n" +
+				"task_type: github-update-go\n" +
+				"assignee: github-update-go-agent\n" +
+				"phase: planning\n" +
+				"status: in_progress\n" +
+				"repo: bborbe/demo\n" +
+				"clone_url: git@github.com:bborbe/demo.git\n" +
+				"ref: 6d1f27fabcdef12345678901234567890abcdef1\n" +
+				"task_identifier: test-task-1\n" +
+				advisoryBlock +
+				"---\n\nUpdate Go bborbe/demo\n"
+		}
+
+		// advisoryBlockFor renders the frozen four-key block.
+		advisoryBlockFor := func(id, pkg, fixedVersion, source string) string {
+			return "advisory:\n" +
+				"  id: " + id + "\n" +
+				"  package: " + pkg + "\n" +
+				"  fixed_version: " + fixedVersion + "\n" +
+				"  source: " + source + "\n"
+		}
+
+		// advisoryCVE7001 is the collision ID used by both AC5 fixtures.
+		const advisoryCVE7001 = "CVE-2026-7001"
+
+		// scannerSection slices the `## Scanner Findings` section out of the
+		// captured prompt. The delimiter must be the appended section's exact
+		// shape: the planning prompt module itself contains the backticked
+		// text `## Scanner Findings`, so a bare Index would find the module's
+		// own sentence instead of the table. The `## Task` tail is also
+		// required — it embeds the frontmatter, which carries the advisory ID
+		// too, so a whole-prompt count would see 2.
+		scannerSection := func(prompt string) string {
+			const delimiter = "\n\n## Scanner Findings\n\n"
+			start := strings.LastIndex(prompt, delimiter)
+			Expect(start).NotTo(Equal(-1))
+			rest := prompt[start+len(delimiter):]
+			end := strings.Index(rest, "\n\n## Task\n\n")
+			Expect(end).NotTo(Equal(-1))
+			return rest[:end]
+		}
+
+		// onlyLineContaining asserts exactly one line of the section carries
+		// the ID and returns it.
+		onlyLineContaining := func(section, id string) string {
+			var matches []string
+			for _, line := range strings.Split(section, "\n") {
+				if strings.Contains(line, id) {
+					matches = append(matches, line)
+				}
+			}
+			Expect(matches).To(HaveLen(1))
+			return matches[0]
+		}
+
+		var markerPath string
+
+		BeforeEach(func() {
+			markerPath = filepath.Join(
+				os.TempDir(),
+				"github-update-go-test-task-1",
+				"gate-ran-marker",
+			)
+		})
+
+		// fixtureMakefileAdvisoryClean's every gate target touches the marker
+		// file and emits no advisory IDs — so a surviving marker proves a gate
+		// target ran, and an absent one proves none did.
+		const fixtureMakefileAdvisoryClean = ".PHONY: check vulncheck\n" +
+			"check:\n" +
+			"\t@touch gate-ran-marker\n" +
+			"vulncheck:\n" +
+			"\t@touch gate-ran-marker\n"
+
+		// fixtureMakefileAdvisoryCollisionEmpty's check target emits an
+		// ID-bearing line in no recognized scanner shape, so the parsed row
+		// carries the ID and an EMPTY fixed version.
+		const fixtureMakefileAdvisoryCollisionEmpty = ".PHONY: check vulncheck\n" +
+			"check:\n" +
+			"\t@touch gate-ran-marker\n" +
+			"\t@echo '" + advisoryCVE7001 + " affected in golang.org/x/net'\n" +
+			"vulncheck:\n" +
+			"\t@touch gate-ran-marker\n"
+
+		// fixtureMakefileAdvisoryCollisionFixed's check target emits an
+		// osv-shaped line, so the parsed row carries a NON-EMPTY fixed version.
+		const fixtureMakefileAdvisoryCollisionFixed = ".PHONY: check vulncheck\n" +
+			"check:\n" +
+			"\t@touch gate-ran-marker\n" +
+			"\t@echo '" + advisoryCVE7001 + " | golang.org/x/net | 1.26.5 | fixed v0.40.0'\n" +
+			"vulncheck:\n" +
+			"\t@touch gate-ran-marker\n"
+
+		It("admits a valid advisory row and drives a fix for it", func() {
+			setupFixture(fixtureMakefileAdvisoryClean)
+			md, err := agentlib.ParseMarkdown(ctx, advisoryTaskMD(advisoryBlockFor(
+				"CVE-2026-4242", "golang.org/x/text", "v0.39.0", "osv-feed",
+			)))
+			Expect(err).To(BeNil())
+			runner.RunReturns(&claudelib.ClaudeResult{Result: `{
+				"outcome": "ready",
+				"has_work": true,
+				"dep_updates_expected": false,
+				"vulns": [
+					{"id": "CVE-2026-4242", "package": "golang.org/x/text", "fixed_version": "v0.39.0", "scanner": "external:osv-feed", "action": "fix", "reason": "advisory fix"}
+				]
+			}`}, nil)
+
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(runner.RunCallCount()).To(Equal(1))
+
+			_, prompt := runner.RunArgsForCall(0)
+			Expect(
+				prompt,
+			).To(ContainSubstring("CVE-2026-4242 | golang.org/x/text | v0.39.0 | external:osv-feed"))
+
+			plan, err := agentlib.ExtractSection[pkg.PlanOutput](ctx, md, "## Plan")
+			Expect(err).To(BeNil())
+			Expect(plan.Vulns).To(HaveLen(1))
+			Expect(plan.Vulns[0].ID).To(Equal("CVE-2026-4242"))
+			Expect(plan.Vulns[0].Action).To(Equal(pkg.VulnActionFix))
+			Expect(plan.Vulns[0].FixedVersion).To(Equal("v0.39.0"))
+			Expect(result.Status).To(Equal(agentlib.AgentStatusDone))
+			Expect(result.NextPhase).To(Equal("execution"))
+		})
+
+		It("still rejects an ID present in neither provenance", func() {
+			setupFixture(fixtureMakefileAdvisoryClean)
+			md, err := agentlib.ParseMarkdown(ctx, advisoryTaskMD(advisoryBlockFor(
+				"CVE-2026-4242", "golang.org/x/text", "v0.39.0", "osv-feed",
+			)))
+			Expect(err).To(BeNil())
+			runner.RunReturns(&claudelib.ClaudeResult{Result: `{
+				"outcome": "ready",
+				"has_work": true,
+				"dep_updates_expected": false,
+				"vulns": [
+					{"id": "CVE-2026-4242", "package": "golang.org/x/text", "fixed_version": "v0.39.0", "scanner": "external:osv-feed", "action": "fix", "reason": "advisory fix"},
+					{"id": "GO-2025-3283", "package": "golang.org/x/net", "action": "fix", "reason": "fabricated"}
+				]
+			}`}, nil)
+
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusFailed))
+			Expect(result.Message).To(ContainSubstring("GO-2025-3283"))
+			Expect(result.Status).NotTo(Equal(agentlib.AgentStatusNeedsInput))
+			_, found := md.FindSection("## Plan")
+			Expect(found).To(BeFalse())
+		})
+
+		DescribeTable("rejects a malformed block loudly, before any gate target runs",
+			func(block, field, valueSubstring string) {
+				setupFixture(fixtureMakefileAdvisoryClean)
+				md, err := agentlib.ParseMarkdown(ctx, advisoryTaskMD(block))
+				Expect(err).To(BeNil())
+
+				result, err := step.Run(ctx, md)
+				Expect(err).To(BeNil())
+				Expect(result.Status).To(Equal(agentlib.AgentStatusNeedsInput))
+				Expect(result.Message).To(ContainSubstring("field=" + field))
+				Expect(result.Message).To(ContainSubstring(valueSubstring))
+				Expect(runner.RunCallCount()).To(Equal(0))
+
+				_, statErr := os.Stat(markerPath)
+				Expect(os.IsNotExist(statErr)).To(BeTrue())
+			},
+			Entry("ID outside the accepted shapes",
+				advisoryBlockFor("FOO-2026-1", "golang.org/x/text", "v0.39.0", "osv-feed"),
+				"id", "FOO-2026-1"),
+			Entry("empty package",
+				advisoryBlockFor("CVE-2026-4242", `""`, "v0.39.0", "osv-feed"),
+				"package", "value="),
+			Entry("unparseable fixed_version",
+				advisoryBlockFor("CVE-2026-4242", "golang.org/x/text", "not-a-version", "osv-feed"),
+				"fixed_version", "not-a-version"),
+			Entry(
+				"missing key",
+				"advisory:\n  id: CVE-2026-4242\n  package: golang.org/x/text\n  fixed_version: v0.39.0\n",
+				"source",
+				"value=<nil>",
+			),
+			Entry("list instead of mapping",
+				"advisory:\n  - id: CVE-2026-4242\n    package: golang.org/x/text\n",
+				"advisory", "CVE-2026-4242"),
+		)
+
+		It("keeps the advisory fixed version when the scanner row carries none", func() {
+			setupFixture(fixtureMakefileAdvisoryCollisionEmpty)
+			md, err := agentlib.ParseMarkdown(ctx, advisoryTaskMD(advisoryBlockFor(
+				advisoryCVE7001, "golang.org/x/net", "v0.36.0", "osv-feed",
+			)))
+			Expect(err).To(BeNil())
+			runner.RunReturns(&claudelib.ClaudeResult{Result: `{
+				"outcome": "ready",
+				"has_work": true,
+				"dep_updates_expected": false,
+				"vulns": [
+					{"id": "CVE-2026-7001", "package": "golang.org/x/net", "fixed_version": "v0.36.0", "scanner": "external:osv-feed", "action": "fix", "reason": "advisory fix"}
+				]
+			}`}, nil)
+
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusDone))
+
+			_, prompt := runner.RunArgsForCall(0)
+			Expect(
+				onlyLineContaining(scannerSection(prompt), advisoryCVE7001),
+			).To(Equal("CVE-2026-7001 | golang.org/x/net | v0.36.0 | external:osv-feed"))
+		})
+
+		It("keeps the scanner row and its label when it carries a real fixed version", func() {
+			setupFixture(fixtureMakefileAdvisoryCollisionFixed)
+			runner.RunReturns(&claudelib.ClaudeResult{Result: `{
+				"outcome": "ready",
+				"has_work": true,
+				"dep_updates_expected": false,
+				"vulns": [
+					{"id": "CVE-2026-7001", "package": "golang.org/x/net", "fixed_version": "v0.40.0", "scanner": "osv-scanner", "action": "fix", "reason": "patched"}
+				]
+			}`}, nil)
+
+			// Baseline — no advisory block, the gate output alone.
+			_, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			_, baselinePrompt := runner.RunArgsForCall(0)
+			baselineLine := onlyLineContaining(scannerSection(baselinePrompt), advisoryCVE7001)
+			Expect(baselineLine).To(ContainSubstring("osv-scanner"))
+
+			// Same fixture, now colliding with an advisory on the same ID.
+			md, err = agentlib.ParseMarkdown(ctx, advisoryTaskMD(advisoryBlockFor(
+				advisoryCVE7001, "golang.org/x/net", "v0.36.0", "osv-feed",
+			)))
+			Expect(err).To(BeNil())
+			_, err = step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			_, prompt := runner.RunArgsForCall(1)
+			Expect(
+				onlyLineContaining(scannerSection(prompt), advisoryCVE7001),
+			).To(Equal(baselineLine))
+			Expect(scannerSection(prompt)).NotTo(ContainSubstring("external:osv-feed"))
 		})
 	})
 })
