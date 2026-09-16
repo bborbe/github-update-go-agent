@@ -326,6 +326,7 @@ body
 			result, err := step.Run(ctx, md)
 			Expect(err).To(BeNil())
 			Expect(result.Status).To(Equal(agentlib.AgentStatusFailed))
+			Expect(result.Message).To(HavePrefix("execution: "))
 			Expect(result.Message).To(ContainSubstring(`gate target "check" failed`))
 			Expect(result.Message).To(ContainSubstring("trivy found CVE-X"))
 			Expect(ops.CommitCallCount()).To(Equal(0))

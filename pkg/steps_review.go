@@ -189,7 +189,7 @@ func (s *reviewStep) finish(
 	glog.V(2).Infof("ai_review: rejected — %s", output.Notes)
 	return &agentlib.Result{
 		Status:  agentlib.AgentStatusFailed,
-		Message: output.Notes,
+		Message: "ai_review: " + output.Notes,
 	}, nil
 }
 

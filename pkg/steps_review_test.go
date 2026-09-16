@@ -450,6 +450,7 @@ var _ = Describe("ReviewStep", func() {
 			result, err := step.Run(ctx, md)
 			Expect(err).To(BeNil())
 			Expect(result.Status).To(Equal(agentlib.AgentStatusFailed))
+			Expect(result.Message).To(HavePrefix("ai_review: "))
 			Expect(result.NextPhase).To(Equal(""))
 			review, err := agentlib.ExtractSection[pkg.ReviewOutput](ctx, md, "## Review")
 			Expect(err).To(BeNil())
@@ -764,6 +765,7 @@ var _ = Describe("ReviewStep", func() {
 			result, err := step.Run(ctx, md)
 			Expect(err).To(BeNil())
 			Expect(result.Status).To(Equal(agentlib.AgentStatusFailed))
+			Expect(result.Message).To(HavePrefix("ai_review: "))
 			Expect(result.NextPhase).To(Equal(""))
 
 			review, err := agentlib.ExtractSection[pkg.ReviewOutput](ctx, md, "## Review")

@@ -16,15 +16,19 @@ import (
 // Test-only exports for the external pkg_test package.
 var (
 	NormalizeCloneURLToHTTPS = normalizeCloneURLToHTTPS
-	InjectToken              = injectToken
-	PRCreateArgs             = prCreateArgs
-	IsMissingLabelError      = isMissingLabelError
-	ParseScannerOutput       = parseScannerOutput
-	DetectGateTargets        = detectGateTargets
-	LoadSuppressedVulnIDs    = loadSuppressedVulnIDs
-	ValidatePlanAgainstTable = validatePlanAgainstTable
-	FilterSuppressedVulns    = filterSuppressedVulns
-	RenderScannerTable       = renderScannerTable
+	// NewGHTokenCheckStepForTest exposes the preflight's URL seam so pkg_test
+	// can assert the step label on its escalations without hitting the real
+	// GitHub API.
+	NewGHTokenCheckStepForTest = newGHTokenCheckStep
+	InjectToken                = injectToken
+	PRCreateArgs               = prCreateArgs
+	IsMissingLabelError        = isMissingLabelError
+	ParseScannerOutput         = parseScannerOutput
+	DetectGateTargets          = detectGateTargets
+	LoadSuppressedVulnIDs      = loadSuppressedVulnIDs
+	ValidatePlanAgainstTable   = validatePlanAgainstTable
+	FilterSuppressedVulns      = filterSuppressedVulns
+	RenderScannerTable         = renderScannerTable
 	// ParseAdvisoryBlock / AdvisoryFinding / CollapseExternalDuplicates expose
 	// the external-advisory ingestion seams (spec 007) so pkg_test can assert
 	// the frozen block contract, the `external:<source>` row label, and the
