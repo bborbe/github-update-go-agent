@@ -24,6 +24,10 @@ var _ = Describe("PlanningPrompt", func() {
 		).To(ContainSubstring("Never add a finding ID that is not in the table"))
 	})
 
+	It("names the validated external advisory as a second table provenance", func() {
+		Expect(prompts.PlanningPrompt()).To(ContainSubstring("external advisory"))
+	})
+
 	It("carries the fix-vs-park classification", func() {
 		Expect(prompts.PlanningPrompt()).To(ContainSubstring(`"fix"`))
 		Expect(prompts.PlanningPrompt()).To(ContainSubstring(`"park"`))

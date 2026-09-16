@@ -18,7 +18,8 @@ The context sections appended after this prompt provide:
   task's `latest_go` frontmatter — it is a watcher trigger signal only).
 - `## Task` — the task markdown (frontmatter `repo`, `clone_url`, `ref`).
 - `## Scanner Findings` — the findings table Go captured by running the
-  repo's own gate targets and parsing their output.
+  repo's own gate targets and parsing their output, plus, when the task
+  carries one, the validated external advisory from the task frontmatter.
   It is the ONLY source of advisory IDs: every `vulns[].id` you report MUST
   be one of these IDs, copied verbatim. Never invent, guess, or modify an
   advisory ID, and never add a finding that is not listed here.

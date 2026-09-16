@@ -468,21 +468,9 @@ func (s *planningStep) runInspection(
 			"add a precommit/check/vulncheck target or handle manually")
 	}
 
-	table := ScannerTable{}
-	for _, target := range targets {
-		select {
-		case <-ctx.Done():
-			return nil, nil, failed("canceled while running gate targets: " + ctx.Err().Error())
-		default:
-		}
-		output, exitCode, runErr := s.gate.RunTargetFull(ctx, workdir, target)
-		rows := parseScannerOutput(target, output)
-		if runErr != nil && len(rows) == 0 {
-			glog.V(2).
-				Infof("planning: gate target %s failed exit=%d rows=0 output=%q", target, exitCode, output)
-			return nil, nil, needsInput(gateFailureMessage(target, exitCode, repo, output))
-		}
-		table = append(table, rows...)
+	table, failResult := s.buildScannerTable(ctx, md, workdir, targets, repo)
+	if failResult != nil {
+		return nil, nil, failResult
 	}
 
 	// Drop operator-approved no-fix suppressions from the table before the
@@ -509,7 +497,7 @@ func (s *planningStep) runInspection(
 		"\n\n## Workdir\n\n" + workdir +
 		"\n\n## Target Go\n\n" + targetGoVersion() +
 		"\n\n" + updateScopeSection(updateScope) +
-		"\n\n## Scanner Findings\n\nThe findings below were captured by Go from running the repo's own gate targets — they are the ONLY source of advisory IDs. Every vuln ID you report MUST appear in this table verbatim.\n\n" + renderScannerTable(table) +
+		"\n\n## Scanner Findings\n\nThe findings below were captured by Go from the repo's own gate targets and, when the task carries one, from the validated external advisory in the task frontmatter — together they are the ONLY source of advisory IDs. Every vuln ID you report MUST appear in this table verbatim.\n\n" + renderScannerTable(table) +
 		"\n\n## Task\n\n" + taskContent
 	runResult, err := s.runner.Run(ctx, prompt)
 	if err != nil {
@@ -536,6 +524,52 @@ func (s *planningStep) runInspection(
 		return nil, nil, failed("plan validation: " + err.Error())
 	}
 	return plan, table, nil
+}
+
+// buildScannerTable assembles the ground-truth findings table: the admitted
+// external advisory row first (when the task frontmatter carries one), then
+// one row per gate target's parsed raw output, with the
+// external-versus-scanner ID collision collapsed so the model sees exactly
+// one row per ID.
+//
+// The advisory block is parsed and validated BEFORE the first gate target
+// runs: a malformed block aborts here, so no gate target executes and the
+// model is never invoked with a partial table (spec 007 AC4). Returns
+// (table, nil) on success or (nil, failResult) on a malformed block, a
+// canceled context, or an empty-on-error gate target.
+func (s *planningStep) buildScannerTable(
+	ctx context.Context,
+	md *agentlib.Markdown,
+	workdir string,
+	targets []string,
+	repo string,
+) (ScannerTable, *agentlib.Result) {
+	advisory, err := parseAdvisoryBlock(ctx, md)
+	if err != nil {
+		glog.V(2).Infof("planning: invalid advisory frontmatter — escalating: %v", err)
+		return nil, needsInput(err.Error())
+	}
+
+	table := ScannerTable{}
+	if advisory != nil {
+		table = append(table, advisoryFinding(advisory))
+	}
+	for _, target := range targets {
+		select {
+		case <-ctx.Done():
+			return nil, failed("canceled while running gate targets: " + ctx.Err().Error())
+		default:
+		}
+		output, exitCode, runErr := s.gate.RunTargetFull(ctx, workdir, target)
+		rows := parseScannerOutput(target, output)
+		if runErr != nil && len(rows) == 0 {
+			glog.V(2).
+				Infof("planning: gate target %s failed exit=%d rows=0 output=%q", target, exitCode, output)
+			return nil, needsInput(gateFailureMessage(target, exitCode, repo, output))
+		}
+		table = append(table, rows...)
+	}
+	return table.collapseExternalDuplicates(), nil
 }
 
 // gateOutputIsTimeout reports whether the captured gate output carries Go's

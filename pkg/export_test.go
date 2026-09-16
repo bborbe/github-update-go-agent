@@ -25,13 +25,20 @@ var (
 	ValidatePlanAgainstTable = validatePlanAgainstTable
 	FilterSuppressedVulns    = filterSuppressedVulns
 	RenderScannerTable       = renderScannerTable
-	ParkMessage              = parkMessage
-	ExtractToolResultBodies  = extractToolResultBodies
-	PlanningResultText       = planningResultText
-	ScanPlanningOutput       = scanPlanningOutput
-	RefuteEnvironmentClaim   = refuteEnvironmentClaim
-	BuildYourMoveBody        = buildYourMoveBody
-	WriteYourMoveSection     = writeYourMoveSection
+	// ParseAdvisoryBlock / AdvisoryFinding / CollapseExternalDuplicates expose
+	// the external-advisory ingestion seams (spec 007) so pkg_test can assert
+	// the frozen block contract, the `external:<source>` row label, and the
+	// external-versus-scanner ID collapse.
+	ParseAdvisoryBlock         = parseAdvisoryBlock
+	AdvisoryFinding            = advisoryFinding
+	CollapseExternalDuplicates = ScannerTable.collapseExternalDuplicates
+	ParkMessage                = parkMessage
+	ExtractToolResultBodies    = extractToolResultBodies
+	PlanningResultText         = planningResultText
+	ScanPlanningOutput         = scanPlanningOutput
+	RefuteEnvironmentClaim     = refuteEnvironmentClaim
+	BuildYourMoveBody          = buildYourMoveBody
+	WriteYourMoveSection       = writeYourMoveSection
 	// HasWorkForScope / AppliesScope expose the scope-aware plan predicates so
 	// pkg_test can assert the close decision is driven by the plan's structured
 	// fields rather than the model's `outcome` label.

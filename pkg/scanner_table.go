@@ -66,6 +66,51 @@ func (t ScannerTable) FilterSuppressed(suppressed map[string]bool) ScannerTable 
 	return filtered
 }
 
+// collapseExternalDuplicates resolves an external-advisory-versus-scanner ID
+// collision so the model sees exactly one row for an ID the external
+// advisory introduced. The row carrying a non-empty FixedVersion wins: the
+// first scanner row with a real fixed version beats the external row and
+// keeps its own scanner label (the repo's own scanner reported that fix);
+// otherwise the external row survives and every scanner row for that ID is
+// dropped. Rows whose ID has no external row are returned untouched — the
+// existing scanner-vs-scanner duplicate behavior is unchanged.
+func (t ScannerTable) collapseExternalDuplicates() ScannerTable {
+	externalIdx := -1
+	for i, row := range t {
+		if strings.HasPrefix(row.Scanner, externalScannerPrefix) {
+			externalIdx = i
+			break
+		}
+	}
+	if externalIdx < 0 {
+		return t
+	}
+
+	id := t[externalIdx].ID
+	winnerIdx := externalIdx
+	for i, row := range t {
+		if i == externalIdx || row.ID != id {
+			continue
+		}
+		if row.FixedVersion != "" {
+			winnerIdx = i
+			break
+		}
+	}
+
+	collapsed := make(ScannerTable, 0, len(t))
+	for i, row := range t {
+		if row.ID != id {
+			collapsed = append(collapsed, row)
+			continue
+		}
+		if i == winnerIdx {
+			collapsed = append(collapsed, row)
+		}
+	}
+	return collapsed
+}
+
 // Row returns the first row whose ID equals id exactly.
 func (t ScannerTable) Row(id string) (ScannerFinding, bool) {
 	for _, row := range t {
