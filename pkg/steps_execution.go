@@ -643,9 +643,12 @@ func (s *executionStep) fail(
 	}
 	md.ReplaceSection(section)
 	glog.V(2).Infof("execution failed: category=%s err=%s", category, msg)
+	// "execution: " labels the step; the cause already carries the specific
+	// detail (e.g. `gate target "check" failed (exit 2): …`), so it is not
+	// repeated here.
 	return &agentlib.Result{
 		Status:  agentlib.AgentStatusFailed,
-		Message: msg,
+		Message: "execution: " + msg,
 	}, nil
 }
 

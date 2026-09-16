@@ -418,7 +418,7 @@ func (s *planningStep) failInvalidConfig(
 	return &agentlib.Result{
 		Status:    agentlib.AgentStatusFailed,
 		NextPhase: domain.TaskPhaseHumanReview.String(),
-		Message:   "invalid .maintainer.yaml: " + field + ": " + msg,
+		Message:   "planning: invalid .maintainer.yaml: " + field + ": " + msg,
 	}
 }
 
