@@ -32,13 +32,18 @@ var (
 	ParseAdvisoryBlock         = parseAdvisoryBlock
 	AdvisoryFinding            = advisoryFinding
 	CollapseExternalDuplicates = ScannerTable.collapseExternalDuplicates
-	ParkMessage                = parkMessage
-	ExtractToolResultBodies    = extractToolResultBodies
-	PlanningResultText         = planningResultText
-	ScanPlanningOutput         = scanPlanningOutput
-	RefuteEnvironmentClaim     = refuteEnvironmentClaim
-	BuildYourMoveBody          = buildYourMoveBody
-	WriteYourMoveSection       = writeYourMoveSection
+	// ParseModuleList / ModuleForPackage expose the module-graph parse and the
+	// longest-prefix package→module match (spec 007 DB6) so pkg_test can assert
+	// the segment-boundary rule and the indirect-module resolution directly.
+	ParseModuleList         = parseModuleList
+	ModuleForPackage        = moduleForPackage
+	ParkMessage             = parkMessage
+	ExtractToolResultBodies = extractToolResultBodies
+	PlanningResultText      = planningResultText
+	ScanPlanningOutput      = scanPlanningOutput
+	RefuteEnvironmentClaim  = refuteEnvironmentClaim
+	BuildYourMoveBody       = buildYourMoveBody
+	WriteYourMoveSection    = writeYourMoveSection
 	// HasWorkForScope / AppliesScope expose the scope-aware plan predicates so
 	// pkg_test can assert the close decision is driven by the plan's structured
 	// fields rather than the model's `outcome` label.

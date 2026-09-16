@@ -93,9 +93,16 @@ clone_url: git@github.com:<owner>/<repo>.git   # agent rewrites to https for App
 ref: <full HEAD SHA>   # filing SHA — provenance + dedupe only; the agent clones the current default-branch HEAD resolved at run start
 current_go: <X.Y.Z>    # watcher signal only
 latest_go: <X.Y.Z>     # watcher signal only (D5: agent targets its image toolchain)
+advisory:              # OPTIONAL — at most one externally-supplied advisory per task
+  id: CVE-2026-12345   # GO-<year>-<n> | CVE-<year>-<n> | GHSA-<grp>-<grp>-<grp>
+  package: golang.org/x/text
+  fixed_version: v0.39.0
+  source: osv-feed     # the row's scanner label becomes external:<source>
 ```
 
 Body = operator-readable header only; never a data source.
+
+`advisory` is the frozen external-advisory contract: a single mapping whose four keys `id`, `package`, `fixed_version` and `source` are all required and non-empty; unrecognized extra keys are ignored. The accepted ID shapes are `GO-<year>-<n>`, `CVE-<year>-<n>` and `GHSA-xxxx-xxxx-xxxx`. A block that fails validation — an ID outside those shapes, an empty `package`, an unparseable `fixed_version`, a missing key, or a list instead of a mapping — ends planning with `needs_input` naming the offending field and its raw value, before any gate target runs; the same block failing to validate at review time fails the review closed instead. A second advisory written under a different key name is not the block and has no effect — file one task per advisory.
 
 ## 3.4 Upstream dependencies
 
@@ -127,7 +134,7 @@ Human reviews + promotes the draft (runbook [[Update or Fix GitHub Go Repositori
 **planning**
 | Decision | Value |
 |---|---|
-| Input | frontmatter `repo`, `clone_url`, `ref`, `update_scope` (optional; default `both`) — `ref` is provenance/branch-name only; clone base is the resolved default-branch HEAD |
+| Input | frontmatter `repo`, `clone_url`, `ref`, `update_scope` (optional; default `both`), `advisory` (optional; one externally-supplied advisory block — keys `id`, `package`, `fixed_version`, `source`) — `ref` is provenance/branch-name only; clone base is the resolved default-branch HEAD |
 | Output | `PlanOutput{go_bump{from,to}, dep_updates_expected bool, gate_targets []string, vulns []{id, package, fixed_version, action fix\|park, reason}, has_work bool}` → `## Plan` |
 | Side effects | resolve the repo's current default-branch HEAD at run start; bare-clone + worktree @ resolved HEAD (read-only wrt origin); detect gate targets from Makefile (`precommit`, `check`, `vulncheck`); run the repo's own scanner targets; enumerate outdated deps |
 | Allowed tools | `Read, Grep, Glob, Bash(git:*), Bash(go:*), Bash(make:*)` — no Edit/Write, no push |
@@ -159,7 +166,7 @@ Human reviews + promotes the draft (runbook [[Update or Fix GitHub Go Repositori
 |---|---|
 | Input | `## Plan` + `## Result` |
 | Output | `ReviewOutput{approved bool, checks{pr_open, pr_draft, gate_green, vulns_clear, changelog_unreleased, no_new_tag}, notes}` → `## Review` |
-| Side effects | `gh pr view --json state,isDraft` (a MERGED PR is the shipped state — accepted, no "expected OPEN" rejection); fresh worktree @ branch; re-run gate targets; verify CHANGELOG bullet under `## Unreleased` and no new `## vX.Y.Z` header; `git ls-remote --tags` shows no tag at branch-introduced commits (a tag on a base-reachable release-history commit is not a leak) |
+| Side effects | `gh pr view --json state,isDraft` (a MERGED PR is the shipped state — accepted, no "expected OPEN" rejection); fresh worktree @ branch; re-run gate targets; for a task whose frontmatter carries an `advisory` block, resolve the advisory's package in the branch's module graph and require its installed version to be at or above the advisory's `fixed_version` — an independent Go check that never reads `## Plan` or `## Result` and fails closed when the version is undeterminable; verify CHANGELOG bullet under `## Unreleased` and no new `## vX.Y.Z` header; `git ls-remote --tags` shows no tag at branch-introduced commits (a tag on a base-reachable release-history commit is not a leak) |
 | Duration | 5–15 min |
 | Next on success | `human_review` (the ONLY writer of that phase; success semantics per doctrine) |
 | Failure | any check false → `## Review` with `approved: false` + `Status: failed` (controller parks; body keeps the verdict) |
@@ -175,7 +182,7 @@ Per goal: no watcher service, no auto-merge/ready, no auto-suppress, no NPM/Pyth
 # 5. Data Contract
 
 ## 5.1 Inputs
-Task frontmatter (Kafka `TASK_CONTENT`); target repo via git clone (App IAT over HTTPS); repo Makefile (gate detection); scanner outputs (parsed for finding id + fixed-version); `go list -u -m` output; `PR_TARGET` (`draft` default | `ready`) from Job environment, selecting the pull-request target at creation time; `UPDATE_SCOPE` (`both` default | `golang` | `deps`) from Job environment, selecting what the update sequence touches — frontmatter `update_scope` (same values) overrides the env default per task, allowing a watcher/trigger to scope a single sweep (e.g. golang-only backports); `AUTO_MERGE_LABEL` (unset default) from Job environment, naming a label applied at PR creation so a deployment can opt its agent PRs into GitHub-native auto-merge — arming happens outside this agent (see § 7.0).
+Task frontmatter (Kafka `TASK_CONTENT`); target repo via git clone (App IAT over HTTPS); repo Makefile (gate detection); scanner outputs (parsed for finding id + fixed-version); `go list -u -m` output; `PR_TARGET` (`draft` default | `ready`) from Job environment, selecting the pull-request target at creation time; `UPDATE_SCOPE` (`both` default | `golang` | `deps`) from Job environment, selecting what the update sequence touches — frontmatter `update_scope` (same values) overrides the env default per task, allowing a watcher/trigger to scope a single sweep (e.g. golang-only backports); `advisory` (optional task-frontmatter block carrying one externally-supplied advisory — `id`, `package`, `fixed_version`, `source` — validated in Go and admitted into the planning findings table as a row labelled `external:<source>`, and independently re-verified at ai_review against the branch's module graph); `AUTO_MERGE_LABEL` (unset default) from Job environment, naming a label applied at PR creation so a deployment can opt its agent PRs into GitHub-native auto-merge — arming happens outside this agent (see § 7.0).
 
 ## 5.2 Outputs
 Branch + PR on target repo (draft by default; ready when `PR_TARGET: ready`; carrying `AUTO_MERGE_LABEL` when set); task body sections; `AgentResult` JSON on stdout (executor round-trips to frontmatter via Kafka).

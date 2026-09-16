@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- feat: ingest one externally-supplied advisory from the task's `advisory` frontmatter — planning validates it in Go and admits it into the findings table as a row labelled `external:<source>` (deduped against scanner rows by non-empty fixed version), and ai_review verifies the advisory's package resolves to an installed version at or above its `fixed_version` in the branch's module graph, failing closed when the version is undeterminable
+
 ## v0.17.13
 
 - fix: bump build toolchain to Go 1.27.1 (Dockerfile `golang:1.27.0` → `1.27.1` + go.mod). **This is the fleet-bump unlock**: `targetGoVersion()` returns the image's baked Go (`runtime.Version()`), so the agent was reporting "Go toolchain already at 1.27.0" and never bumping repos to 1.27.1. Rebuilt on 1.27.1, the agent's next cycle bumps the whole fleet.
