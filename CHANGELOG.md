@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.18.1
 
 - fix: name the failing step in every failure `Message`, so the controller's `## Failure` entry on the task is triageable without reading pod logs. Each message previously described only the condition (`invalid .maintainer.yaml: …`, a bare redacted error) and left the reader to infer which step produced it; planning, execution, ai_review, and the gh-token preflight now prefix their step, matching the build-fix steps' existing `failFix` shape
 
