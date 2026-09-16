@@ -121,6 +121,12 @@ func CreateGateRunner() updatepkg.GateRunner {
 	return updatepkg.NewOSExecGateRunner()
 }
 
+// CreateModuleResolver wires the os/exec module-graph resolver used by
+// ai_review to verify an external advisory's installed version.
+func CreateModuleResolver() updatepkg.ModuleResolver {
+	return updatepkg.NewOSExecModuleResolver()
+}
+
 // CreateClaudeProber wires the claude-auth preflight prober.
 func CreateClaudeProber(claudeConfigDir claudelib.ClaudeConfigDir) updatepkg.ClaudeProber {
 	return updatepkg.NewClaudeProber(claudeConfigDir)
@@ -359,7 +365,14 @@ func CreateAgent(
 		autoMergeLabel,
 		updateScope,
 	)
-	reviewStep := updatepkg.NewReviewStep(gitOps, ghCli, gateRunner, ghToken, prTarget)
+	reviewStep := updatepkg.NewReviewStep(
+		gitOps,
+		ghCli,
+		gateRunner,
+		CreateModuleResolver(),
+		ghToken,
+		prTarget,
+	)
 
 	return agentlib.NewAgent(
 		agentlib.NewPhase(domain.TaskPhasePlanning, claudeAuth, ghTokenCheck, planningStep),

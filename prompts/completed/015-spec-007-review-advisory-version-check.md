@@ -1,8 +1,13 @@
 ---
-status: approved
+status: completed
 spec: [007-external-advisory-ingestion]
+summary: 'Added frontmatter-driven external-advisory verification to ai_review: a ModuleResolver seam (go list -m) wired through the factory, checkAdvisories clearing vulns_clear on shortfall/undeterminable versions, plus unit and review tests'
+execution_id: github-update-go-agent-external-advisory-ingestion-exec-015-spec-007-review-advisory-version-check
+dark-factory-version: dev
 created: "2026-09-16T19:50:00Z"
 queued: "2026-09-16T17:44:39Z"
+started: "2026-09-16T17:53:30Z"
+completed: "2026-09-16T17:59:41Z"
 branch: dark-factory/external-advisory-ingestion
 ---
 
