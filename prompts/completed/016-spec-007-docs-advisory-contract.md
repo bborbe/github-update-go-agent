@@ -1,8 +1,13 @@
 ---
-status: approved
+status: completed
 spec: [007-external-advisory-ingestion]
+summary: 'Documented the external-advisory contract in docs/design.md (planning Input row, ai_review Side effects row, §3.3 sample plus contract paragraph, §5.1 Inputs) and created the CHANGELOG ## Unreleased entry; make precommit exits 0.'
+execution_id: github-update-go-agent-external-advisory-ingestion-exec-016-spec-007-docs-advisory-contract
+dark-factory-version: dev
 created: "2026-09-16T19:50:00Z"
 queued: "2026-09-16T17:44:39Z"
+started: "2026-09-16T17:59:42Z"
+completed: "2026-09-16T18:04:39Z"
 branch: dark-factory/external-advisory-ingestion
 ---
 
