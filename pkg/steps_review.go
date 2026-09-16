@@ -16,6 +16,7 @@ import (
 	"github.com/bborbe/errors"
 	domain "github.com/bborbe/vault-cli/pkg/domain"
 	"github.com/golang/glog"
+	"golang.org/x/mod/semver"
 
 	"github.com/bborbe/github-update-go-agent/pkg/git"
 )
@@ -36,13 +37,15 @@ type reviewStep struct {
 	ops      git.GitOps
 	gh       GhCli
 	gate     GateRunner
+	modules  ModuleResolver
 	ghToken  string
 	prTarget PRTarget
 }
 
 // NewReviewStep wires the ai_review verifier with its GitOps seam (fresh
 // clone + tag/rev inspection), gh CLI seam (PR state), gate runner
-// (independent gate re-run), the GitHub token, and the configured PRTarget
+// (independent gate re-run), module-graph resolver (installed version of an
+// external advisory's package), the GitHub token, and the configured PRTarget
 // the step compares observed draft-ness against. On approval the step writes
 // the plain-text ## Your Move operator-action block (PR link + merge action
 // + change summary) above ## Plan for the human operator.
@@ -50,10 +53,18 @@ func NewReviewStep(
 	ops git.GitOps,
 	gh GhCli,
 	gate GateRunner,
+	modules ModuleResolver,
 	ghToken string,
 	prTarget PRTarget,
 ) agentlib.Step {
-	return &reviewStep{ops: ops, gh: gh, gate: gate, ghToken: ghToken, prTarget: prTarget}
+	return &reviewStep{
+		ops:      ops,
+		gh:       gh,
+		gate:     gate,
+		modules:  modules,
+		ghToken:  ghToken,
+		prTarget: prTarget,
+	}
 }
 
 // Name implements agentlib.Step.
@@ -101,6 +112,16 @@ func (s *reviewStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentlib.
 	checks := ReviewChecks{}
 	prAccepted, prMerged := s.checkPR(ctx, result, &checks, &notes)
 
+	// The external advisory set comes from the TASK FRONTMATTER — never from
+	// ## Plan, ## Result, or the model's scanner labels (spec 007 DB6). A block
+	// that no longer validates at review time fails the review closed; the
+	// review has no admission step, so it never escalates needs_input. The note
+	// is written here, before the clone, so a clone failure cannot hide it.
+	advisory, advisoryErr := parseAdvisoryBlock(ctx, md)
+	if advisoryErr != nil {
+		notes = append(notes, "advisory frontmatter invalid: "+advisoryErr.Error())
+	}
+
 	cloneURL, _ := md.Frontmatter.String("clone_url")
 	repo, _ := md.Frontmatter.String("repo")
 	authedURL := injectToken(normalizeCloneURLToHTTPS(cloneURL), s.ghToken)
@@ -117,6 +138,7 @@ func (s *reviewStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentlib.
 		notes = append(notes, "fresh worktree clone failed: "+git.RedactToken(err.Error()))
 	} else {
 		s.checkGates(ctx, workdir, plan, &checks, &notes)
+		s.checkAdvisories(ctx, advisory, advisoryErr, workdir, &checks, &notes)
 		s.checkChangelog(ctx, workdir, &checks, &notes)
 		s.checkNoNewTag(ctx, workdir, authedURL, &checks, &notes)
 	}
@@ -240,6 +262,62 @@ func (s *reviewStep) checkGates(
 	}
 	checks.GateGreen = true
 	checks.VulnsClear = true
+}
+
+// checkAdvisories derives the external advisory from the task frontmatter and,
+// on the fresh worktree at the branch, resolves the installed version of the
+// module providing the advisory's package in the repo's module graph. It
+// never sets vulns_clear true — it can only clear it, so a satisfied advisory
+// can never certify a red gate. A shortfall, a package the graph does not
+// carry, an unparseable installed version, and a failing resolution command
+// all fail closed. An invalid block fails closed too — parseErr carries it, and the
+// note for it was already written by Run. The review never reads the plan's or
+// the result's claims about the fix, never escalates needs_input, and never
+// skips this check. A nil advisory with a nil parseErr means the task carries
+// no advisory block and nothing changes: vulns_clear rides the gate re-run.
+func (s *reviewStep) checkAdvisories(
+	ctx context.Context,
+	advisory *AdvisoryBlock,
+	parseErr error,
+	workdir string,
+	checks *ReviewChecks,
+	notes *[]string,
+) {
+	if parseErr != nil {
+		checks.VulnsClear = false
+		return
+	}
+	if advisory == nil {
+		return
+	}
+	modules, err := s.modules.Modules(ctx, workdir)
+	if err != nil {
+		*notes = append(*notes, "advisory "+advisory.ID+
+			": module graph resolution for package "+advisory.Package+
+			" failed: "+err.Error())
+		checks.VulnsClear = false
+		return
+	}
+	module, found := moduleForPackage(modules, advisory.Package)
+	if !found {
+		*notes = append(*notes, "advisory "+advisory.ID+": package "+advisory.Package+
+			" is not in the module graph — installed version undeterminable")
+		checks.VulnsClear = false
+		return
+	}
+	if !semver.IsValid(module.Version) {
+		*notes = append(*notes, "advisory "+advisory.ID+": package "+advisory.Package+
+			" resolved to module "+module.Path+" with unparseable installed version "+
+			module.Version)
+		checks.VulnsClear = false
+		return
+	}
+	if semver.Compare(module.Version, advisory.FixedVersion) < 0 {
+		*notes = append(*notes, "advisory "+advisory.ID+": package "+advisory.Package+
+			" installed "+module.Version+" < required "+advisory.FixedVersion)
+		checks.VulnsClear = false
+		return
+	}
 }
 
 // checkChangelog verifies CHANGELOG.md on the branch carries at least one

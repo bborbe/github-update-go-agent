@@ -140,14 +140,151 @@ Update Go bborbe/demo
 ` + "```" + `
 `
 
+// reviewTaskMDAdvisory is reviewTaskMD with a valid external advisory block in
+// the frontmatter (spec 007). Its ## Plan deliberately carries NO vuln row for
+// the advisory and its ## Result never mentions it, so a passing check can only
+// have come from the frontmatter.
+const reviewTaskMDAdvisory = `---
+task_type: github-update-go
+assignee: github-update-go-agent
+phase: ai_review
+status: in_progress
+repo: bborbe/demo
+clone_url: git@github.com:bborbe/demo.git
+ref: 6d1f27fabcdef12345678901234567890abcdef1
+task_identifier: test-task-advisory
+advisory:
+  id: GO-2026-7777
+  package: example.com/indirect/dep
+  fixed_version: v2.1.0
+  source: osv
+---
+
+Update Go bborbe/demo
+
+## Plan
+
+` + "```json" + `
+{
+  "outcome": "ready",
+  "has_work": true,
+  "dep_updates_expected": true,
+  "gate_targets": ["precommit"]
+}
+` + "```" + `
+
+## Result
+
+` + "```json" + `
+{
+  "outcome": "opened",
+  "branch": "fix/update-go-6d1f27f",
+  "pr_url": "https://github.com/bborbe/demo/pull/42",
+  "gate_exit": 0
+}
+` + "```" + `
+`
+
+// reviewTaskMDAdvisoryBadID carries an advisory whose ID matches none of the
+// accepted shapes (GO-<year>-<n>, CVE-<year>-<n>, GHSA-xxxx-xxxx-xxxx).
+const reviewTaskMDAdvisoryBadID = `---
+task_type: github-update-go
+assignee: github-update-go-agent
+phase: ai_review
+status: in_progress
+repo: bborbe/demo
+clone_url: git@github.com:bborbe/demo.git
+ref: 6d1f27fabcdef12345678901234567890abcdef1
+task_identifier: test-task-advisory-bad-id
+advisory:
+  id: NOT-AN-ADVISORY
+  package: example.com/indirect/dep
+  fixed_version: v2.1.0
+  source: osv
+---
+
+Update Go bborbe/demo
+
+## Plan
+
+` + "```json" + `
+{
+  "outcome": "ready",
+  "has_work": true,
+  "dep_updates_expected": true,
+  "gate_targets": ["precommit"]
+}
+` + "```" + `
+
+## Result
+
+` + "```json" + `
+{
+  "outcome": "opened",
+  "branch": "fix/update-go-6d1f27f",
+  "pr_url": "https://github.com/bborbe/demo/pull/42",
+  "gate_exit": 0
+}
+` + "```" + `
+`
+
+// reviewTaskMDAdvisoryMissingKey omits the required `source` key.
+const reviewTaskMDAdvisoryMissingKey = `---
+task_type: github-update-go
+assignee: github-update-go-agent
+phase: ai_review
+status: in_progress
+repo: bborbe/demo
+clone_url: git@github.com:bborbe/demo.git
+ref: 6d1f27fabcdef12345678901234567890abcdef1
+task_identifier: test-task-advisory-missing-key
+advisory:
+  id: GO-2026-7777
+  package: example.com/indirect/dep
+  fixed_version: v2.1.0
+---
+
+Update Go bborbe/demo
+
+## Plan
+
+` + "```json" + `
+{
+  "outcome": "ready",
+  "has_work": true,
+  "dep_updates_expected": true,
+  "gate_targets": ["precommit"]
+}
+` + "```" + `
+
+## Result
+
+` + "```json" + `
+{
+  "outcome": "opened",
+  "branch": "fix/update-go-6d1f27f",
+  "pr_url": "https://github.com/bborbe/demo/pull/42",
+  "gate_exit": 0
+}
+` + "```" + `
+`
+
+// advisoryFixtureGoMod is the worktree's module file for the AC8 row: the
+// fixture root module plus one unrelated direct requirement. The advisory's
+// package (example.com/indirect/dep) lives inside a module that is NOT a direct
+// requirement, so this file names neither the package path nor the resolved
+// version — only a module-graph lookup can produce the answer.
+const advisoryFixtureGoMod = "module example.com/fixture\n\ngo 1.26.6\n\nrequire example.com/other v1.0.0\n"
+
 var _ = Describe("ReviewStep", func() {
 	var (
-		ctx  context.Context
-		ops  *mocks.GitOps
-		gh   *mocks.GhCli
-		gate *mocks.GateRunner
-		step agentlib.Step
-		md   *agentlib.Markdown
+		ctx     context.Context
+		ops     *mocks.GitOps
+		gh      *mocks.GhCli
+		gate    *mocks.GateRunner
+		modules *mocks.ModuleResolver
+		step    agentlib.Step
+		md      *agentlib.Markdown
 	)
 
 	BeforeEach(func() {
@@ -155,7 +292,8 @@ var _ = Describe("ReviewStep", func() {
 		ops = &mocks.GitOps{}
 		gh = &mocks.GhCli{}
 		gate = &mocks.GateRunner{}
-		step = pkg.NewReviewStep(ops, gh, gate, "tok", pkg.PRTargetDraft)
+		modules = &mocks.ModuleResolver{}
+		step = pkg.NewReviewStep(ops, gh, gate, modules, "tok", pkg.PRTargetDraft)
 		var err error
 		md, err = agentlib.ParseMarkdown(ctx, reviewTaskMD)
 		Expect(err).To(BeNil())
@@ -388,7 +526,7 @@ var _ = Describe("ReviewStep", func() {
 	Describe("target ready, PR is ready", func() {
 		BeforeEach(func() {
 			gh.ViewPRReturns("OPEN", false, nil)
-			step = pkg.NewReviewStep(ops, gh, gate, "tok", pkg.PRTargetReady)
+			step = pkg.NewReviewStep(ops, gh, gate, modules, "tok", pkg.PRTargetReady)
 		})
 
 		It("approves and routes human_review with no mismatch note", func() {
@@ -415,7 +553,7 @@ var _ = Describe("ReviewStep", func() {
 	Describe("target ready, PR is draft", func() {
 		BeforeEach(func() {
 			// gh already returns true from the outer BeforeEach
-			step = pkg.NewReviewStep(ops, gh, gate, "tok", pkg.PRTargetReady)
+			step = pkg.NewReviewStep(ops, gh, gate, modules, "tok", pkg.PRTargetReady)
 		})
 
 		It("rejects with mismatch note naming observed and configured state", func() {
@@ -608,6 +746,250 @@ var _ = Describe("ReviewStep", func() {
 		It("returns a wrapped error (framework handles)", func() {
 			_, err := step.Run(ctx, md)
 			Expect(err).To(HaveOccurred())
+		})
+	})
+
+	Describe("external advisory verification", func() {
+		BeforeEach(func() {
+			var err error
+			md, err = agentlib.ParseMarkdown(ctx, reviewTaskMDAdvisory)
+			Expect(err).To(BeNil())
+		})
+
+		It("AC3: rejects an advisory below its fixed version despite a green gate", func() {
+			modules.ModulesReturns([]pkg.ModuleVersion{
+				{Path: "example.com/indirect", Version: "v2.0.0"},
+			}, nil)
+
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusFailed))
+			Expect(result.NextPhase).To(Equal(""))
+
+			review, err := agentlib.ExtractSection[pkg.ReviewOutput](ctx, md, "## Review")
+			Expect(err).To(BeNil())
+			Expect(review.Checks.GateGreen).To(BeTrue())
+			Expect(review.Checks.VulnsClear).To(BeFalse())
+			Expect(review.Approved).To(BeFalse())
+			Expect(review.Notes).To(ContainSubstring("GO-2026-7777"))
+			Expect(review.Notes).To(ContainSubstring("example.com/indirect/dep"))
+			Expect(review.Notes).To(ContainSubstring("v2.0.0"))
+			Expect(review.Notes).To(ContainSubstring("v2.1.0"))
+		})
+
+		It("AC3: writes no ## Your Move block on an un-cleared advisory", func() {
+			modules.ModulesReturns([]pkg.ModuleVersion{
+				{Path: "example.com/indirect", Version: "v2.0.0"},
+			}, nil)
+
+			_, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			_, ok := md.FindSection("## Your Move")
+			Expect(ok).To(BeFalse())
+
+			body, err := md.Marshal(ctx)
+			Expect(err).To(BeNil())
+			for _, line := range strings.Split(body, "\n") {
+				Expect(line).NotTo(Equal("## Your Move"))
+			}
+		})
+
+		It(
+			"AC3 mirror: approves when the installed version is at or above the fixed version",
+			func() {
+				modules.ModulesReturns([]pkg.ModuleVersion{
+					{Path: "example.com/indirect", Version: "v2.1.0"},
+				}, nil)
+
+				result, err := step.Run(ctx, md)
+				Expect(err).To(BeNil())
+				Expect(result.Status).To(Equal(agentlib.AgentStatusDone))
+				Expect(result.NextPhase).To(Equal("human_review"))
+
+				review, err := agentlib.ExtractSection[pkg.ReviewOutput](ctx, md, "## Review")
+				Expect(err).To(BeNil())
+				Expect(review.Checks.VulnsClear).To(BeTrue())
+				Expect(review.Approved).To(BeTrue())
+				Expect(review.Notes).NotTo(ContainSubstring("GO-2026-7777"))
+			},
+		)
+
+		It("DB7: a satisfied advisory never certifies a red gate", func() {
+			gate.RunTargetReturns("test failure tail", 2, stderrors.New("make precommit failed"))
+			modules.ModulesReturns([]pkg.ModuleVersion{
+				{Path: "example.com/indirect", Version: "v2.3.0"},
+			}, nil)
+
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusFailed))
+
+			review, err := agentlib.ExtractSection[pkg.ReviewOutput](ctx, md, "## Review")
+			Expect(err).To(BeNil())
+			Expect(review.Checks.GateGreen).To(BeFalse())
+			Expect(review.Checks.VulnsClear).To(BeFalse())
+			Expect(review.Approved).To(BeFalse())
+		})
+
+		It("AC7: keys on the frontmatter, not on the plan or the result", func() {
+			// The fixture's ## Plan carries no vuln row for the advisory and its
+			// ## Result never mentions it — the check still fires.
+			body, err := md.Marshal(ctx)
+			Expect(err).To(BeNil())
+			planSection, ok := md.FindSection("## Plan")
+			Expect(ok).To(BeTrue())
+			Expect(planSection.Body).NotTo(ContainSubstring("GO-2026-7777"))
+			Expect(body).NotTo(ContainSubstring(`"vulns"`))
+
+			modules.ModulesReturns([]pkg.ModuleVersion{
+				{Path: "example.com/indirect", Version: "v2.0.0"},
+			}, nil)
+
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusFailed))
+
+			review, err := agentlib.ExtractSection[pkg.ReviewOutput](ctx, md, "## Review")
+			Expect(err).To(BeNil())
+			Expect(review.Checks.VulnsClear).To(BeFalse())
+			Expect(review.Approved).To(BeFalse())
+			Expect(review.Notes).To(ContainSubstring("GO-2026-7777"))
+		})
+
+		It("AC7: fails closed on a block whose ID is outside the accepted shapes", func() {
+			var err error
+			md, err = agentlib.ParseMarkdown(ctx, reviewTaskMDAdvisoryBadID)
+			Expect(err).To(BeNil())
+
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusFailed))
+
+			review, err := agentlib.ExtractSection[pkg.ReviewOutput](ctx, md, "## Review")
+			Expect(err).To(BeNil())
+			Expect(review.Checks.VulnsClear).To(BeFalse())
+			Expect(review.Approved).To(BeFalse())
+			Expect(review.Notes).To(ContainSubstring("field=id"))
+			Expect(review.Notes).To(ContainSubstring("NOT-AN-ADVISORY"))
+			// The resolver is never consulted for an invalid block.
+			Expect(modules.ModulesCallCount()).To(Equal(0))
+		})
+
+		It("AC7: fails closed on a block missing a required key", func() {
+			var err error
+			md, err = agentlib.ParseMarkdown(ctx, reviewTaskMDAdvisoryMissingKey)
+			Expect(err).To(BeNil())
+
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusFailed))
+
+			review, err := agentlib.ExtractSection[pkg.ReviewOutput](ctx, md, "## Review")
+			Expect(err).To(BeNil())
+			Expect(review.Checks.VulnsClear).To(BeFalse())
+			Expect(review.Approved).To(BeFalse())
+			Expect(review.Notes).To(ContainSubstring("field=source"))
+			Expect(review.Notes).To(ContainSubstring("<nil>"))
+		})
+
+		It("AC8: resolves a package that lives only inside an indirect module", func() {
+			ops.CloneAtRefStub = func(_ context.Context, _, _, workdir string) error {
+				if err := os.MkdirAll(workdir, 0o750); err != nil {
+					return err
+				}
+				if err := os.WriteFile(
+					filepath.Join(workdir, "CHANGELOG.md"),
+					[]byte(changelogBranch),
+					0o600,
+				); err != nil {
+					return err
+				}
+				return os.WriteFile(
+					filepath.Join(workdir, "go.mod"),
+					[]byte(advisoryFixtureGoMod),
+					0o600,
+				)
+			}
+			modules.ModulesReturns([]pkg.ModuleVersion{
+				{Path: "example.com/fixture"},
+				{Path: "example.com/other", Version: "v1.0.0"},
+				{Path: "example.com/indirect", Version: "v2.3.0"},
+			}, nil)
+
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusDone))
+
+			review, err := agentlib.ExtractSection[pkg.ReviewOutput](ctx, md, "## Review")
+			Expect(err).To(BeNil())
+			Expect(review.Checks.VulnsClear).To(BeTrue())
+			Expect(review.Approved).To(BeTrue())
+
+			// No go.mod text read can produce the answer: the package path is
+			// not in the fixture's module file, and neither is the resolved
+			// version.
+			Expect(advisoryFixtureGoMod).NotTo(ContainSubstring("example.com/indirect/dep"))
+			Expect(advisoryFixtureGoMod).NotTo(ContainSubstring("v2.3.0"))
+		})
+
+		DescribeTable("AC8: fails closed when the installed version is undeterminable",
+			func(installed []pkg.ModuleVersion, resolveErrMsg, reason string) {
+				var resolveErr error
+				if resolveErrMsg != "" {
+					resolveErr = stderrors.New(resolveErrMsg)
+				}
+				modules.ModulesReturns(installed, resolveErr)
+
+				result, err := step.Run(ctx, md)
+				Expect(err).To(BeNil())
+				Expect(result.Status).To(Equal(agentlib.AgentStatusFailed))
+
+				review, err := agentlib.ExtractSection[pkg.ReviewOutput](ctx, md, "## Review")
+				Expect(err).To(BeNil())
+				Expect(review.Checks.VulnsClear).To(BeFalse())
+				Expect(review.Approved).To(BeFalse())
+				Expect(review.Notes).To(ContainSubstring("GO-2026-7777"))
+				Expect(review.Notes).To(ContainSubstring("example.com/indirect/dep"))
+				Expect(review.Notes).To(ContainSubstring(reason))
+			},
+			Entry(
+				"package absent from the module graph",
+				[]pkg.ModuleVersion{{Path: "example.com/other", Version: "v2.3.0"}},
+				"",
+				"is not in the module graph",
+			),
+			Entry(
+				"unparseable installed version",
+				[]pkg.ModuleVersion{{Path: "example.com/indirect", Version: "v0.1.0-"}},
+				"",
+				"unparseable installed version",
+			),
+			Entry(
+				"resolution command failure",
+				[]pkg.ModuleVersion(nil),
+				"go list -m all exceeded 2m0s",
+				"module graph resolution for package example.com/indirect/dep failed",
+			),
+		)
+
+		When("the task carries no advisory block", func() {
+			BeforeEach(func() {
+				var err error
+				md, err = agentlib.ParseMarkdown(ctx, reviewTaskMD)
+				Expect(err).To(BeNil())
+			})
+
+			It("AC8: never consults the resolver and rides the gate re-run", func() {
+				result, err := step.Run(ctx, md)
+				Expect(err).To(BeNil())
+				Expect(result.Status).To(Equal(agentlib.AgentStatusDone))
+
+				review, err := agentlib.ExtractSection[pkg.ReviewOutput](ctx, md, "## Review")
+				Expect(err).To(BeNil())
+				Expect(review.Checks.VulnsClear).To(BeTrue())
+				Expect(review.Approved).To(BeTrue())
+				Expect(modules.ModulesCallCount()).To(Equal(0))
+			})
 		})
 	})
 })

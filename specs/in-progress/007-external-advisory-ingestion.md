@@ -1,11 +1,12 @@
 ---
-status: prompted
+status: verifying
 tags:
     - dark-factory
     - spec
 approved: "2026-09-16T17:14:11Z"
 generating: "2026-09-16T17:17:02Z"
 prompted: "2026-09-16T17:31:18Z"
+verifying: "2026-09-16T18:04:40Z"
 branch: dark-factory/external-advisory-ingestion
 ---
 
