@@ -376,6 +376,82 @@ var _ = Describe("ScannerTable.FilterSuppressed", func() {
 	})
 })
 
+var _ = Describe("ScannerTable.collapseExternalDuplicates", func() {
+	It("returns a table with no external row unchanged, order included", func() {
+		table := pkg.ScannerTable{
+			{ID: "GO-2026-1234", Scanner: "osv-scanner", FixedVersion: "1.26.6"},
+			{ID: "GO-2026-5932", Scanner: "govulncheck", FixedVersion: "v0.38.0"},
+			{ID: "GO-2026-5932", Scanner: "trivy", FixedVersion: "v0.39.0"},
+		}
+		Expect(pkg.CollapseExternalDuplicates(table)).To(Equal(table))
+	})
+
+	It("keeps the external row when the scanner row carries no fixed version", func() {
+		table := pkg.ScannerTable{
+			{ID: "CVE-2026-7001", Scanner: "external:osv-feed", FixedVersion: "v0.36.0"},
+			{ID: "CVE-2026-7001", Scanner: "check"},
+			{ID: "GO-2026-1234", Scanner: "osv-scanner", FixedVersion: "1.26.6"},
+		}
+		collapsed := pkg.CollapseExternalDuplicates(table)
+		Expect(collapsed).To(HaveLen(2))
+		Expect(collapsed[0].ID).To(Equal("CVE-2026-7001"))
+		Expect(collapsed[0].Scanner).To(Equal("external:osv-feed"))
+		Expect(collapsed[0].FixedVersion).To(Equal("v0.36.0"))
+		Expect(collapsed[1].ID).To(Equal("GO-2026-1234"))
+	})
+
+	It("keeps the scanner row when it carries a real fixed version", func() {
+		table := pkg.ScannerTable{
+			{ID: "CVE-2026-7001", Scanner: "external:osv-feed", FixedVersion: "v0.36.0"},
+			{ID: "CVE-2026-7001", Scanner: "osv-scanner", FixedVersion: "v0.40.0"},
+		}
+		collapsed := pkg.CollapseExternalDuplicates(table)
+		Expect(collapsed).To(HaveLen(1))
+		Expect(collapsed[0].FixedVersion).To(Equal("v0.40.0"))
+		Expect(collapsed[0].Scanner).To(Equal("osv-scanner"))
+		Expect(collapsed[0].Scanner).NotTo(HavePrefix("external:"))
+	})
+
+	It("keeps the first fixed-version-bearing scanner row when several collide", func() {
+		table := pkg.ScannerTable{
+			{ID: "CVE-2026-7001", Scanner: "external:osv-feed", FixedVersion: "v0.36.0"},
+			{ID: "CVE-2026-7001", Scanner: "check"},
+			{ID: "CVE-2026-7001", Scanner: "osv-scanner", FixedVersion: "v0.40.0"},
+			{ID: "CVE-2026-7001", Scanner: "trivy", FixedVersion: "v0.41.0"},
+		}
+		collapsed := pkg.CollapseExternalDuplicates(table)
+		Expect(collapsed).To(HaveLen(1))
+		Expect(collapsed[0].Scanner).To(Equal("osv-scanner"))
+		Expect(collapsed[0].FixedVersion).To(Equal("v0.40.0"))
+	})
+
+	It("drops every scanner row for the external ID when all carry no fixed version", func() {
+		table := pkg.ScannerTable{
+			{ID: "CVE-2026-7001", Scanner: "external:osv-feed", FixedVersion: "v0.36.0"},
+			{ID: "CVE-2026-7001", Scanner: "check"},
+			{ID: "CVE-2026-7001", Scanner: "vulncheck"},
+		}
+		collapsed := pkg.CollapseExternalDuplicates(table)
+		Expect(collapsed).To(HaveLen(1))
+		Expect(collapsed[0].Scanner).To(Equal("external:osv-feed"))
+	})
+
+	It("leaves rows of a different ID untouched", func() {
+		table := pkg.ScannerTable{
+			{ID: "CVE-2026-7001", Scanner: "external:osv-feed", FixedVersion: "v0.36.0"},
+			{ID: "CVE-2026-7001", Scanner: "check"},
+			{ID: "GO-2026-1234", Scanner: "osv-scanner", FixedVersion: "1.26.6"},
+			{ID: "GO-2026-1234", Scanner: "trivy", FixedVersion: "1.26.6"},
+		}
+		collapsed := pkg.CollapseExternalDuplicates(table)
+		Expect(collapsed).To(HaveLen(3))
+		Expect(collapsed[0].ID).To(Equal("CVE-2026-7001"))
+		Expect(collapsed[0].Scanner).To(Equal("external:osv-feed"))
+		Expect(collapsed[1].Scanner).To(Equal("osv-scanner"))
+		Expect(collapsed[2].Scanner).To(Equal("trivy"))
+	})
+})
+
 var _ = Describe("parkMessage", func() {
 	It("carries the verbatim scanner row and the three suppression surfaces", func() {
 		table := pkg.ScannerTable{
