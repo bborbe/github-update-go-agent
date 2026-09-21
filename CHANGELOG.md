@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.18.3
 
 - fix: give every spec a unique `task_identifier`, so `setupWorkdir`'s `RemoveAll` can no longer delete another spec's clone. Four fixtures shared the literal `test-task-1` (`steps_planning_test.go`, `steps_execution_test.go`, `steps_review_test.go`, `factory/factory_test.go`), and `setupWorkdir` derives its `/tmp` path from that identifier, so specs running concurrently destroyed each other's workdir — surfacing as `needs_input` where `failed` was expected, `clone failed: … invalid argument`, and a panic. Serial runs could never lose that race, which is why `make test` stayed green while `ginkgo -procs=N` failed 8 of 328 specs. Two specs also hardcoded the shared `/tmp/github-update-go-test-task-1` path; both now derive it from the spec's own identifier
 
