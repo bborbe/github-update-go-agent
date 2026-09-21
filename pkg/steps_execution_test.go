@@ -309,6 +309,51 @@ body
 			Expect(err).To(BeNil())
 			Expect(bulk.RunCallCount()).To(Equal(0))
 		})
+
+		It(
+			"skips the bulk dep update when the task carries an advisory block (update_scope=deps)",
+			func() {
+				md, err := agentlib.ParseMarkdown(
+					ctx,
+					`---
+repo: bborbe/demo
+clone_url: git@github.com:bborbe/demo.git
+ref: 6d1f27fabcdef12345678901234567890abcdef1
+update_scope: deps
+advisory:
+  id: GO-2021-0113
+  package: golang.org/x/text
+  fixed_version: v0.3.7
+  source: osv
+---
+
+body
+
+## Plan
+
+`+"```json"+`
+{"outcome":"ready","has_work":true,"go_bump":{"from":"1.26.3","to":"1.26.5"},"dep_updates_expected":true,"gate_targets":["precommit"],"vulns":[{"id":"GO-2021-0113","package":"golang.org/x/text","fixed_version":"v0.3.7","scanner":"external:osv","action":"fix"}]}
+`+"```"+`
+`)
+				Expect(err).To(BeNil())
+				_, err = step.Run(ctx, md)
+				Expect(err).To(BeNil())
+
+				// The deterministic sweep is what overshoots the advisory's
+				// fixed_version — it must not run on an advisory-driven task.
+				Expect(bulk.RunCallCount()).To(Equal(0))
+
+				// And the model must not be told to run it either: the "ALREADY
+				// DONE" section would say the sweep ran, and "DID NOT RUN" would
+				// instruct it to re-run the sweep by hand. Only the advisory
+				// skip is acceptable.
+				_, prompt := runner.RunArgsForCall(0)
+				Expect(prompt).To(ContainSubstring("## Bulk update — SKIPPED"))
+				Expect(prompt).To(ContainSubstring("advisory"))
+				Expect(prompt).NotTo(ContainSubstring("## Bulk update — ALREADY DONE"))
+				Expect(prompt).NotTo(ContainSubstring("## Bulk update — DID NOT RUN"))
+			},
+		)
 	})
 
 	Describe("red gate after claude", func() {

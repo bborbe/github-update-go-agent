@@ -36,6 +36,11 @@ var (
 	ParseAdvisoryBlock         = parseAdvisoryBlock
 	AdvisoryFinding            = advisoryFinding
 	CollapseExternalDuplicates = ScannerTable.collapseExternalDuplicates
+	// BulkUpdateSection exposes the bulk-sweep prompt section so pkg_test can
+	// assert that an advisory-carrying task never instructs the model to run
+	// `go get -u ./...` — the sweep that overshoots the advisory's
+	// fixed_version.
+	BulkUpdateSection = bulkUpdateSection
 	// ParseModuleList / ModuleForPackage expose the module-graph parse and the
 	// longest-prefix package→module match (spec 007 DB6) so pkg_test can assert
 	// the segment-boundary rule and the indirect-module resolution directly.

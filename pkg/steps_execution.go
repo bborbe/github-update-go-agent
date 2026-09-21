@@ -32,6 +32,18 @@ const branchPrefix = "fix/update-go-"
 // prTitle is the fixed PR title (Stage-1 contract).
 const prTitle = "update go module dependencies"
 
+// FailDetail values for a bulk update that was deliberately not run. The
+// prompt section keys off FailDetail (bulkUpdateSection), so these are the
+// single source of truth for "skipped, and here is why".
+const (
+	// bulkSkippedGolangDetail marks the golang-only scope, which excludes
+	// module dependencies entirely.
+	bulkSkippedGolangDetail = "skipped: update_scope=golang"
+	// bulkSkippedAdvisoryDetail marks an advisory-driven task, where the
+	// targeted `go get <pkg>@<fixed_version>` is the whole bump.
+	bulkSkippedAdvisoryDetail = "skipped: advisory-driven task"
+)
+
 // claudeExecutionTimeout bounds the execution Claude sub-call. Without it the
 // sub-call is bounded only by the Job's activeDeadlineSeconds (1800s), which
 // is not a bound the Go step survives: the deadline kills the whole pod, so
@@ -196,21 +208,14 @@ func (s *executionStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentl
 		return s.fail(ctx, md, result, git.ClassifyError(err), err)
 	}
 
-	// Deterministic bulk update BEFORE the model call. Running it here is what
-	// stops the model backgrounding a long `go get` and then blocking on
-	// TaskOutput until the Job deadline kills it (see BulkUpdater).
-	// golang-only scope skips the dep update — the model is told the bulk
-	// update is out of scope (via the prompt section) instead of running it.
-	bulkResult := BulkUpdateResult{Ran: false, FailDetail: "skipped: update_scope=golang"}
-	if !updateScope.IsGolangOnly() {
-		var bulkErr error
-		bulkResult, bulkErr = s.bulk.Run(ctx, workdir)
-		if bulkErr != nil {
-			return s.fail(ctx, md, result, git.ErrorCategoryUnknown, bulkErr)
-		}
+	bulkResult, advisoryDriven, bulkFailResult, bulkFailErr := s.runBulkUpdate(
+		ctx, md, workdir, updateScope, result,
+	)
+	if bulkFailResult != nil || bulkFailErr != nil {
+		return bulkFailResult, bulkFailErr
 	}
 
-	report, claudeErr := s.runUpdate(ctx, workdir, plan, bulkResult, updateScope)
+	report, claudeErr := s.runUpdate(ctx, workdir, plan, bulkResult, updateScope, advisoryDriven)
 	if claudeErr != nil {
 		return s.salvageAfterClaudeFailure(ctx, md, workdir, branch, plan, result, claudeErr)
 	}
@@ -397,15 +402,28 @@ func (s *executionStep) extractFrontmatter(
 // bulkUpdateSection renders the deterministic bulk-update outcome for the
 // prompt. Fail-closed: when the sequence did not run, the model is told so
 // explicitly and instructed to run it itself in the foreground, rather than
-// being left to assume the deps are current. The golang-only scope is the
-// one deliberate exception: the bulk update is SKIPPED by design, not failed,
-// and the model must not run it either.
-func bulkUpdateSection(bulk BulkUpdateResult, scope UpdateScope) string {
+// being left to assume the deps are current. Two deliberate exceptions render
+// SKIPPED instead — the golang-only scope, which excludes module dependencies
+// entirely, and an advisory-driven task, where the sweep would overshoot the
+// advisory's fixed_version. In both the update is skipped by design, not
+// failed, and the model must not run it either.
+func bulkUpdateSection(bulk BulkUpdateResult, scope UpdateScope, advisoryDriven bool) string {
 	if scope.IsGolangOnly() {
 		return "## Bulk update — SKIPPED\n\n" +
 			"The update_scope is `golang`, so the deterministic bulk dependency " +
 			"update (`go get -u ./...` + `go mod tidy`) was deliberately NOT run. " +
 			"Do NOT run it and do not update module dependencies in this phase."
+	}
+	if advisoryDriven {
+		return "## Bulk update — SKIPPED\n\n" +
+			"This task carries an `advisory` block, so the deterministic bulk " +
+			"dependency update (`go get -u ./...` + `go mod tidy`) was deliberately " +
+			"NOT run: sweeping every module to @latest overshoots the advisory's " +
+			"`fixed_version`, which is the one bump this task exists to make. The " +
+			"targeted fix in update-sequence step 4 is the WHOLE bump — do NOT run " +
+			"`go get -u ./...`, do NOT run `go mod tidy -u`, and do not update any " +
+			"module the plan's `vulns` list does not name. Keep the go.mod diff " +
+			"readable as \"this advisory is fixed\"."
 	}
 	if bulk.Ran {
 		return "## Bulk update — ALREADY DONE\n\n" +
@@ -419,6 +437,55 @@ func bulkUpdateSection(bulk BulkUpdateResult, scope UpdateScope) string {
 		"in the FOREGROUND. Output so far:\n\n```\n" + bulk.Output + "\n```"
 }
 
+// runBulkUpdate decides whether the deterministic `go get -u ./...` sweep may
+// run, and runs it. It returns the result the prompt section renders, whether
+// the task is advisory-driven, and a non-nil failResult when the run must
+// stop.
+//
+// An externally-supplied advisory changes what the sweep may do. `go get -u
+// ./...` takes every module to @latest, a superset of the advisory's
+// fixed_version whenever a newer release exists — so the targeted
+// `go get <pkg>@<fixed>` that follows is a no-op or a downgrade, and the PR
+// diff can no longer be read as "this advisory is fixed". Observed
+// 2026-09-18: x/text v0.3.0 → v0.42.0 while the plan named v0.3.7/v0.3.8. On
+// an advisory-driven task the targeted pin is the whole bump, so the sweep is
+// skipped. Planning already validated the block (a malformed one escalates
+// needs_input before execution), so a parse error here is unexpected and fails
+// the run rather than silently sweeping.
+//
+// Running the sweep in Go at all (rather than letting the model do it) is what
+// stops the model backgrounding a long `go get` and then blocking on
+// TaskOutput until the Job deadline kills it (see BulkUpdater). golang-only
+// scope skips the dep update — the model is told the bulk update is out of
+// scope via the prompt section instead of running it.
+func (s *executionStep) runBulkUpdate(
+	ctx context.Context,
+	md *agentlib.Markdown,
+	workdir string,
+	updateScope UpdateScope,
+	result *ResultOutput,
+) (BulkUpdateResult, bool, *agentlib.Result, error) {
+	advisory, err := parseAdvisoryBlock(ctx, md)
+	if err != nil {
+		failResult, failErr := s.fail(ctx, md, result, git.ErrorCategoryUnknown,
+			errors.Wrap(ctx, err, "invalid advisory block at execution"))
+		return BulkUpdateResult{}, false, failResult, failErr
+	}
+	advisoryDriven := advisory != nil
+	if advisoryDriven {
+		return BulkUpdateResult{FailDetail: bulkSkippedAdvisoryDetail}, true, nil, nil
+	}
+	if updateScope.IsGolangOnly() {
+		return BulkUpdateResult{FailDetail: bulkSkippedGolangDetail}, false, nil, nil
+	}
+	bulkResult, bulkErr := s.bulk.Run(ctx, workdir)
+	if bulkErr != nil {
+		failResult, failErr := s.fail(ctx, md, result, git.ErrorCategoryUnknown, bulkErr)
+		return BulkUpdateResult{}, false, failResult, failErr
+	}
+	return bulkResult, false, nil, nil
+}
+
 // runUpdate issues the workdir-scoped Claude sub-call (targeted vuln fixes +
 // repair-to-green + CHANGELOG bullet). The bulk dependency update already ran
 // deterministically in Go before this call. The sub-call has NO git and NO gh
@@ -429,6 +496,7 @@ func (s *executionStep) runUpdate(
 	plan *PlanOutput,
 	bulk BulkUpdateResult,
 	updateScope UpdateScope,
+	advisoryDriven bool,
 ) (*executionReport, error) {
 	planJSON, err := agentlib.MarshalSectionTyped(ctx, "## Plan", *plan)
 	if err != nil {
@@ -438,7 +506,7 @@ func (s *executionStep) runUpdate(
 		"\n\n## Workdir\n\n" + workdir +
 		"\n\n## Target Go\n\n" + targetGoVersion() +
 		"\n\n" + updateScopeSection(updateScope) +
-		"\n\n" + bulkUpdateSection(bulk, updateScope) +
+		"\n\n" + bulkUpdateSection(bulk, updateScope, advisoryDriven) +
 		"\n\n" + planJSON.Heading + "\n\n" + planJSON.Body
 	runCtx, cancel := context.WithTimeout(ctx, claudeExecutionTimeout)
 	defer cancel()
