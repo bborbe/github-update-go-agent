@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- fix: give every spec a unique `task_identifier`, so `setupWorkdir`'s `RemoveAll` can no longer delete another spec's clone. Four fixtures shared the literal `test-task-1` (`steps_planning_test.go`, `steps_execution_test.go`, `steps_review_test.go`, `factory/factory_test.go`), and `setupWorkdir` derives its `/tmp` path from that identifier, so specs running concurrently destroyed each other's workdir — surfacing as `needs_input` where `failed` was expected, `clone failed: … invalid argument`, and a panic. Serial runs could never lose that race, which is why `make test` stayed green while `ginkgo -procs=N` failed 8 of 328 specs. Two specs also hardcoded the shared `/tmp/github-update-go-test-task-1` path; both now derive it from the spec's own identifier
+
 ## v0.18.2
 
 - fix: skip the deterministic `go get -u ./...` bulk sweep on an advisory-driven task, so the targeted `go get <pkg>@<fixed_version>` is the whole bump and the go.mod diff stays readable as "this advisory is fixed". The sweep runs before the model call and takes every module to @latest — a superset of the advisory's `fixed_version` whenever a newer release exists — which made the targeted pin that followed a no-op or a downgrade. Observed 2026-09-18 on the first real octopus-dev cycle: `Seibert-Data/test-dev` PR #20 bumped `golang.org/x/text` v0.3.0 → v0.42.0 while the plan named `fixed_version: v0.3.7`/`v0.3.8`, violating the goal's Fixed-Version discipline

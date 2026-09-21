@@ -148,7 +148,7 @@ var _ = Describe("PlanningStep", func() {
 			pkg.UpdateScopeBoth,
 		)
 		var err error
-		md, err = agentlib.ParseMarkdown(ctx, planningTaskMD)
+		md, err = agentlib.ParseMarkdown(ctx, uniqueTaskMD(planningTaskMD))
 		Expect(err).To(BeNil())
 	})
 
@@ -705,7 +705,10 @@ jobs:
 
 		BeforeEach(func() {
 			setupFixture(fixtureMakefile)
-			workdir = filepath.Join(os.TempDir(), "github-update-go-test-task-1")
+			// Derived from the spec's own task_identifier (see uniqueTaskMD):
+			// the workdir is per-spec now, so a hardcoded path would be stale.
+			id, _ := md.Frontmatter.String("task_identifier")
+			workdir = filepath.Join(os.TempDir(), "github-update-go-"+id)
 		})
 
 		It("refutes a false workdir/sandbox claim — failed, assignee not cleared", func() {
@@ -752,7 +755,7 @@ jobs:
 		// advisoryTaskMD renders the planning fixture task with an `advisory`
 		// block spliced into its frontmatter.
 		advisoryTaskMD := func(advisoryBlock string) string {
-			return "---\n" +
+			return uniqueTaskMD("---\n" +
 				"task_type: github-update-go\n" +
 				"assignee: github-update-go-agent\n" +
 				"phase: planning\n" +
@@ -762,7 +765,7 @@ jobs:
 				"ref: 6d1f27fabcdef12345678901234567890abcdef1\n" +
 				"task_identifier: test-task-1\n" +
 				advisoryBlock +
-				"---\n\nUpdate Go bborbe/demo\n"
+				"---\n\nUpdate Go bborbe/demo\n")
 		}
 
 		// advisoryBlockFor renders the frozen four-key block.
@@ -810,9 +813,14 @@ jobs:
 		var markerPath string
 
 		BeforeEach(func() {
+			// Derived from the spec's own task_identifier (see uniqueTaskMD):
+			// the workdir is per-spec now, so a hardcoded path would both be
+			// stale and re-introduce the cross-spec marker collision this
+			// block's absent-marker assertion depends on.
+			id, _ := md.Frontmatter.String("task_identifier")
 			markerPath = filepath.Join(
 				os.TempDir(),
-				"github-update-go-test-task-1",
+				"github-update-go-"+id,
 				"gate-ran-marker",
 			)
 		})

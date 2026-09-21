@@ -82,7 +82,7 @@ var _ = Describe("ExecutionStep", func() {
 			pkg.UpdateScopeBoth,
 		)
 		var err error
-		md, err = agentlib.ParseMarkdown(ctx, executionTaskMD)
+		md, err = agentlib.ParseMarkdown(ctx, uniqueTaskMD(executionTaskMD))
 		Expect(err).To(BeNil())
 
 		runner.RunReturns(&claudelib.ClaudeResult{
@@ -628,7 +628,7 @@ body
 
 		It("accepts a ready plan under both scope", func() {
 			var err error
-			planMD, err = agentlib.ParseMarkdown(ctx, executionTaskMD)
+			planMD, err = agentlib.ParseMarkdown(ctx, uniqueTaskMD(executionTaskMD))
 			Expect(err).To(BeNil())
 
 			_, err = pkg.ValidatePlan(step, planMD, pkg.UpdateScopeDeps)
