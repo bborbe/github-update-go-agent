@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- fix: skip the deterministic `go get -u ./...` bulk sweep on an advisory-driven task, so the targeted `go get <pkg>@<fixed_version>` is the whole bump and the go.mod diff stays readable as "this advisory is fixed". The sweep runs before the model call and takes every module to @latest — a superset of the advisory's `fixed_version` whenever a newer release exists — which made the targeted pin that followed a no-op or a downgrade. Observed 2026-09-18 on the first real octopus-dev cycle: `Seibert-Data/test-dev` PR #20 bumped `golang.org/x/text` v0.3.0 → v0.42.0 while the plan named `fixed_version: v0.3.7`/`v0.3.8`, violating the goal's Fixed-Version discipline
+
 ## v0.18.1
 
 - fix: name the failing step in every failure `Message`, so the controller's `## Failure` entry on the task is triageable without reading pod logs. Each message previously described only the condition (`invalid .maintainer.yaml: …`, a bare redacted error) and left the reader to infer which step produced it; planning, execution, ai_review, and the gh-token preflight now prefix their step, matching the build-fix steps' existing `failFix` shape

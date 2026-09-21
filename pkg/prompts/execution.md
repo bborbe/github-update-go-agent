@@ -49,7 +49,9 @@ Execute in order, repairing as you go:
    `go -C <workdir> get -u ./...` and `go -C <workdir> mod tidy` in Go before
    this call; see the `## Bulk update` section below for the outcome. If it
    says ALREADY DONE, skip this step entirely. Only if it says DID NOT RUN do
-   you run those two commands yourself, in the foreground.
+   you run those two commands yourself, in the foreground. If it says
+   **SKIPPED**, do not run them under any circumstances — read that section
+   for why.
 4. **Targeted vuln fixes**: for each plan vuln with `action: "fix"`:
    `go -C <workdir> get <package>@<fixed_version>` then `go mod tidy`.
 5. **Vendor**: if the repo has a vendor/ directory or the Makefile runs
