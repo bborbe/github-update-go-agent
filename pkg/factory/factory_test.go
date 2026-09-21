@@ -288,7 +288,7 @@ var _ = Describe("CreateAgent with PRTargetReady", func() {
 			result, err := agent.Run(
 				ctx,
 				domain.TaskPhaseAIReview,
-				reviewTaskMD,
+				uniqueTaskMD(reviewTaskMD),
 				delivery.NewNoopResultDeliverer(),
 			)
 			Expect(err).To(BeNil())
@@ -341,7 +341,7 @@ var _ = Describe("CreateAgent with PRTargetReady", func() {
 			result, err := agent.Run(
 				ctx,
 				domain.TaskPhaseAIReview,
-				reviewTaskMD,
+				uniqueTaskMD(reviewTaskMD),
 				delivery.NewNoopResultDeliverer(),
 			)
 			Expect(err).To(BeNil())

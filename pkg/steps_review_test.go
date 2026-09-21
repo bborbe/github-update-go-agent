@@ -295,7 +295,7 @@ var _ = Describe("ReviewStep", func() {
 		modules = &mocks.ModuleResolver{}
 		step = pkg.NewReviewStep(ops, gh, gate, modules, "tok", pkg.PRTargetDraft)
 		var err error
-		md, err = agentlib.ParseMarkdown(ctx, reviewTaskMD)
+		md, err = agentlib.ParseMarkdown(ctx, uniqueTaskMD(reviewTaskMD))
 		Expect(err).To(BeNil())
 
 		// Happy-path fakes: PR open+draft; clone writes a compliant
@@ -409,7 +409,7 @@ var _ = Describe("ReviewStep", func() {
 	Describe("Your Move block with a Go version bump", func() {
 		BeforeEach(func() {
 			var err error
-			md, err = agentlib.ParseMarkdown(ctx, reviewTaskMDGoBump)
+			md, err = agentlib.ParseMarkdown(ctx, uniqueTaskMD(reviewTaskMDGoBump))
 			Expect(err).To(BeNil())
 		})
 
@@ -425,7 +425,7 @@ var _ = Describe("ReviewStep", func() {
 	Describe("Your Move block with dependency and vulnerability updates", func() {
 		BeforeEach(func() {
 			var err error
-			md, err = agentlib.ParseMarkdown(ctx, reviewTaskMDVuln)
+			md, err = agentlib.ParseMarkdown(ctx, uniqueTaskMD(reviewTaskMDVuln))
 			Expect(err).To(BeNil())
 		})
 
@@ -753,7 +753,7 @@ var _ = Describe("ReviewStep", func() {
 	Describe("external advisory verification", func() {
 		BeforeEach(func() {
 			var err error
-			md, err = agentlib.ParseMarkdown(ctx, reviewTaskMDAdvisory)
+			md, err = agentlib.ParseMarkdown(ctx, uniqueTaskMD(reviewTaskMDAdvisory))
 			Expect(err).To(BeNil())
 		})
 
@@ -860,7 +860,7 @@ var _ = Describe("ReviewStep", func() {
 
 		It("AC7: fails closed on a block whose ID is outside the accepted shapes", func() {
 			var err error
-			md, err = agentlib.ParseMarkdown(ctx, reviewTaskMDAdvisoryBadID)
+			md, err = agentlib.ParseMarkdown(ctx, uniqueTaskMD(reviewTaskMDAdvisoryBadID))
 			Expect(err).To(BeNil())
 
 			result, err := step.Run(ctx, md)
@@ -879,7 +879,7 @@ var _ = Describe("ReviewStep", func() {
 
 		It("AC7: fails closed on a block missing a required key", func() {
 			var err error
-			md, err = agentlib.ParseMarkdown(ctx, reviewTaskMDAdvisoryMissingKey)
+			md, err = agentlib.ParseMarkdown(ctx, uniqueTaskMD(reviewTaskMDAdvisoryMissingKey))
 			Expect(err).To(BeNil())
 
 			result, err := step.Run(ctx, md)
@@ -977,7 +977,7 @@ var _ = Describe("ReviewStep", func() {
 		When("the task carries no advisory block", func() {
 			BeforeEach(func() {
 				var err error
-				md, err = agentlib.ParseMarkdown(ctx, reviewTaskMD)
+				md, err = agentlib.ParseMarkdown(ctx, uniqueTaskMD(reviewTaskMD))
 				Expect(err).To(BeNil())
 			})
 
