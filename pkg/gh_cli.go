@@ -282,13 +282,23 @@ func (g *osExecGhCli) FetchFailedLogs(
 	return truncateToLines(string(logOut), 200), nil
 }
 
-// truncateToLines bounds s to at most n lines (diagnosis-sized log tail).
+// truncateToLines bounds s to at most n lines, keeping the log's TAIL: a CI
+// job log's failing step is at the end (`gh run view --log-failed` returns the
+// failed job's log in execution order, so provisioning and checkout lead and
+// the failing step's output trails). When earlier lines are dropped the result
+// is prefixed by a marker naming how many, so a truncated head is
+// distinguishable from a truncated tail.
 func truncateToLines(s string, n int) string {
 	lines := strings.Split(strings.TrimSpace(s), "\n")
 	if len(lines) <= n {
 		return strings.TrimSpace(s)
 	}
-	return strings.Join(lines[:n], "\n") + "\n... (truncated)"
+	dropped := len(lines) - n
+	return fmt.Sprintf(
+		"... (%d lines dropped)\n%s",
+		dropped,
+		strings.Join(lines[len(lines)-n:], "\n"),
+	)
 }
 
 // lastNonEmptyLine returns the last non-empty line of s (gh prints the PR
