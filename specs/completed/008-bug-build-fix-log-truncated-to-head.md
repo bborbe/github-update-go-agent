@@ -1,9 +1,10 @@
 ---
-status: verifying
+status: completed
 approved: "2026-10-01T06:32:03Z"
 generating: "2026-10-01T06:32:03Z"
 prompted: "2026-10-01T06:46:46Z"
 verifying: "2026-10-01T07:03:39Z"
+completed: "2026-10-01T07:40:52Z"
 branch: dark-factory/bug-build-fix-log-truncated-to-head
 ---
 
