@@ -1,8 +1,13 @@
 ---
-status: approved
+status: completed
 spec: [008-bug-build-fix-log-truncated-to-head]
+summary: Added the build-fix lane's log-evidence contract section to docs/design.md, recording that the retained end is the log tail, the marker names the dropped-line count, and the bound stays at 200 lines
+execution_id: github-update-go-agent-logtail-exec-018-spec-008-design-doc-log-evidence
+dark-factory-version: v0.196.0
 created: "2026-10-01T06:37:44Z"
 queued: "2026-10-01T06:53:31Z"
+started: "2026-10-01T06:58:31Z"
+completed: "2026-10-01T07:03:39Z"
 branch: dark-factory/bug-build-fix-log-truncated-to-head
 ---
 
