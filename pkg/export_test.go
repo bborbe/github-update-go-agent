@@ -23,6 +23,7 @@ var (
 	InjectToken                = injectToken
 	PRCreateArgs               = prCreateArgs
 	IsMissingLabelError        = isMissingLabelError
+	TruncateToLines            = truncateToLines
 	ParseScannerOutput         = parseScannerOutput
 	DetectGateTargets          = detectGateTargets
 	LoadSuppressedVulnIDs      = loadSuppressedVulnIDs

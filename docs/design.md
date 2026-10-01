@@ -258,6 +258,18 @@ gh pr view <n> --repo bborbe/go-skeleton --json state,isDraft   # OPEN + true
 ## 8.4 Rollback
 Kill switch (6.5) → revert CRD image tag → remove CRD + deprecate assignee.
 
+# 9. Build-fix lane
+
+The build-fix lane (`pkg/steps_fix_planning.go`, `pkg/steps_fix_execution.go`, `pkg/steps_fix_review.go`) classifies and repairs a red build without an operator.
+
+### Log evidence
+
+`truncateToLines` bounds the log handed to the diagnosis model to a **diagnosis-sized log tail**: at most 200 lines.
+
+- The retained end is the **tail** — a CI job log's failing step is at the end (`gh run view --log-failed` returns the failed job in execution order), so runner provisioning and checkout lead the log and the failure trails it.
+- When earlier lines are dropped, the evidence is prefixed by a marker naming the **dropped** count (e.g. `... (449 lines dropped)`), so a truncated head is distinguishable from a truncated tail.
+- The bound stays at **200** lines; an input already within the bound is returned verbatim, with no marker.
+
 # Related
 
 - Goal: [[GitHub Update Go Agent - Base]] · Identity: [[GitHub Update Go Agent]] · Learnings: [[GitHub Update Go Prototype Learnings]]
