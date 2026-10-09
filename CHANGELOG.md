@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- docs: repoint the `docs/creating-claude-agents.md` CRD example at the live registry — `docker.quant.benjamin-borbe.de:443` is decommissioned (404), so the example now reads `docker.prod.nuke.benjamin-borbe.de:443`.
+
 ## v0.18.4
 
 - fix: keep the CI log's tail (not its head) in the build-fix diagnosis evidence and prefix a marker naming the dropped-line count, so a build-fix planning run on a red build receives the failing step's error output instead of runner provisioning (`truncateToLines` in `pkg/gh_cli.go` documented a "diagnosis-sized log tail" while returning the first 200 lines)
