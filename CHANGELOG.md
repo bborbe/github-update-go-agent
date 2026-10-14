@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.19.1
 
 - fix: install `openssl` in the agent image, so a target repo whose gate shells out to the `openssl` CLI can pass `make precommit`. `bborbe/agent-claude`'s vendored `scripts/git_credential_github_app_test.py:37` runs `subprocess.run(["openssl", "genrsa", "2048"])`, and the image carried python3/make/git/gh/jq/column/trivy but **not** `openssl` — so every gate run died at the `python-test` target with `FileNotFoundError: [Errno 2] No such file or directory: 'openssl'` (exit 2), the run reported failed, and the dispatcher re-ran it forever against the single job slot. ⚠️ **The sibling image had this fixed five days earlier, and it did not help:** `agent-claude#38` added `openssl` to the *agent-claude* Dockerfile (2026-10-09), but the gate runs in **this** agent's container, so the two Dockerfiles drift independently. Also corrects `docs/design.md` §7.3, whose tooling list asserted the image "needs only **trivy** (system binary), `jq`, `column`" — an assumption now falsified three times (`npm`/bborbe-backup, X11 headers/bborbe-beactive, `openssl`/bborbe-agent-claude).
 
