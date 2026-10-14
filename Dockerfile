@@ -26,8 +26,16 @@ FROM ${DOCKER_REGISTRY}/alpine:3.23 AS alpine
 # 2026-08-30: 4 identical failures in 18 minutes. Costs 48.7 MB (+3.2% of the image; 49 packages).
 # tesseract/leptonica are deliberately NOT added: gosseract is an indirect dependency that
 # never enters the compiled path, and including it would cost 92 MB for nothing.
+# openssl: a target repo's gate may shell out to the `openssl` CLI, which this image
+# does not carry. Observed on bborbe/agent-claude, 2026-10-14: its vendored
+# scripts/git_credential_github_app_test.py:37 calls
+# `subprocess.run(["openssl", "genrsa", "2048"])`, so `make precommit` died at the
+# python-test target with `FileNotFoundError: [Errno 2] No such file or directory:
+# 'openssl'` (exit 2) — and the dispatcher re-runs the task every ~5 min forever
+# against the single job slot. python3/make/git/gh/jq/column/trivy were all already
+# present, so openssl was the only binary missing for that gate.
 RUN apk --no-cache add ca-certificates curl bash git github-cli make jq util-linux nodejs npm gcc musl-dev \
-      libx11-dev libxtst-dev libxkbcommon-dev libxinerama-dev libxcursor-dev \
+      libx11-dev libxtst-dev libxkbcommon-dev libxinerama-dev libxcursor-dev openssl \
  && npm install -g --omit=dev --no-optional @anthropic-ai/claude-code \
  && npm cache clean --force \
  && rm -rf /root/.npm /tmp/*
