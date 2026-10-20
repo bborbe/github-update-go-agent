@@ -13,7 +13,6 @@ import (
 	"maps"
 	"os"
 	"os/exec"
-	"strings"
 
 	claudelib "github.com/bborbe/agent/claude"
 	"github.com/bborbe/errors"
@@ -61,11 +60,14 @@ func (r *planningRunner) Run(ctx context.Context, prompt string) (*claudelib.Cla
 	resultText, tail := scanPlanningOutput(ctx, stdoutPipe, r.logSink)
 
 	if err := cmd.Wait(); err != nil {
-		var tailMsg string
+		tailMsg := "no stdout captured"
 		if len(tail) > 0 {
-			tailMsg = strings.Join(tail, planningTailJoiner)
-		} else {
-			tailMsg = "no stdout captured"
+			// Mirror agent-lib's parsed reason rather than the raw stream-json
+			// tail, so the task's `## Failure` entry names the cause instead of
+			// dumping `{"type":"assistant",…}` events. Redaction is applied
+			// here: agent-lib's parser is deliberately redaction-free, so each
+			// caller owns its own policy.
+			tailMsg = git.RedactToken(claudelib.FailureReason(tail))
 		}
 		glog.V(2).Infof("planning: claude CLI failed result_len=%d err=%v", len(resultText), err)
 		return nil, errors.Wrapf(ctx, err, "claude CLI failed: %s", tailMsg)
@@ -188,7 +190,6 @@ func (r *planningRunner) buildSubprocessEnv(ctx context.Context) ([]string, erro
 const (
 	planningTailMaxLines = 5
 	planningTailMaxBytes = 512
-	planningTailJoiner   = " | "
 )
 
 // appendPlanningTail appends a non-empty line to the ring buffer, truncating
