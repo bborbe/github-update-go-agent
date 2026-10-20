@@ -232,6 +232,30 @@ exit 1
 			Expect(err.Error()).To(ContainSubstring("fake failure body"))
 		})
 
+		It("parses a stream-json failure tail into a one-line reason, not raw JSON", func() {
+			binDir, err := os.MkdirTemp("", "github-update-go-fake-claude")
+			Expect(err).To(BeNil())
+			DeferCleanup(os.RemoveAll, binDir)
+			script := filepath.Join(binDir, "claude")
+			// A real api_retry storm: the cause lives in the event, and the raw
+			// line is exactly the JSON dump this change exists to stop emitting.
+			scriptContent := `#!/bin/sh
+printf '%s\n' '{"type":"system","subtype":"api_retry","attempt":10,"max_retries":10,"error_status":529,"error":"overloaded"}'
+exit 1
+`
+			Expect(os.WriteFile(script, []byte(scriptContent), 0o755)).To(Succeed())
+
+			oldPATH := os.Getenv("PATH")
+			Expect(os.Setenv("PATH", binDir+":"+oldPATH)).To(Succeed())
+			DeferCleanup(os.Setenv, "PATH", oldPATH)
+
+			runner := pkg.NewPlanningRunner(claudelib.ClaudeRunnerConfig{})
+			_, err = runner.Run(context.Background(), "the-prompt")
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("api_retry: overloaded (HTTP 529)"))
+			Expect(err.Error()).NotTo(ContainSubstring(`"type":"system"`))
+		})
+
 		It("fails with a start error when claude is not on PATH", func() {
 			emptyDir, err := os.MkdirTemp("", "github-update-go-empty-path")
 			Expect(err).To(BeNil())

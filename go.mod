@@ -2,12 +2,10 @@ module github.com/bborbe/github-update-go-agent
 
 go 1.27.2
 
-tool (
-	github.com/maxbrunsfeld/counterfeiter/v6
-)
+tool github.com/maxbrunsfeld/counterfeiter/v6
 
 require (
-	github.com/bborbe/agent v0.103.1
+	github.com/bborbe/agent v0.104.1
 	github.com/bborbe/cqrs v0.6.12
 	github.com/bborbe/errors v1.6.3
 	github.com/bborbe/kafka v1.28.3
@@ -108,6 +106,4 @@ require (
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
 
-exclude (
-	cloud.google.com/go v0.26.0
-)
+exclude cloud.google.com/go v0.26.0
