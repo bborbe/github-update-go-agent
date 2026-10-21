@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.21.1
 
 - fix: execution adopts an already-pushed `fix/update-go-<ref>` branch with no PR and opens a draft PR from it instead of re-pushing (lost claim between push and PR create; also vuln-fix runs)
 
