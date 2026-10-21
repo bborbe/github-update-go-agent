@@ -152,26 +152,31 @@ func (s *executionStep) ShouldRun(_ context.Context, _ *agentlib.Markdown) (bool
 //     model's labels) + frontmatter.
 //  3. PR-adopt guard — open PR for the deterministic branch → adopt, write
 //     ## Result, re-route (crash-window idempotency, design § 5.3).
-//  4. Resolve current default-branch HEAD at run start, CloneAtRef at it, +
+//  4. Pushed-branch guard — fix/update-go-<ref:7> already on the remote with
+//     no open PR (a prior run crashed between push and PR create) → clone the
+//     pushed branch, open a DRAFT PR from it, write ## Result
+//     outcome=opened, re-route to ai_review; no update, no gate, no push. A
+//     lookup error falls through.
+//  5. Resolve current default-branch HEAD at run start, CloneAtRef at it, +
 //     SwitchNewBranch fix/update-go-<ref:7> (ref = pinned filing SHA —
 //     replay guard).
-//  5. Claude sub-call (file-edit + go/make only) — update + repair + CHANGELOG,
+//  6. Claude sub-call (file-edit + go/make only) — update + repair + CHANGELOG,
 //     bounded by claudeExecutionTimeout. On failure the gates still decide:
 //     green → salvage the work as a DRAFT PR, red → Failed with the Claude
 //     cause (see salvageAfterClaudeFailure).
-//  6. Deterministic gate run of the plan's gate targets. A red target gets ONE
+//  7. Deterministic gate run of the plan's gate targets. A red target gets ONE
 //     bounded Claude repair sub-call (gateRepairTimeout), then every target is
 //     run again; red on that second run = Failed with the failing target +
 //     output tail. A repair failure never decides the outcome — the second
 //     gate run does.
-//  7. No-effective-change guard — changed files empty or ⊆ {CHANGELOG.md}
+//  8. No-effective-change guard — changed files empty or ⊆ {CHANGELOG.md}
 //     (MVS no-op despite planning's has_work=true) → ## Result
 //     outcome=no_update_needed, Done/NextPhase done, workdir discarded; no
 //     commit/push/PR (go-skeleton PR #51 guard).
-//  8. Changed/committed-files guard — reject .github/workflows/** edits.
-//  9. Commit (explicit pathspec, bot identity) + Push (--no-follow-tags) +
+//  9. Changed/committed-files guard — reject .github/workflows/** edits.
+//  10. Commit (explicit pathspec, bot identity) + Push (--no-follow-tags) +
 //     gh pr create with the configured target.
-//  10. ## Result → Done / NextPhase ai_review.
+//  11. ## Result → Done / NextPhase ai_review.
 func (s *executionStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentlib.Result, error) {
 	if reroute := s.replayGuard(ctx, md); reroute != nil {
 		return reroute, nil
@@ -207,6 +212,12 @@ func (s *executionStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentl
 
 	result := &ResultOutput{Branch: branch}
 	authedURL := injectToken(normalizeCloneURLToHTTPS(cloneURL), s.ghToken)
+
+	reroute, err := s.adoptPushedBranch(ctx, md, authedURL, workdir, branch, plan, result)
+	if err != nil || reroute != nil {
+		return reroute, err
+	}
+
 	head, err := s.ops.ResolveDefaultBranchHead(ctx, authedURL)
 	if err != nil {
 		return s.fail(
@@ -365,6 +376,86 @@ func (s *executionStep) adoptExistingPR(
 		Status:    agentlib.AgentStatusDone,
 		NextPhase: domain.TaskPhaseAIReview.String(),
 	}
+}
+
+// adoptPushedBranch is the pushed-branch crash-window guard. It looks up the
+// deterministic branch on the remote and, when it exists, delegates to
+// openPRFromPushedBranch. A lookup error logs and falls through to the normal
+// path, which surfaces real problems loudly.
+func (s *executionStep) adoptPushedBranch(
+	ctx context.Context,
+	md *agentlib.Markdown,
+	authedURL, workdir, branch string,
+	plan *PlanOutput,
+	result *ResultOutput,
+) (*agentlib.Result, error) {
+	pushedSHA, err := s.ops.RemoteBranchSHA(ctx, authedURL, branch)
+	if err != nil {
+		glog.Warningf(
+			"execution: remote-branch lookup failed (continuing): %s",
+			git.RedactToken(err.Error()),
+		)
+		return nil, nil
+	}
+	if pushedSHA == "" {
+		return nil, nil
+	}
+	glog.V(2).Infof(
+		"execution: branch %s already pushed at %s with no open PR — opening PR from it",
+		branch, pushedSHA,
+	)
+	return s.openPRFromPushedBranch(ctx, md, authedURL, workdir, branch, plan, result)
+}
+
+// openPRFromPushedBranch is the second crash-window guard: the deterministic
+// branch fix/update-go-<ref:7> is already on the remote but no open PR exists.
+// A prior run pushed it and died before `gh pr create`, so a re-run would
+// commit again (Commit pins no dates, so the SHA changes) and its non-force
+// push would be rejected as non-fast-forward on every retry until the trigger
+// cap — with no PR ever opened. The pushed head already passed the gates
+// before it was pushed (the normal and salvage paths both push only after
+// green gates), so opening the PR from it is safe.
+//
+// This path NEVER pushes, commits, or runs the update/gates: it only clones
+// the pushed branch and opens the PR.
+//
+// The PR is always a DRAFT, never s.prTarget: the first run may have been a
+// salvage run (which forces draft), and that cannot be known from here.
+func (s *executionStep) openPRFromPushedBranch(
+	ctx context.Context,
+	md *agentlib.Markdown,
+	authedURL, workdir, branch string,
+	plan *PlanOutput,
+	result *ResultOutput,
+) (*agentlib.Result, error) {
+	// ref = branch name; checkout DWIM resolves it against origin.
+	if err := s.ops.CloneAtRef(ctx, authedURL, branch, workdir); err != nil {
+		return s.fail(ctx, md, result, git.ClassifyError(err), err)
+	}
+
+	prURL, err := s.gh.CreatePR(
+		ctx, workdir, "master", branch, prTitle,
+		buildPRBody(plan, &executionReport{}, nil),
+		PRTargetDraft,
+		s.autoMergeLabel,
+	)
+	if err != nil {
+		return s.fail(ctx, md, result, git.ErrorCategoryUnknown, err)
+	}
+
+	result.Outcome = ResultOutcomeOpened
+	result.PRURL = prURL
+	section, err := agentlib.MarshalSectionTyped(ctx, "## Result", *result)
+	if err != nil {
+		return nil, errors.Wrap(ctx, err, "marshal ## Result section")
+	}
+	md.ReplaceSection(section)
+
+	glog.V(2).Infof("execution: opened draft PR %s from already-pushed branch %s", prURL, branch)
+	return &agentlib.Result{
+		Status:    agentlib.AgentStatusDone,
+		NextPhase: domain.TaskPhaseAIReview.String(),
+	}, nil
 }
 
 // validatePlan extracts and validates the ## Plan section. The readiness check

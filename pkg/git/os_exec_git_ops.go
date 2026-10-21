@@ -295,6 +295,43 @@ func (g *osExecGitOps) LsRemoteTags(ctx context.Context, cloneURL string) ([]str
 	return shas, nil
 }
 
+// RemoteBranchSHA returns the commit SHA the remote holds at branch, or ""
+// when the branch does not exist there. The execution step uses it to detect a
+// branch a prior run pushed before crashing ahead of PR creation.
+func (g *osExecGitOps) RemoteBranchSHA(
+	ctx context.Context,
+	cloneURL, branch string,
+) (string, error) {
+	// git ls-remote --heads <cloneURL> refs/heads/<branch>
+	// #nosec G204 -- cloneURL is authed by caller from validated frontmatter; branch is the deterministic fix/update-go-<sha:7> name
+	cmd := exec.CommandContext(ctx, "git", "ls-remote", "--heads", cloneURL, "refs/heads/"+branch)
+	cmd.Env = g.cmdEnv()
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		// Never include the raw cloneURL: it carries the token.
+		return "", errors.Errorf(
+			ctx,
+			"git ls-remote --heads %s: %s",
+			branch,
+			redactToken(strings.TrimSpace(stderr.String())),
+		)
+	}
+	sha := ""
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		fields := strings.Fields(line)
+		// Exact ref match: ls-remote matches patterns by suffix, so a
+		// `refs/heads/foo` query could also return `refs/heads/bar/foo`.
+		if len(fields) >= 2 && fields[1] == "refs/heads/"+branch {
+			sha = fields[0]
+			break
+		}
+	}
+	glog.V(2).Infof("git ls-remote --heads %s: sha=%q", branch, sha)
+	return sha, nil
+}
+
 // RevList returns the commit SHAs on HEAD that are not reachable from base.
 func (g *osExecGitOps) RevList(ctx context.Context, workdir, base string) ([]string, error) {
 	// git -C <workdir> rev-list <base>..HEAD

@@ -76,6 +76,13 @@ type GitOps interface {
 	// carries a tag. cloneURL MUST already include any auth token.
 	LsRemoteTags(ctx context.Context, cloneURL string) ([]string, error)
 
+	// RemoteBranchSHA shells out `git ls-remote --heads <cloneURL> refs/heads/<branch>`
+	// and returns the commit SHA the remote holds at that branch, or "" when the
+	// branch does not exist on the remote. The execution step uses it to detect a
+	// branch a prior run pushed before crashing ahead of PR creation.
+	// cloneURL MUST already include any auth token.
+	RemoteBranchSHA(ctx context.Context, cloneURL, branch string) (string, error)
+
 	// RevList returns the commit SHAs on HEAD that are not reachable from
 	// base (git rev-list <base>..HEAD) — the branch's own commits.
 	RevList(ctx context.Context, workdir, base string) ([]string, error)

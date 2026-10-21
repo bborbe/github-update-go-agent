@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- fix: execution adopts an already-pushed `fix/update-go-<ref>` branch with no PR and opens a draft PR from it instead of re-pushing (lost claim between push and PR create; also vuln-fix runs)
+
 ## v0.20.0
 
 - feat: execution sub-call runs build + targeted tests only; a red deterministic gate gets one bounded Claude repair attempt before failing

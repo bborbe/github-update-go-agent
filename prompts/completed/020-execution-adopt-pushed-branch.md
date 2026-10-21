@@ -1,6 +1,12 @@
 ---
-status: draft
+status: completed
+summary: 'Added a pushed-branch crash-window guard: RemoteBranchSHA on GitOps, a draft-PR adoption path in execution, tests, design doc and CHANGELOG entries'
+execution_id: github-update-go-agent-adopt-branch-exec-020-execution-adopt-pushed-branch
+dark-factory-version: v0.198.7
 created: "2026-10-21T18:05:01Z"
+queued: "2026-10-21T18:08:20Z"
+started: "2026-10-21T18:09:08Z"
+completed: "2026-10-21T18:15:39Z"
 ---
 
 <summary>
