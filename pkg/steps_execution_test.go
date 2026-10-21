@@ -153,6 +153,96 @@ var _ = Describe("ExecutionStep", func() {
 			Expect(out.Outcome).To(Equal(pkg.ResultOutcomeAdopted))
 			Expect(out.Branch).To(Equal("fix/update-go-6d1f27f"))
 			Expect(out.PRURL).To(Equal("https://github.com/bborbe/demo/pull/41"))
+			Expect(ops.RemoteBranchSHACallCount()).To(Equal(0))
+		})
+	})
+
+	Describe("pushed-branch guard (crash between push and PR create)", func() {
+		const pushedSHA = "feedface1234567890abcdef1234567890abcdef"
+
+		BeforeEach(func() {
+			ops.RemoteBranchSHAReturns(pushedSHA, nil)
+		})
+
+		It("opens a draft PR from the pushed branch without pushing or running gates", func() {
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusDone))
+			Expect(result.NextPhase).To(Equal("ai_review"))
+
+			Expect(ops.PushCallCount()).To(Equal(0))
+			Expect(ops.SwitchNewBranchCallCount()).To(Equal(0))
+			Expect(ops.CommitCallCount()).To(Equal(0))
+			Expect(ops.ResolveDefaultBranchHeadCallCount()).To(Equal(0))
+			Expect(runner.RunCallCount()).To(Equal(0))
+			Expect(gate.RunTargetCallCount()).To(Equal(0))
+			Expect(bulk.RunCallCount()).To(Equal(0))
+
+			Expect(ops.CloneAtRefCallCount()).To(Equal(1))
+			_, url, ref, _ := ops.CloneAtRefArgsForCall(0)
+			Expect(url).To(Equal("https://x-access-token:tok@github.com/bborbe/demo.git"))
+			Expect(ref).To(Equal("fix/update-go-6d1f27f"))
+
+			_, lookupURL, lookupBranch := ops.RemoteBranchSHAArgsForCall(0)
+			Expect(lookupURL).To(Equal("https://x-access-token:tok@github.com/bborbe/demo.git"))
+			Expect(lookupBranch).To(Equal("fix/update-go-6d1f27f"))
+
+			Expect(gh.CreatePRCallCount()).To(Equal(1))
+			_, _, base, head, title, body, target, _ := gh.CreatePRArgsForCall(0)
+			Expect(base).To(Equal("master"))
+			Expect(head).To(Equal("fix/update-go-6d1f27f"))
+			Expect(title).To(Equal("update go module dependencies"))
+			Expect(target).To(Equal(pkg.PRTargetDraft))
+			Expect(body).To(ContainSubstring("gate green: precommit, check (exit 0)"))
+
+			out, err := agentlib.ExtractSection[pkg.ResultOutput](ctx, md, "## Result")
+			Expect(err).To(BeNil())
+			Expect(out.Outcome).To(Equal(pkg.ResultOutcomeOpened))
+			Expect(out.Branch).To(Equal("fix/update-go-6d1f27f"))
+			Expect(out.PRURL).To(Equal("https://github.com/bborbe/demo/pull/42"))
+		})
+
+		It("opens a draft PR even when the deployment configures PRTargetReady", func() {
+			step = pkg.NewExecutionStep(
+				runner,
+				ops,
+				gh,
+				gate,
+				bulk,
+				"tok",
+				pkg.PRTargetReady,
+				"",
+				pkg.UpdateScopeBoth,
+			)
+
+			_, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			_, _, _, _, _, _, target, _ := gh.CreatePRArgsForCall(0)
+			Expect(target).To(Equal(pkg.PRTargetDraft))
+		})
+
+		It("fails without pushing when CreatePR fails", func() {
+			gh.CreatePRReturns("", stderrors.New("gh boom"))
+
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusFailed))
+
+			out, err := agentlib.ExtractSection[pkg.ResultOutput](ctx, md, "## Result")
+			Expect(err).To(BeNil())
+			Expect(out.Outcome).To(Equal(pkg.ResultOutcomeFailed))
+			Expect(ops.PushCallCount()).To(Equal(0))
+		})
+
+		It("falls through to the normal path when the lookup errors", func() {
+			ops.RemoteBranchSHAReturns("", stderrors.New("ls-remote boom"))
+
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusDone))
+			Expect(ops.SwitchNewBranchCallCount()).To(Equal(1))
+			Expect(ops.PushCallCount()).To(Equal(1))
+			Expect(gh.CreatePRCallCount()).To(Equal(1))
 		})
 	})
 

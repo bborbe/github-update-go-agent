@@ -94,6 +94,21 @@ type GitOps struct {
 	pushReturnsOnCall map[int]struct {
 		result1 error
 	}
+	RemoteBranchSHAStub        func(context.Context, string, string) (string, error)
+	remoteBranchSHAMutex       sync.RWMutex
+	remoteBranchSHAArgsForCall []struct {
+		arg1 context.Context
+		arg2 string
+		arg3 string
+	}
+	remoteBranchSHAReturns struct {
+		result1 string
+		result2 error
+	}
+	remoteBranchSHAReturnsOnCall map[int]struct {
+		result1 string
+		result2 error
+	}
 	ResolveDefaultBranchHeadStub        func(context.Context, string) (string, error)
 	resolveDefaultBranchHeadMutex       sync.RWMutex
 	resolveDefaultBranchHeadArgsForCall []struct {
@@ -543,6 +558,72 @@ func (fake *GitOps) PushReturnsOnCall(i int, result1 error) {
 	fake.pushReturnsOnCall[i] = struct {
 		result1 error
 	}{result1}
+}
+
+func (fake *GitOps) RemoteBranchSHA(arg1 context.Context, arg2 string, arg3 string) (string, error) {
+	fake.remoteBranchSHAMutex.Lock()
+	ret, specificReturn := fake.remoteBranchSHAReturnsOnCall[len(fake.remoteBranchSHAArgsForCall)]
+	fake.remoteBranchSHAArgsForCall = append(fake.remoteBranchSHAArgsForCall, struct {
+		arg1 context.Context
+		arg2 string
+		arg3 string
+	}{arg1, arg2, arg3})
+	stub := fake.RemoteBranchSHAStub
+	fakeReturns := fake.remoteBranchSHAReturns
+	fake.recordInvocation("RemoteBranchSHA", []interface{}{arg1, arg2, arg3})
+	fake.remoteBranchSHAMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2, arg3)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *GitOps) RemoteBranchSHACallCount() int {
+	fake.remoteBranchSHAMutex.RLock()
+	defer fake.remoteBranchSHAMutex.RUnlock()
+	return len(fake.remoteBranchSHAArgsForCall)
+}
+
+func (fake *GitOps) RemoteBranchSHACalls(stub func(context.Context, string, string) (string, error)) {
+	fake.remoteBranchSHAMutex.Lock()
+	defer fake.remoteBranchSHAMutex.Unlock()
+	fake.RemoteBranchSHAStub = stub
+}
+
+func (fake *GitOps) RemoteBranchSHAArgsForCall(i int) (context.Context, string, string) {
+	fake.remoteBranchSHAMutex.RLock()
+	defer fake.remoteBranchSHAMutex.RUnlock()
+	argsForCall := fake.remoteBranchSHAArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+}
+
+func (fake *GitOps) RemoteBranchSHAReturns(result1 string, result2 error) {
+	fake.remoteBranchSHAMutex.Lock()
+	defer fake.remoteBranchSHAMutex.Unlock()
+	fake.RemoteBranchSHAStub = nil
+	fake.remoteBranchSHAReturns = struct {
+		result1 string
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *GitOps) RemoteBranchSHAReturnsOnCall(i int, result1 string, result2 error) {
+	fake.remoteBranchSHAMutex.Lock()
+	defer fake.remoteBranchSHAMutex.Unlock()
+	fake.RemoteBranchSHAStub = nil
+	if fake.remoteBranchSHAReturnsOnCall == nil {
+		fake.remoteBranchSHAReturnsOnCall = make(map[int]struct {
+			result1 string
+			result2 error
+		})
+	}
+	fake.remoteBranchSHAReturnsOnCall[i] = struct {
+		result1 string
+		result2 error
+	}{result1, result2}
 }
 
 func (fake *GitOps) ResolveDefaultBranchHead(arg1 context.Context, arg2 string) (string, error) {

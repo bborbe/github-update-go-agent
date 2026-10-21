@@ -183,6 +183,32 @@ var _ = Describe("osExecGitOps boundary contracts", func() {
 		Expect(shas).To(BeEmpty())
 	})
 
+	It("RemoteBranchSHA returns the SHA the remote holds at the branch", func() {
+		gitRun(source, "branch", "fix/update-go-abcdef0")
+		sha, err := ops.RemoteBranchSHA(ctx, source, "fix/update-go-abcdef0")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(sha).To(Equal(gitRun(source, "rev-parse", "fix/update-go-abcdef0")))
+	})
+
+	It("RemoteBranchSHA returns empty for a branch that does not exist", func() {
+		sha, err := ops.RemoteBranchSHA(ctx, source, "fix/update-go-0000000")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(sha).To(BeEmpty())
+	})
+
+	It("RemoteBranchSHA errors for a non-existent remote path", func() {
+		_, err := ops.RemoteBranchSHA(ctx, filepath.Join(tmp, "missing"), "fix/update-go-abcdef0")
+		Expect(err).To(HaveOccurred())
+	})
+
+	It("CloneAtRef checks out a pushed non-default branch", func() {
+		gitRun(source, "branch", "fix/update-go-abcdef0")
+		dest := filepath.Join(tmp, "cloned-pushed")
+		Expect(ops.CloneAtRef(ctx, source, "fix/update-go-abcdef0", dest)).To(Succeed())
+		Expect(gitRun(dest, "rev-parse", "HEAD")).
+			To(Equal(gitRun(source, "rev-parse", "fix/update-go-abcdef0")))
+	})
+
 	It("ResolveDefaultBranchHead returns the master tip SHA", func() {
 		head, err := ops.ResolveDefaultBranchHead(ctx, source)
 		Expect(err).NotTo(HaveOccurred())

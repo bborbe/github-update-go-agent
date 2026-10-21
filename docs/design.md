@@ -188,7 +188,7 @@ Task frontmatter (Kafka `TASK_CONTENT`); target repo via git clone (App IAT over
 Branch + PR on target repo (draft by default; ready when `PR_TARGET: ready`; carrying `AUTO_MERGE_LABEL` when set); task body sections; `AgentResult` JSON on stdout (executor round-trips to frontmatter via Kafka).
 
 ## 5.3 Idempotency
-`ShouldRun` always true; replay guard inside `Run` (dark-factory pattern): existing `## <Section>` → re-route without redoing side effects. Execution crash-window guard: branch name is deterministic — if `gh pr list --head fix/update-go-<sha:7>` finds an open PR, adopt it and write `## Result` instead of re-pushing. Same task replayed → same branch, same PR, no duplicates.
+`ShouldRun` always true; replay guard inside `Run` (dark-factory pattern): existing `## <Section>` → re-route without redoing side effects. Execution crash-window guard: branch name is deterministic — if `gh pr list --head fix/update-go-<sha:7>` finds an open PR, adopt it and write `## Result` instead of re-pushing. Same task replayed → same branch, same PR, no duplicates. When no open PR exists but `fix/update-go-<sha:7>` is already on the remote (crash between push and PR create), execution clones that branch and opens a draft PR from it instead of re-pushing; it covers vuln-fix runs too.
 
 ## 5.4 Concurrency
 Executor: one Job per (task, phase). Fleet sweeps parallelize across tasks — bounded by namespace ResourceQuota. Per-repo serialization guaranteed by task dedup on `(owner, repo, head_sha)`.
