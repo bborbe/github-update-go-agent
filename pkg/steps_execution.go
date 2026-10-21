@@ -641,7 +641,7 @@ func (s *executionStep) gatesWithRepair(
 		return s.failRedTarget(ctx, md, result, report, target, tail, exitCode)
 	}
 
-	glog.Infof("execution: gate %q red — running repair sub-call", target)
+	glog.V(2).Infof("execution: gate %q red — running repair sub-call", target)
 	repairErr := s.runGateRepair(ctx, workdir, target, tail)
 	if repairErr != nil {
 		glog.Warningf(
