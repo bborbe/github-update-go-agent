@@ -55,7 +55,15 @@ LABEL org.opencontainers.image.version="${BUILD_GIT_VERSION}"
 COPY --from=build /main /main
 COPY agent/ /agent/
 ENV HOME=/home/claude
-RUN mkdir -p /home/claude/.claude
+# Run as non-root: as root, a target repo's tests that expect a write to a
+# read-only directory to fail pass on a developer machine and in CI but fail
+# here (root bypasses directory permissions). Observed on bborbe/vault-cli,
+# 2026-10-21: 6 "read-only directory" specs failed, ~55 update-go tasks aborted.
+# Workdirs live under os.TempDir and the Go caches under $HOME, both writable by uid 1000.
+RUN adduser -D -u 1000 -h /home/claude claude \
+ && mkdir -p /home/claude/.claude \
+ && chown -R 1000:1000 /home/claude
+USER 1000:1000
 ENV ZONEINFO=/zoneinfo.zip
 COPY --from=build /usr/local/go/lib/time/zoneinfo.zip /
 ENV BUILD_GIT_VERSION=${BUILD_GIT_VERSION}
