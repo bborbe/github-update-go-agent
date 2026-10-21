@@ -1,6 +1,8 @@
+# Per-phase timings (min) of one update-go Job from its captured pod log.
+# Usage: python3 phases.py <pod.log> <pod.log>   (logs from cap.sh, kubectl logs --timestamps)
 import sys,re,datetime as d
 M=[('start','main.go:153]'),('clone_s','git ls-remote --symref'),('clone_e','git clone+checkout succeeded'),('base_e','steps_planning.go:489]'),('plan_e','planning_runner.go:77]'),('bulk_s','bulk_update_exec_start'),('bulk_e','bulk_update_ok'),('exec_s','claude-runner.go:117]'),('gate_s','gate_runner.go:68]'),('gate_e','git status --porcelain'),('pr','PR opened'),('end','application finished')]
-L=[l for l in open(sys.argv[1]) if re.match(r'^\S+ [IWE]1021',l)]
+L=[l for l in open(sys.argv[1]) if re.match(r'^\S+ [IWE][0-9]{4}',l)]
 T={}
 for l in L:
   for k,p in M:

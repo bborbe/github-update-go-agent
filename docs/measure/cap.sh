@@ -1,4 +1,5 @@
 #!/bin/bash
+# Operator-side capture: needs the kubectlsun wrapper; writes /tmp/sunlogs/<pod>.log.
 # follow every update-go pod's log until 90 min elapse
 end=$((SECONDS+5400))
 while [ $SECONDS -lt $end ]; do
