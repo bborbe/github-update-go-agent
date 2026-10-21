@@ -46,6 +46,31 @@ RUN curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/
 # IS the go-directive bump target, kept current by this very pipeline.
 COPY --from=build /usr/local/go /usr/local/go
 ENV PATH=/usr/local/go/bin:${PATH}
+# Pre-warm the Go module + build cache for every scanner in the canonical
+# tools.env. Repo gates call `go run <tool>@<ver>`, which on a cold pod
+# downloads and compiles each tool (minutes per Job); with the cache baked in
+# at the runtime HOME, a repo pinning the canonical version gets a cache hit.
+# A repo pinning another version just misses the cache — today's behaviour.
+# Versions are read from tools.env so there is no second copy of the pins.
+ENV HOME=/home/claude
+COPY tools.env /tmp/tools.env
+RUN set -e; v() { sed -nE "s/^$1[[:space:]]*\?=[[:space:]]*([^[:space:]]+).*/\1/p" /tmp/tools.env; }; \
+    for t in \
+      "github.com/shoenig/go-modtool@$(v GO_MODTOOL_VERSION)" \
+      "github.com/incu6us/goimports-reviser/v3@$(v GOIMPORTS_REVISER_VERSION)" \
+      "github.com/segmentio/golines@$(v GOLINES_VERSION)" \
+      "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(v GOLANGCI_LINT_VERSION)" \
+      "golang.org/x/vuln/cmd/govulncheck@$(v GOVULNCHECK_VERSION)" \
+      "github.com/google/osv-scanner/v2/cmd/osv-scanner@$(v OSV_SCANNER_VERSION)" \
+      "github.com/google/addlicense@$(v ADDLICENSE_VERSION)" \
+      "github.com/maxbrunsfeld/counterfeiter/v6@$(v COUNTERFEITER_VERSION)" \
+      "github.com/onsi/ginkgo/v2/ginkgo@$(v GINKGO_VERSION)" \
+    ; do \
+      case "$t" in *@) echo "missing version for $t" >&2; exit 1;; esac; \
+      go run "$t" --help >/dev/null 2>&1 </dev/null || true; \
+    done; \
+    rm /tmp/tools.env; \
+    chmod -R a+rwX "$(go env GOMODCACHE)" "$(go env GOCACHE)"
 
 FROM alpine
 ARG BUILD_GIT_VERSION=dev

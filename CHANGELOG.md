@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- perf: pre-warm the Go module + build cache in the image for every scanner pinned in `tools.env` (go-modtool, goimports-reviser, golines, golangci-lint, govulncheck, osv-scanner, addlicense, counterfeiter, ginkgo). Repo gates run each scanner as `go run <tool>@<ver>`, which on a cold pod downloaded and compiled every tool per Job — baseline gates took a median 6.9 min over 28 sun Jobs. With the cache baked in at `HOME=/home/claude`, a repo pinning the canonical version gets a cache hit (measured locally: 0–2 s per tool, no `go: downloading`, vs 17 s + 3 downloads for `addlicense` alone on an empty cache). A repo pinning a different version misses the cache and behaves as before. Versions are read from `tools.env` in the Dockerfile, so there is no second copy of the pins. Adds `docs/measure/` (`phases.py`, `cap.sh`) to re-measure per-phase Job timings from captured pod logs.
+
 ## v0.19.5
 
 - chore: update github.com/bborbe/agent to v0.112.0, github.com/bborbe/kafka to v1.28.4, github.com/bborbe/sentry to v1.10.5, github.com/bborbe/vault-cli to v0.177.0
