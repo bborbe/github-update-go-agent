@@ -57,10 +57,28 @@ const (
 // retry.
 const claudeExecutionTimeout = 15 * time.Minute
 
+// gateRepairTimeout bounds the single gate-repair Claude sub-call. The repair
+// runs AFTER the execution sub-call and BEFORE the second deterministic gate
+// run, so it is bounded for the same reason claudeExecutionTimeout is: the Job
+// budget must still cover the second gate run plus commit/push/PR. Without a
+// bound a slow repair eats the whole remaining budget and the verdict is lost
+// even though the work may already be green.
+//
+// Exceeding it is a failure of that repair attempt only, never a retry: the
+// second gate run is still the verdict.
+const gateRepairTimeout = 5 * time.Minute
+
 // workflowsPrefix is the forbidden commit path. The committed-files guard
 // rejects it before push AND the GitHub App lacks the Workflows permission
 // (design D3) — belt + suspenders.
 const workflowsPrefix = ".github/workflows/"
+
+// gateRepairReport is the small JSON the gate-repair Claude sub-call returns.
+// Best-effort — the second deterministic gate run is the actual verdict.
+type gateRepairReport struct {
+	Notes   string `json:"notes"`
+	Blocked string `json:"blocked"`
+}
 
 // executionReport is the small JSON the execution Claude sub-call returns:
 // metadata about what it changed. Best-effort — the deterministic gate
@@ -141,8 +159,11 @@ func (s *executionStep) ShouldRun(_ context.Context, _ *agentlib.Markdown) (bool
 //     bounded by claudeExecutionTimeout. On failure the gates still decide:
 //     green → salvage the work as a DRAFT PR, red → Failed with the Claude
 //     cause (see salvageAfterClaudeFailure).
-//  6. Deterministic gate re-run of the plan's gate targets → red = Failed
-//     with the failing target + output tail.
+//  6. Deterministic gate run of the plan's gate targets. A red target gets ONE
+//     bounded Claude repair sub-call (gateRepairTimeout), then every target is
+//     run again; red on that second run = Failed with the failing target +
+//     output tail. A repair failure never decides the outcome — the second
+//     gate run does.
 //  7. No-effective-change guard — changed files empty or ⊆ {CHANGELOG.md}
 //     (MVS no-op despite planning's has_work=true) → ## Result
 //     outcome=no_update_needed, Done/NextPhase done, workdir discarded; no
@@ -220,8 +241,8 @@ func (s *executionStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentl
 		return s.salvageAfterClaudeFailure(ctx, md, workdir, branch, plan, result, claudeErr)
 	}
 
-	if failResult, err := s.rerunGates(ctx, md, workdir, plan, result, report); failResult != nil ||
-		err != nil {
+	if failResult, err := s.gatesWithRepair(ctx, md, workdir, plan, result, report); failResult !=
+		nil || err != nil {
 		return failResult, err
 	}
 
@@ -535,29 +556,137 @@ func (s *executionStep) rerunGates(
 	result *ResultOutput,
 	report *executionReport,
 ) (*agentlib.Result, error) {
-	for _, target := range plan.GateTargets {
-		// Each target is a `make` subprocess that can run for minutes. Without
-		// this check a cancelled context still walks the whole target list,
-		// which matters more now that the Job's remaining budget is what the
-		// salvage path spends.
-		select {
-		case <-ctx.Done():
-			return nil, errors.Wrap(ctx, ctx.Err(), "gate re-run cancelled")
-		default:
-		}
-		tail, exitCode, err := s.gate.RunTarget(ctx, workdir, target)
-		if err != nil {
-			result.GateExit = exitCode
-			result.FailedTarget = target
-			msg := fmt.Sprintf("gate target %q failed (exit %d): %s", target, exitCode, tail)
-			if report.Blocked != "" {
-				msg += " — claude reported blocked: " + report.Blocked
-			}
-			return s.fail(ctx, md, result, git.ErrorCategoryUnknown, errors.Errorf(ctx, "%s", msg))
-		}
+	target, tail, exitCode, err := s.firstRedTarget(ctx, workdir, plan)
+	if err != nil {
+		return nil, err
+	}
+	if target != "" {
+		return s.failRedTarget(ctx, md, result, report, target, tail, exitCode)
 	}
 	result.GateExit = 0
 	return nil, nil
+}
+
+// firstRedTarget runs the planned gate targets in order and returns the first
+// one that is red. It returns target == "" when every target is green. The
+// ctx.Done() check between targets is load-bearing: each target is a `make`
+// subprocess that can run for minutes, so a cancelled context must not walk
+// the rest of the list.
+func (s *executionStep) firstRedTarget(
+	ctx context.Context,
+	workdir string,
+	plan *PlanOutput,
+) (target, tail string, exitCode int, err error) {
+	for _, t := range plan.GateTargets {
+		select {
+		case <-ctx.Done():
+			return "", "", 0, errors.Wrap(ctx, ctx.Err(), "gate re-run cancelled")
+		default:
+		}
+		tail, exitCode, err := s.gate.RunTarget(ctx, workdir, t)
+		if err != nil {
+			return t, tail, exitCode, nil
+		}
+	}
+	return "", "", 0, nil
+}
+
+// failRedTarget writes the Failed ## Result for a red gate target — the shared
+// shape of the plain re-run, the post-repair re-run, and the repair-skipped
+// path.
+func (s *executionStep) failRedTarget(
+	ctx context.Context,
+	md *agentlib.Markdown,
+	result *ResultOutput,
+	report *executionReport,
+	target, tail string,
+	exitCode int,
+) (*agentlib.Result, error) {
+	result.GateExit = exitCode
+	result.FailedTarget = target
+	msg := fmt.Sprintf("gate target %q failed (exit %d): %s", target, exitCode, tail)
+	if report.Blocked != "" {
+		msg += " — claude reported blocked: " + report.Blocked
+	}
+	return s.fail(ctx, md, result, git.ErrorCategoryUnknown, errors.Errorf(ctx, "%s", msg))
+}
+
+// gatesWithRepair is the normal-path gate cycle: run the plan's targets, and
+// when one is red give the model exactly ONE bounded repair attempt, then run
+// every target again. The second run is the verdict — a repair sub-call error
+// or an unparseable reply only logs and never short-circuits it.
+//
+// The repair is skipped when the Job budget cannot cover it plus the second
+// gate run and the commit/push tail; the run then fails exactly as a plain
+// red gate does.
+func (s *executionStep) gatesWithRepair(
+	ctx context.Context,
+	md *agentlib.Markdown,
+	workdir string,
+	plan *PlanOutput,
+	result *ResultOutput,
+	report *executionReport,
+) (*agentlib.Result, error) {
+	target, tail, exitCode, err := s.firstRedTarget(ctx, workdir, plan)
+	if err != nil {
+		return nil, err
+	}
+	if target == "" {
+		result.GateExit = 0
+		return nil, nil
+	}
+
+	if !hasGateRepairBudget(ctx) {
+		glog.Warningf("execution: skipping gate repair — insufficient job budget")
+		return s.failRedTarget(ctx, md, result, report, target, tail, exitCode)
+	}
+
+	glog.Infof("execution: gate %q red — running repair sub-call", target)
+	repairErr := s.runGateRepair(ctx, workdir, target, tail)
+	if repairErr != nil {
+		glog.Warningf(
+			"execution: gate repair sub-call failed (continuing to gate re-run): %v",
+			repairErr,
+		)
+	} else {
+		glog.V(2).Infof("execution: gate repair sub-call completed for %q", target)
+	}
+
+	return s.rerunGates(ctx, md, workdir, plan, result, report)
+}
+
+// hasGateRepairBudget reports whether the Job has enough budget left for the
+// repair plus the second gate run and the commit/push tail. A context without
+// a deadline is treated as unlimited.
+func hasGateRepairBudget(ctx context.Context) bool {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return true
+	}
+	return time.Until(deadline) >= gateRepairTimeout+5*time.Minute
+}
+
+// runGateRepair issues the single bounded gate-repair Claude sub-call. The
+// reply is parsed best-effort: an unparseable reply is a warning, not a
+// failure, because the second gate run decides the outcome.
+func (s *executionStep) runGateRepair(
+	ctx context.Context,
+	workdir, target, tail string,
+) error {
+	prompt := prompts.GateRepairPrompt() +
+		"\n\n## Workdir\n\n" + workdir +
+		"\n\n## Failing gate target\n\n" + target +
+		"\n\n## Gate output\n\n```\n" + tail + "\n```"
+	runCtx, cancel := context.WithTimeout(ctx, gateRepairTimeout)
+	defer cancel()
+	runResult, err := s.runner.Run(runCtx, prompt)
+	if err != nil {
+		return errors.Wrap(ctx, err, "claude gate repair run")
+	}
+	if _, perr := parseJSONResponse[gateRepairReport](ctx, runResult.Result); perr != nil {
+		glog.Warningf("execution: parse gate repair report failed (continuing): %v", perr)
+	}
+	return nil
 }
 
 // commitPushAndOpenPR runs the no-effective-change guard, then the guarded

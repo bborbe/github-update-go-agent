@@ -17,6 +17,9 @@ var planning string
 //go:embed execution.md
 var execution string
 
+//go:embed gate_repair.md
+var gateRepair string
+
 // PlanningPrompt returns the planning-phase prompt module. The planning
 // step appends the workdir, target Go version, and task content as context
 // sections.
@@ -29,4 +32,11 @@ func PlanningPrompt() string {
 // sections.
 func ExecutionPrompt() string {
 	return execution
+}
+
+// GateRepairPrompt returns the gate-repair prompt module. The execution step
+// appends the workdir, the failing gate target, and the gate output tail as
+// context sections after a red deterministic gate run.
+func GateRepairPrompt() string {
+	return gateRepair
 }
