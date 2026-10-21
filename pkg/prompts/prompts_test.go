@@ -77,4 +77,24 @@ var _ = Describe("ExecutionPrompt", func() {
 	It("forbids suppressions", func() {
 		Expect(prompts.ExecutionPrompt()).To(ContainSubstring("Never suppress"))
 	})
+
+	It("runs build + targeted tests, not the gate targets", func() {
+		Expect(prompts.ExecutionPrompt()).To(ContainSubstring("go -C <workdir> build ./..."))
+		Expect(prompts.ExecutionPrompt()).NotTo(ContainSubstring("run EVERY gate target"))
+	})
+})
+
+var _ = Describe("GateRepairPrompt", func() {
+	It("is non-empty", func() {
+		Expect(prompts.GateRepairPrompt()).NotTo(BeEmpty())
+	})
+
+	It("forbids suppression via //nolint", func() {
+		Expect(prompts.GateRepairPrompt()).To(ContainSubstring("//nolint"))
+	})
+
+	It("forbids git and gh and workflow edits", func() {
+		Expect(prompts.GateRepairPrompt()).To(ContainSubstring("NO git and NO gh tools"))
+		Expect(prompts.GateRepairPrompt()).To(ContainSubstring(".github/workflows/"))
+	})
 })

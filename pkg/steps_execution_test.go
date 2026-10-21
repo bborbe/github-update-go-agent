@@ -9,6 +9,7 @@ import (
 	stderrors "errors"
 	"os"
 	"path/filepath"
+	"time"
 
 	agentlib "github.com/bborbe/agent"
 	claudelib "github.com/bborbe/agent/claude"
@@ -358,6 +359,52 @@ body
 
 	Describe("red gate after claude", func() {
 		BeforeEach(func() {
+			// First gate run: precommit green, check red. The repair sub-call
+			// runs, then the second gate run repeats the same verdict.
+			gate.RunTargetReturnsOnCall(0, "", 0, nil)
+			gate.RunTargetReturnsOnCall(
+				1,
+				"trivy found CVE-X",
+				2,
+				stderrors.New("make check failed"),
+			)
+			gate.RunTargetReturnsOnCall(2, "", 0, nil)
+			gate.RunTargetReturnsOnCall(
+				3,
+				"trivy found CVE-X",
+				2,
+				stderrors.New("make check failed"),
+			)
+		})
+
+		It(
+			"fails after one repair attempt with the failing target + tail; no commit/push/PR",
+			func() {
+				result, err := step.Run(ctx, md)
+				Expect(err).To(BeNil())
+				Expect(result.Status).To(Equal(agentlib.AgentStatusFailed))
+				Expect(result.Message).To(HavePrefix("execution: "))
+				Expect(result.Message).To(ContainSubstring(`gate target "check" failed`))
+				Expect(result.Message).To(ContainSubstring("trivy found CVE-X"))
+				Expect(ops.CommitCallCount()).To(Equal(0))
+				Expect(ops.PushCallCount()).To(Equal(0))
+				Expect(gh.CreatePRCallCount()).To(Equal(0))
+
+				// execution sub-call + exactly one repair sub-call.
+				Expect(runner.RunCallCount()).To(Equal(2))
+
+				out, rerr := agentlib.ExtractSection[pkg.ResultOutput](ctx, md, "## Result")
+				Expect(rerr).To(BeNil())
+				Expect(out.Outcome).To(Equal(pkg.ResultOutcomeFailed))
+				Expect(out.FailedTarget).To(Equal("check"))
+				Expect(out.GateExit).To(Equal(2))
+			},
+		)
+	})
+
+	Describe("gate repair cycle", func() {
+		BeforeEach(func() {
+			// First gate run: precommit green, check red.
 			gate.RunTargetReturnsOnCall(0, "", 0, nil)
 			gate.RunTargetReturnsOnCall(
 				1,
@@ -367,22 +414,79 @@ body
 			)
 		})
 
-		It("fails with the failing target + output tail; no commit, no push, no PR", func() {
+		It("repairs once, re-runs every gate target, and opens the PR when green", func() {
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusDone))
+			Expect(result.NextPhase).To(Equal("ai_review"))
+
+			// execution sub-call + exactly one repair sub-call.
+			Expect(runner.RunCallCount()).To(Equal(2))
+			_, repairPrompt := runner.RunArgsForCall(1)
+			Expect(repairPrompt).To(ContainSubstring("check"))
+			Expect(repairPrompt).To(ContainSubstring("trivy found CVE-X"))
+
+			// Every target is re-run after the repair: 2 targets × 2 runs.
+			Expect(gate.RunTargetCallCount()).To(Equal(4))
+			Expect(ops.CommitCallCount()).To(Equal(1))
+			Expect(ops.PushCallCount()).To(Equal(1))
+			Expect(gh.CreatePRCallCount()).To(Equal(1))
+		})
+
+		It("still opens the PR when the repair sub-call errors but the gates go green", func() {
+			runner.RunReturnsOnCall(1, nil, stderrors.New("repair sub-call died"))
+
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusDone))
+			Expect(result.NextPhase).To(Equal("ai_review"))
+			Expect(runner.RunCallCount()).To(Equal(2))
+			Expect(gh.CreatePRCallCount()).To(Equal(1))
+		})
+
+		It("does not call repair when the first gate run is green", func() {
+			gate.RunTargetReturnsOnCall(0, "", 0, nil)
+			gate.RunTargetReturnsOnCall(1, "", 0, nil)
+
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusDone))
+			Expect(runner.RunCallCount()).To(Equal(1))
+		})
+
+		It("skips the repair when the job budget is too small and fails as a red gate", func() {
+			shortCtx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			defer cancel()
+
+			result, err := step.Run(shortCtx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusFailed))
+			Expect(result.Message).To(ContainSubstring(`gate target "check" failed`))
+			// Only the execution sub-call ran — no repair.
+			Expect(runner.RunCallCount()).To(Equal(1))
+			Expect(ops.CommitCallCount()).To(Equal(0))
+			Expect(gh.CreatePRCallCount()).To(Equal(0))
+		})
+	})
+
+	Describe("salvage after claude failure", func() {
+		BeforeEach(func() {
+			runner.RunReturns(nil, stderrors.New("claude died"))
+			gate.RunTargetReturns(
+				"trivy found CVE-X",
+				2,
+				stderrors.New("make check failed"),
+			)
+		})
+
+		It("never calls the gate repair — red gates fail with the claude cause", func() {
 			result, err := step.Run(ctx, md)
 			Expect(err).To(BeNil())
 			Expect(result.Status).To(Equal(agentlib.AgentStatusFailed))
-			Expect(result.Message).To(HavePrefix("execution: "))
-			Expect(result.Message).To(ContainSubstring(`gate target "check" failed`))
-			Expect(result.Message).To(ContainSubstring("trivy found CVE-X"))
+			Expect(result.Message).To(ContainSubstring("claude died"))
+			Expect(runner.RunCallCount()).To(Equal(1))
 			Expect(ops.CommitCallCount()).To(Equal(0))
-			Expect(ops.PushCallCount()).To(Equal(0))
 			Expect(gh.CreatePRCallCount()).To(Equal(0))
-
-			out, rerr := agentlib.ExtractSection[pkg.ResultOutput](ctx, md, "## Result")
-			Expect(rerr).To(BeNil())
-			Expect(out.Outcome).To(Equal(pkg.ResultOutcomeFailed))
-			Expect(out.FailedTarget).To(Equal("check"))
-			Expect(out.GateExit).To(Equal(2))
 		})
 	})
 
