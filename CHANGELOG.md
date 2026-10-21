@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 - fix: image runs as non-root uid 1000 so target-repo tests that expect a read-only directory to refuse writes pass as they do in CI
+- docs: OAuth setup chowns the credentials PVC to uid 1000; migration note for existing root-owned PVCs
 
 ## v0.20.0
 

@@ -47,10 +47,23 @@ claude login
 # Follow browser auth flow
 ls -la /home/claude/.claude/
 # Verify: .credentials.json and settings.json exist
+# The agent image runs as uid 1000 — hand the PVC to it, or the CLI can
+# neither read the 0600 credentials nor refresh the token
+chown -R 1000:1000 /home/claude/.claude
+ls -ln /home/claude/.claude/
+# Verify: every entry is owned by 1000 1000
 exit
 ```
 
 Pod auto-deletes (`--rm`). Credentials persist on the PVC.
+
+## Migrating to the non-root image
+
+Images before the non-root release ran as root, so an existing `github-update-go-agent`
+PVC — and any Go cache PVC the Job mounts — holds root-owned files. Before the first
+non-root image goes live in a namespace, run `chown -R 1000:1000` once over each such
+PVC's mount root (same pod shape as above, root user). Without it every Job fails at
+the Claude OAuth probe, before any repo work.
 
 ## Token Refresh
 
