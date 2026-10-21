@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- perf: pre-warm the Go module + build cache in the image for every scanner the repo gates invoke via `go run` at a `tools.env` pin (go-modtool, goimports-reviser, golines, golangci-lint, govulncheck, osv-scanner, addlicense, counterfeiter, ginkgo). Repo gates run each scanner as `go run <tool>@<ver>`, which on a cold pod downloaded and compiled every tool per Job — the planning baseline gates took a median 4.3 min over 73 sun Jobs. With the cache baked in at `HOME=/home/claude`, a repo pinning the canonical version gets a cache hit (measured locally: 0–2 s per tool, no `go: downloading`, vs 17 s + 3 downloads for `addlicense` alone on an empty cache). A repo pinning a different version misses the cache and behaves as before. Versions are read from `tools.env` in the Dockerfile, so there is no second copy of the pins. A failed download or compile fails the image build (`go install` under `set -e`), so a bad pin cannot ship a silently cold cache. Cost: the warm layer adds 4.09 GB (2.4 GB modules + 1.5 GB build cache), taking the image from ~1.2 GB to ~5.3 GB — pulled once per node per tag. Adds `docs/measure/` (`phases.py`, `cap.sh`) to re-measure per-phase Job timings from captured pod logs.
+
 ## v0.21.0
 
 - fix: execution adopts an already-pushed `fix/update-go-<ref>` branch with no PR and opens a draft PR from it instead of re-pushing (lost claim between push and PR create; also vuln-fix runs)
@@ -13,7 +17,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## v0.20.0
 
-- perf: pre-warm the Go module + build cache in the image for every scanner the repo gates invoke via `go run` at a `tools.env` pin (go-modtool, goimports-reviser, golines, golangci-lint, govulncheck, osv-scanner, addlicense, counterfeiter, ginkgo). Repo gates run each scanner as `go run <tool>@<ver>`, which on a cold pod downloaded and compiled every tool per Job — the planning baseline gates took a median 4.3 min over 73 sun Jobs. With the cache baked in at `HOME=/home/claude`, a repo pinning the canonical version gets a cache hit (measured locally: 0–2 s per tool, no `go: downloading`, vs 17 s + 3 downloads for `addlicense` alone on an empty cache). A repo pinning a different version misses the cache and behaves as before. Versions are read from `tools.env` in the Dockerfile, so there is no second copy of the pins. A failed download or compile fails the image build (`go install` under `set -e`), so a bad pin cannot ship a silently cold cache. Cost: the warm layer adds 4.09 GB (2.4 GB modules + 1.5 GB build cache), taking the image from ~1.2 GB to ~5.3 GB — pulled once per node per tag. Adds `docs/measure/` (`phases.py`, `cap.sh`) to re-measure per-phase Job timings from captured pod logs.
 - feat: execution sub-call runs build + targeted tests only; a red deterministic gate gets one bounded Claude repair attempt before failing
 
 ## v0.19.5
