@@ -5,9 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## v0.21.0
+## Unreleased
 
 - fix: execution adopts an already-pushed `fix/update-go-<ref>` branch with no PR and opens a draft PR from it instead of re-pushing (lost claim between push and PR create; also vuln-fix runs)
+
+## v0.21.0
+
 - fix: image runs as non-root uid 1000 so target-repo tests that expect a read-only directory to refuse writes pass as they do in CI
 - docs: OAuth setup chowns the credentials PVC to uid 1000; migration note for existing root-owned PVCs
 
