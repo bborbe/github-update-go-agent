@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- chore: update github.com/bborbe/agent to v0.112.0, github.com/bborbe/kafka to v1.28.4, github.com/bborbe/sentry to v1.10.5, github.com/bborbe/vault-cli to v0.177.0
+
 ## v0.19.4
 
 - chore: bump the build image's Go toolchain from 1.27.2 to 1.27.3 (`Dockerfile` `FROM …/golang:1.27.3`) and the `go` directive to match. `targetGoVersion()` returns `runtime.Version()`, so the image's Go **is** the version this agent plans every repo against — until the published image carries 1.27.3, every update-go task is planned against 1.27.2 and `GO-2026-6809` (fixed in v1.27.3) stays unaddressed no matter what the task says.
