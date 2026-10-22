@@ -56,7 +56,9 @@ ENV PATH=/usr/local/go/bin:${PATH}
 # Versions are read from tools.env so there is no second copy of the pins.
 # Cost (measured 2026-10-21, linux/amd64): +4.09 GB layer (2.4 GB modules,
 # 1.5 GB build cache; image ~1.2 -> 5.3 GB), ~9 min build under emulation.
-# Accepted: a node pulls it once per tag, the gate saving lands on every Job.
+# NOT used in production: every fleet sets GOMODCACHE/GOCACHE over a PVC, so Go
+# never reads this cache and no Job gets the saving. The layer is slated for
+# removal — see the v0.21.1 CHANGELOG entry.
 ENV HOME=/home/claude
 COPY tools.env /tmp/tools.env
 RUN set -e; v() { sed -nE "s/^$1[[:space:]]*\?=[[:space:]]*([^[:space:]]+).*/\1/p" /tmp/tools.env; }; \
