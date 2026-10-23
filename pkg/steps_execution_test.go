@@ -202,7 +202,7 @@ var _ = Describe("ExecutionStep", func() {
 			Expect(out.PRURL).To(Equal("https://github.com/bborbe/demo/pull/42"))
 		})
 
-		It("opens a draft PR even when the deployment configures PRTargetReady", func() {
+		It("opens a ready PR when the deployment configures PRTargetReady", func() {
 			step = pkg.NewExecutionStep(
 				runner,
 				ops,
@@ -218,7 +218,7 @@ var _ = Describe("ExecutionStep", func() {
 			_, err := step.Run(ctx, md)
 			Expect(err).To(BeNil())
 			_, _, _, _, _, _, target, _ := gh.CreatePRArgsForCall(0)
-			Expect(target).To(Equal(pkg.PRTargetDraft))
+			Expect(target).To(Equal(pkg.PRTargetReady))
 		})
 
 		It("fails without pushing when CreatePR fails", func() {
