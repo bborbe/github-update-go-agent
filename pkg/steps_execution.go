@@ -154,9 +154,9 @@ func (s *executionStep) ShouldRun(_ context.Context, _ *agentlib.Markdown) (bool
 //     ## Result, re-route (crash-window idempotency, design § 5.3).
 //  4. Pushed-branch guard — fix/update-go-<ref:7> already on the remote with
 //     no open PR (a prior run crashed between push and PR create) → clone the
-//     pushed branch, open a DRAFT PR from it, write ## Result
-//     outcome=opened, re-route to ai_review; no update, no gate, no push. A
-//     lookup error falls through.
+//     pushed branch, open the PR from it at the configured target, write
+//     ## Result outcome=opened, re-route to ai_review; no update, no gate, no
+//     push. A lookup error falls through.
 //  5. Resolve current default-branch HEAD at run start, CloneAtRef at it, +
 //     SwitchNewBranch fix/update-go-<ref:7> (ref = pinned filing SHA —
 //     replay guard).
@@ -318,7 +318,7 @@ func (s *executionStep) salvageAfterClaudeFailure(
 }
 
 // replayGuard re-routes when a prior run already produced a successful
-// ## Result — the draft PR exists; redoing clone/push would duplicate work.
+// ## Result — the PR exists; redoing clone/push would duplicate work.
 // A failed ## Result does NOT re-route: the phase is the resume cursor and
 // a retry re-runs the pipeline.
 func (s *executionStep) replayGuard(
@@ -419,8 +419,12 @@ func (s *executionStep) adoptPushedBranch(
 // This path NEVER pushes, commits, or runs the update/gates: it only clones
 // the pushed branch and opens the PR.
 //
-// The PR is always a DRAFT, never s.prTarget: the first run may have been a
-// salvage run (which forces draft), and that cannot be known from here.
+// The PR opens at s.prTarget, the deployment's configured target. The first
+// run may have been a salvage run (which forces draft), and that cannot be
+// known from here — so a salvage-origin branch adopted after a crash also
+// opens at the configured target. That residual risk is accepted: the guard
+// conforms to the deployment's target, and ai_review keeps its draft-ness
+// check.
 func (s *executionStep) openPRFromPushedBranch(
 	ctx context.Context,
 	md *agentlib.Markdown,
@@ -436,7 +440,7 @@ func (s *executionStep) openPRFromPushedBranch(
 	prURL, err := s.gh.CreatePR(
 		ctx, workdir, "master", branch, prTitle,
 		buildPRBody(plan, &executionReport{}, nil),
-		PRTargetDraft,
+		s.prTarget,
 		s.autoMergeLabel,
 	)
 	if err != nil {
@@ -451,7 +455,10 @@ func (s *executionStep) openPRFromPushedBranch(
 	}
 	md.ReplaceSection(section)
 
-	glog.V(2).Infof("execution: opened draft PR %s from already-pushed branch %s", prURL, branch)
+	glog.V(2).Infof(
+		"execution: opened %s PR %s from already-pushed branch %s",
+		s.prTarget, prURL, branch,
+	)
 	return &agentlib.Result{
 		Status:    agentlib.AgentStatusDone,
 		NextPhase: domain.TaskPhaseAIReview.String(),
