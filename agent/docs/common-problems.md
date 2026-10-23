@@ -12,12 +12,12 @@ version.
 
 **Cause**: The repo pins `GOLANGCI_LINT_VERSION` in `tools.env` (or the Makefile) to a golangci-lint
 version whose SSA builder (`buildir`, via `honnef.co/go/tools`) does not understand the new Go's AST.
-Known broken: v2.11.4, v2.12.2 under Go 1.27. Known good: v2.13.1+.
+Known broken: v2.11.4, v2.12.2, v2.13.1 under Go 1.27. Known good: v2.14.0+.
 
-**Confirm**: `grep GOLANGCI_LINT_VERSION tools.env` shows `< v2.13.1` AND the repo targets Go 1.27+.
+**Confirm**: `grep GOLANGCI_LINT_VERSION tools.env` shows `< v2.14.0` AND the repo targets Go 1.27+.
 
 **Fix**: Bump the pin in the target repo's `tools.env`:
-`GOLANGCI_LINT_VERSION ?= v2.13.1` (keep the `?=` form). Run `make precommit` to confirm the lint
+`GOLANGCI_LINT_VERSION ?= v2.14.0` (keep the `?=` form). Run `make precommit` to confirm the lint
 gate is green. This is a per-repo edit; the canonical template lives in `bborbe-go-skeleton/tools.env`.
 
 **Do NOT**: edit `.golangci.yml` to disable linters as a workaround — the version bump is the fix.
@@ -58,7 +58,7 @@ block in `.osv-scanner.toml` — see runbook `[[Exclude a No-Fix Vulnerability A
 **Symptom**: The clone carries a broken tooling version even though `origin/master` has the fix.
 
 **Cause**: The agent clones the task's pinned `ref` (a commit SHA from when the task was filed). If
-that ref predates a `tools.env` / tooling fix (e.g. golangci-lint v2.13.1), the clone has the broken
+that ref predates a `tools.env` / tooling fix (e.g. golangci-lint v2.14.0), the clone has the broken
 version — the fix on master never reaches this task's checkout.
 
 **Confirm**: `git -C <workdir> log -1 --oneline` shows the old ref; `git fetch origin && git log -1
