@@ -578,6 +578,41 @@ body
 			Expect(ops.CommitCallCount()).To(Equal(0))
 			Expect(gh.CreatePRCallCount()).To(Equal(0))
 		})
+
+		Context("gates green", func() {
+			BeforeEach(func() {
+				gate.RunTargetReturns("", 0, nil)
+			})
+
+			It("salvages as a PR at the configured target (ready), not forced draft", func() {
+				step = pkg.NewExecutionStep(
+					runner,
+					ops,
+					gh,
+					gate,
+					bulk,
+					"tok",
+					pkg.PRTargetReady,
+					"",
+					pkg.UpdateScopeBoth,
+				)
+				result, err := step.Run(ctx, md)
+				Expect(err).To(BeNil())
+				Expect(result.Status).To(Equal(agentlib.AgentStatusDone))
+				Expect(gh.CreatePRCallCount()).To(Equal(1))
+				_, _, _, _, _, _, gotTarget, _ := gh.CreatePRArgsForCall(0)
+				Expect(gotTarget).To(Equal(pkg.PRTargetReady))
+			})
+
+			It("salvages as a draft PR when the configured target is draft", func() {
+				result, err := step.Run(ctx, md)
+				Expect(err).To(BeNil())
+				Expect(result.Status).To(Equal(agentlib.AgentStatusDone))
+				Expect(gh.CreatePRCallCount()).To(Equal(1))
+				_, _, _, _, _, _, gotTarget, _ := gh.CreatePRArgsForCall(0)
+				Expect(gotTarget).To(Equal(pkg.PRTargetDraft))
+			})
+		})
 	})
 
 	Describe("no-effective-change guard", func() {

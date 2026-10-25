@@ -162,7 +162,7 @@ func (s *executionStep) ShouldRun(_ context.Context, _ *agentlib.Markdown) (bool
 //     replay guard).
 //  6. Claude sub-call (file-edit + go/make only) — update + repair + CHANGELOG,
 //     bounded by claudeExecutionTimeout. On failure the gates still decide:
-//     green → salvage the work as a DRAFT PR, red → Failed with the Claude
+//     green → salvage the work as a PR at PR_TARGET, red → Failed with the Claude
 //     cause (see salvageAfterClaudeFailure).
 //  7. Deterministic gate run of the plan's gate targets. A red target gets ONE
 //     bounded Claude repair sub-call (gateRepairTimeout), then every target is
@@ -257,7 +257,7 @@ func (s *executionStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentl
 		return failResult, err
 	}
 
-	return s.commitPushAndOpenPR(ctx, md, workdir, branch, plan, report, result, s.prTarget)
+	return s.commitPushAndOpenPR(ctx, md, workdir, branch, plan, report, result)
 }
 
 // salvageAfterClaudeFailure decides what to do when the Claude sub-call
@@ -271,14 +271,16 @@ func (s *executionStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentl
 // and green, and nothing was pushed. When the gates pass, the work on disk is
 // good regardless of how the model exited.
 //
-// Two deliberate safety limits:
-//   - The pull request is forced to DRAFT even on a deployment configured
-//     PR_TARGET=ready. Green gates prove the code compiles and tests pass;
-//     they do NOT prove the model finished its non-gated duties — most
-//     importantly the CHANGELOG bullet, whose absence on an autoRelease repo
-//     means the change merges but never ships. A human sees salvaged work.
-//   - Gates red means no salvage: fail with the Claude error, which is the
-//     more actionable cause.
+// The pull request opens at the deployment's configured PR_TARGET, like every
+// other path. The model's one non-gated duty, the CHANGELOG bullet, is not
+// left to the model: commitPushAndOpenPR runs EnsureChangelog before the
+// commit, so salvaged work carries its CHANGELOG entry too. Forcing draft here
+// stranded the PR instead — the PR watcher skips drafts, and ai_review fails a
+// draft against PR_TARGET=ready as a draft-ness mismatch, so nothing ever
+// marked it ready.
+//
+// Gates red means no salvage: fail with the Claude error, which is the more
+// actionable cause.
 func (s *executionStep) salvageAfterClaudeFailure(
 	ctx context.Context,
 	md *agentlib.Markdown,
@@ -311,10 +313,10 @@ func (s *executionStep) salvageAfterClaudeFailure(
 	}
 
 	glog.Warningf(
-		"execution: gates green despite claude failure — salvaging as a DRAFT pull "+
-			"request (branch=%s); review the CHANGELOG before merging", branch,
+		"execution: gates green despite claude failure — salvaging as a pull "+
+			"request (branch=%s, target=%s)", branch, s.prTarget,
 	)
-	return s.commitPushAndOpenPR(ctx, md, workdir, branch, plan, report, result, PRTargetDraft)
+	return s.commitPushAndOpenPR(ctx, md, workdir, branch, plan, report, result)
 }
 
 // replayGuard re-routes when a prior run already produced a successful
@@ -419,11 +421,9 @@ func (s *executionStep) adoptPushedBranch(
 // This path NEVER pushes, commits, or runs the update/gates: it only clones
 // the pushed branch and opens the PR.
 //
-// The PR opens at s.prTarget, the deployment's configured target. The first
-// run may have been a salvage run (which forces draft), and that cannot be
-// known from here — so a salvage-origin branch adopted after a crash also
-// opens at the configured target. That residual risk is accepted: the guard
-// conforms to the deployment's target, and ai_review keeps its draft-ness
+// The PR opens at s.prTarget, the deployment's configured target — the same
+// target the normal and salvage paths use, so a branch adopted after a crash
+// opens exactly as its first run would have. ai_review keeps its draft-ness
 // check.
 func (s *executionStep) openPRFromPushedBranch(
 	ctx context.Context,
@@ -788,11 +788,9 @@ func (s *executionStep) runGateRepair(
 }
 
 // commitPushAndOpenPR runs the no-effective-change guard, then the guarded
-// commit → push → PR tail, and writes the successful ## Result.
-//
-// prTarget is passed in rather than read from s.prTarget because the salvage
-// path forces draft regardless of deployment configuration — see
-// salvageAfterClaudeFailure.
+// commit → push → PR tail, and writes the successful ## Result. The PR opens
+// at s.prTarget on every path — normal, salvage and adopt — so ai_review's
+// draft-ness check always compares against what was actually requested.
 func (s *executionStep) commitPushAndOpenPR(
 	ctx context.Context,
 	md *agentlib.Markdown,
@@ -800,7 +798,6 @@ func (s *executionStep) commitPushAndOpenPR(
 	plan *PlanOutput,
 	report *executionReport,
 	result *ResultOutput,
-	prTarget PRTarget,
 ) (*agentlib.Result, error) {
 	changed, err := s.ops.ChangedFiles(ctx, workdir)
 	if err != nil {
@@ -859,7 +856,7 @@ func (s *executionStep) commitPushAndOpenPR(
 	prURL, err := s.gh.CreatePR(
 		ctx, workdir, "master", branch, prTitle,
 		buildPRBody(plan, report, vulnsFixed),
-		prTarget,
+		s.prTarget,
 		s.autoMergeLabel,
 	)
 	if err != nil {
@@ -876,7 +873,7 @@ func (s *executionStep) commitPushAndOpenPR(
 	}
 	md.ReplaceSection(section)
 
-	glog.V(2).Infof("execution: PR opened (target=%s) %s branch=%s", prTarget, prURL, branch)
+	glog.V(2).Infof("execution: PR opened (target=%s) %s branch=%s", s.prTarget, prURL, branch)
 	return &agentlib.Result{
 		Status:    agentlib.AgentStatusDone,
 		NextPhase: domain.TaskPhaseAIReview.String(),
