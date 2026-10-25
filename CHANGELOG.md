@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- fix: git and gh subprocesses now inherit the proxy variables (`HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY` and their lowercase spellings) when set, alongside `HOME`, `PATH` and (for gh) `GH_TOKEN`. Both env allowlists carried only `HOME` and `PATH`, so every clone, fetch, `ls-remote` and push — and every `gh pr create` / `pr list` / `pr view` / `run view` / `api` call — connected directly and was refused in a proxy-only namespace (`Failed to connect to github.com:443 after 2 ms`) while the rest of the pod reached the network through the proxy. The allowlists stay explicit — no other pod variable reaches git or gh — and tests assert an unrelated secret-shaped variable is not passed through.
+
 ## v0.21.3
 
 - chore: `agent/docs/common-problems.md` § 1 now names golangci-lint `v2.14.0` as the known-good floor for Go 1.27 and lists `v2.13.1` as broken. The old `v2.13.1+` claim told the in-pod agent its pin was already checked, so it did not self-heal a repo failing `precommit` with `export data version 5 is greater than maximum supported version` — and `v2.13.1` genuinely fails on Go 1.27.3. Verified at `v2.14.0`: `make precommit` exits 0 with `0 issues.` on `bborbe/github-dark-factory-watcher` and `bborbe/mantra-watcher` inside this image. § 3's stale-pinned-ref example was updated to match.

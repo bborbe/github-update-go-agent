@@ -6,7 +6,6 @@ package pkg
 
 import (
 	"context"
-	"os"
 	"os/exec"
 	"strings"
 
@@ -59,14 +58,7 @@ func (g *ghInstallationScope) Allows(ctx context.Context, repo string) ScopeVerd
 		"gh", "api", "/installation/repositories",
 		"--paginate", "--jq", ".repositories[].full_name",
 	)
-	env := []string{
-		"HOME=" + os.Getenv("HOME"),
-		"PATH=" + os.Getenv("PATH"),
-	}
-	if g.ghToken != "" {
-		env = append(env, "GH_TOKEN="+g.ghToken)
-	}
-	cmd.Env = env
+	cmd.Env = ghSubprocessEnv(g.ghToken)
 	out, err := cmd.Output()
 	if err != nil {
 		glog.V(2).Infof("installation-scope: listing failed (%v) — verdict unknown", err)

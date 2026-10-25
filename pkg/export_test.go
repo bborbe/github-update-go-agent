@@ -87,6 +87,10 @@ var (
 	}
 )
 
+// GhSubprocessEnvForTest exposes the gh subprocess env allowlist so pkg_test
+// can assert the proxy variables pass through and nothing else leaks.
+var GhSubprocessEnvForTest = ghSubprocessEnv
+
 // Build-fix test exports: ParseFixPlanForTest, ShortSHAForTest, and
 // SanitizeSlugForTest expose the build-fixer's unexported helpers so pkg_test
 // can cover the diagnosis verdict grammar and spec-filename safety.
