@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.21.4
 
 - fix: the salvage path (Claude sub-call failed, gates green) opens its PR at the deployment's configured `PR_TARGET` instead of forcing draft. A forced draft on a `PR_TARGET=ready` deployment stranded the PR twice over: the PR watcher skips drafts, and `ai_review` failed it with `pr draft-ness mismatch: observed draft=true, configured target=ready`, so nothing ever marked it ready. The stated reason for forcing draft — a possibly missing CHANGELOG bullet — no longer holds: `EnsureChangelog` runs inside `commitPushAndOpenPR` on every path, salvage included. `commitPushAndOpenPR` drops its target parameter and always uses the configured target, so the normal, salvage and adopt paths can no longer diverge.
 
