@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - fix: git and gh subprocesses now inherit the proxy variables (`HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY` and their lowercase spellings) when set, alongside `HOME`, `PATH` and (for gh) `GH_TOKEN`. Both env allowlists carried only `HOME` and `PATH`, so every clone, fetch, `ls-remote` and push — and every `gh pr create` / `pr list` / `pr view` / `run view` / `api` call — connected directly and was refused in a proxy-only namespace (`Failed to connect to github.com:443 after 2 ms`) while the rest of the pod reached the network through the proxy. The allowlists stay explicit — no other pod variable reaches git or gh — and tests assert an unrelated secret-shaped variable is not passed through.
 
+## v0.21.4
+
+- fix: the salvage path (Claude sub-call failed, gates green) opens its PR at the deployment's configured `PR_TARGET` instead of forcing draft. A forced draft on a `PR_TARGET=ready` deployment stranded the PR twice over: the PR watcher skips drafts, and `ai_review` failed it with `pr draft-ness mismatch: observed draft=true, configured target=ready`, so nothing ever marked it ready. The stated reason for forcing draft — a possibly missing CHANGELOG bullet — no longer holds: `EnsureChangelog` runs inside `commitPushAndOpenPR` on every path, salvage included. `commitPushAndOpenPR` drops its target parameter and always uses the configured target, so the normal, salvage and adopt paths can no longer diverge.
+
 ## v0.21.3
 
 - chore: `agent/docs/common-problems.md` § 1 now names golangci-lint `v2.14.0` as the known-good floor for Go 1.27 and lists `v2.13.1` as broken. The old `v2.13.1+` claim told the in-pod agent its pin was already checked, so it did not self-heal a repo failing `precommit` with `export data version 5 is greater than maximum supported version` — and `v2.13.1` genuinely fails on Go 1.27.3. Verified at `v2.14.0`: `make precommit` exits 0 with `0 issues.` on `bborbe/github-dark-factory-watcher` and `bborbe/mantra-watcher` inside this image. § 3's stale-pinned-ref example was updated to match.
