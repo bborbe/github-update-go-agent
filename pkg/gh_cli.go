@@ -14,6 +14,8 @@ import (
 
 	"github.com/bborbe/errors"
 	"github.com/golang/glog"
+
+	"github.com/bborbe/github-update-go-agent/pkg/git"
 )
 
 //counterfeiter:generate -o ../mocks/gh_cli.go --fake-name GhCli . GhCli
@@ -68,14 +70,24 @@ type osExecGhCli struct {
 
 // cmdEnv returns the env allowlist for gh subprocesses. gh needs HOME to
 // locate ~/.config/gh and PATH to resolve git; GH_TOKEN carries the
-// credential. Strict allowlist prevents pod-level secrets from leaking.
+// credential; the set proxy variables (git.ProxyEnv) route its API calls
+// through the egress proxy. Strict allowlist prevents pod-level secrets from
+// leaking.
 func (g *osExecGhCli) cmdEnv() []string {
+	return ghSubprocessEnv(g.ghToken)
+}
+
+// ghSubprocessEnv builds the explicit env allowlist shared by every gh
+// subprocess: HOME, PATH, the set proxy variables and, when non-empty,
+// GH_TOKEN. Never widen this to os.Environ().
+func ghSubprocessEnv(ghToken string) []string {
 	env := []string{
 		"HOME=" + os.Getenv("HOME"),
 		"PATH=" + os.Getenv("PATH"),
 	}
-	if g.ghToken != "" {
-		env = append(env, "GH_TOKEN="+g.ghToken)
+	env = append(env, git.ProxyEnv()...)
+	if ghToken != "" {
+		env = append(env, "GH_TOKEN="+ghToken)
 	}
 	return env
 }

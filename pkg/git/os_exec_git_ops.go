@@ -43,14 +43,44 @@ func NewOSExecGitOps() GitOps {
 
 type osExecGitOps struct{}
 
-// cmdEnv returns the env allowlist for git subprocesses: HOME (for ~/.gitconfig
-// fallback) + PATH (to resolve git). Strict allowlist prevents pod-level
-// secrets from leaking. Mirrors github-releaser-agent's osExecGitOps.cmdEnv.
-func (g *osExecGitOps) cmdEnv() []string {
-	return []string{
-		"HOME=" + os.Getenv("HOME"),
-		"PATH=" + os.Getenv("PATH"),
+// proxyEnvKeys are the proxy variables passed through to network subprocesses
+// when set. Both spellings are listed because curl (git's HTTP transport)
+// reads the lowercase form first and some environments set only one of them.
+var proxyEnvKeys = []string{
+	"HTTPS_PROXY",
+	"https_proxy",
+	"HTTP_PROXY",
+	"http_proxy",
+	"NO_PROXY",
+	"no_proxy",
+}
+
+// ProxyEnv returns the KEY=value entries for every proxy variable in
+// proxyEnvKeys that is set in the current process. Subprocesses that run with
+// an explicit env allowlist (git, gh) append it; without it they connect
+// directly and are refused in a proxy-only namespace.
+func ProxyEnv() []string {
+	env := make([]string, 0, len(proxyEnvKeys))
+	for _, key := range proxyEnvKeys {
+		if value, ok := os.LookupEnv(key); ok {
+			env = append(env, key+"="+value)
+		}
 	}
+	return env
+}
+
+// cmdEnv returns the env allowlist for git subprocesses: HOME (for ~/.gitconfig
+// fallback) + PATH (to resolve git) + the set proxy variables (ProxyEnv).
+// Strict allowlist prevents pod-level secrets from leaking — never widen this
+// to os.Environ(). Mirrors github-releaser-agent's osExecGitOps.cmdEnv.
+func (g *osExecGitOps) cmdEnv() []string {
+	proxyEnv := ProxyEnv()
+	env := make([]string, 0, 2+len(proxyEnv))
+	env = append(env,
+		"HOME="+os.Getenv("HOME"),
+		"PATH="+os.Getenv("PATH"),
+	)
+	return append(env, proxyEnv...)
 }
 
 func (g *osExecGitOps) CloneAtRef(ctx context.Context, cloneURL, ref, workdir string) error {
