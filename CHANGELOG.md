@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.21.5
 
 - fix: git and gh subprocesses now inherit the proxy variables (`HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY` and their lowercase spellings) when set, alongside `HOME`, `PATH` and (for gh) `GH_TOKEN`. Both env allowlists carried only `HOME` and `PATH`, so every clone, fetch, `ls-remote` and push — and every `gh pr create` / `pr list` / `pr view` / `run view` / `api` call — connected directly and was refused in a proxy-only namespace (`Failed to connect to github.com:443 after 2 ms`) while the rest of the pod reached the network through the proxy. The allowlists stay explicit — no other pod variable reaches git or gh — and tests assert an unrelated secret-shaped variable is not passed through.
 
