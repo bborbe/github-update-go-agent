@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.21.10
 
 - docs: record the fan-out rule in `agent/docs/common-problems.md` — a no-fix rationale is **per-repo, never per-batch**. The same advisory appearing in many repos does not make one sentence true for each: whether the module is present at all, and at which version, differs per repo, so the park message must state that repo-level fact rather than repeat a batch rationale. Measured failure (2026-10): one ignore rationale — *"containerd v1.7.36, no fix available"* — was stamped across 25 PRs while **no repo had v1.7.36**; 17 carried `containerd/v2 v2.3.3`, which GO-2026-6791 affects and v2.3.4 fixes, so those were fixable rather than parkable, and 8 carried no containerd at all. The entry gives the one-command check (`go list -m all | grep -i <module>`) and the rule that an empty result means the finding does not apply to that repo.
 
