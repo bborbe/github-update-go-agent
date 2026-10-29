@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- perf: remove the Go module + build-cache pre-warm from the image, dropping it from **3.71 GB to 418 MB** (largest layer 265 MB, was two ~1.64 GB blobs). v0.21.1 introduced that layer and recorded it as costing 4.09 GB while **never reaching a production Job** — every fleet sets `GOMODCACHE`/`GOCACHE` over a PVC, so Go never read the baked cache — and as "slated for removal". This is that removal; the behaviour returns to pre-v0.21.1, where `go run <tool>@<ver>` compiles on a cold cache. Beyond the size, the layer made the image **unpushable**: two ~1.6 GB blobs could not be uploaded to the registry from a normal connection (repeated stalls across two independent uploaders) while a sibling image's 295 MB and 211 MB blobs completed fine. Removed the `tools.env` copy and the `ENV HOME` that existed only to place the cache; the final stage still sets `HOME`.
+
 ## v0.21.8
 
 - chore: update github.com/bborbe/agent to v0.133.0, github.com/bborbe/cqrs to v0.6.15, github.com/bborbe/kafka to v1.29.2, github.com/bborbe/service to v1.11.2, github.com/bborbe/time to v1.27.19, github.com/bborbe/vault-cli to v0.184.0
