@@ -4,8 +4,8 @@ github.com/Masterminds/semver/v3 v3.5.0 h1:kQceYJfbupGfZOKZQg0kou0DgAKhzDg2NZPAw
 github.com/Masterminds/semver/v3 v3.5.0/go.mod h1:4V+yj/TJE1HU9XfppCwVMZq3I84lprf4nC11bSS5beM=
 github.com/a2aproject/a2a-go/v2 v2.7.0 h1:rwIpzO5O9Mxu/Rm4S2SZfHYzNcvF3FK9aaaTxP35kAo=
 github.com/a2aproject/a2a-go/v2 v2.7.0/go.mod h1:rvFIb0sBJl2qmJRYU2fQxI6hhIQksmGGMEhT/uRwWww=
-github.com/bborbe/agent v0.131.0 h1:bB0I9PcGE8zWhf4Ue35XbuUqh9MCzAolLMZxxWyvhBc=
-github.com/bborbe/agent v0.131.0/go.mod h1:v+iXL4Vaw6cXfEe/8elwCEs3lOsW5jTgleeUZoe4uIU=
+github.com/bborbe/agent v0.132.5 h1:70QafpdNjlxEw2K9FSCyDBOEb75fR9QoBCVoFyA1NPc=
+github.com/bborbe/agent v0.132.5/go.mod h1:sPkcwo/C76ZcVSiPxbeVgN6Cjy0vBaQNgAI0P8B18QM=
 github.com/bborbe/argument/v2 v2.13.8 h1:iAhOA67f3NMnOI0SwnaPT5+HW99vHA8whjORfDYmbtU=
 github.com/bborbe/argument/v2 v2.13.8/go.mod h1:s2AypULcQok4aVLBTcJTFJ+0nemtVkrxwo2XFOgOSyo=
 github.com/bborbe/boltkv v1.16.1 h1:bbXWHHpTqYNQMd+QitEW1WrG9s/WIbKA81R2H6JOx7s=
