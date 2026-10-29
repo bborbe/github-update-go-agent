@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- chore: update github.com/bborbe/agent to v0.133.0, github.com/bborbe/cqrs to v0.6.15, github.com/bborbe/kafka to v1.29.2, github.com/bborbe/service to v1.11.2, github.com/bborbe/time to v1.27.19, github.com/bborbe/vault-cli to v0.184.0
+
 ## v0.21.7
 
 - fix: update github.com/bborbe/agent to v0.132.5 so the result deliverer stops restoring a stale phase. A result that advances no phase no longer republishes the Job-start phase over a park: the Kafka payload omits `phase` on those branches, so the controller's on-disk-first merge keeps the on-disk value, and the file deliverer carries the on-disk phase forward. Closes the prod-vs-sun duplicate class measured on v7.
