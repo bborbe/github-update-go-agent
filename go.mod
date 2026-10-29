@@ -7,7 +7,7 @@ tool (
 )
 
 require (
-	github.com/bborbe/agent v0.131.0
+	github.com/bborbe/agent v0.132.5
 	github.com/bborbe/cqrs v0.6.14
 	github.com/bborbe/errors v1.6.5
 	github.com/bborbe/kafka v1.29.1
