@@ -49,6 +49,26 @@ review.
 excluding it hides real risk. Only empty-Fixed-Version / unmaintained advisories may be parked (and
 they park, not auto-exclude).
 
+**Fan-out rule — a rationale is per-repo, never per-batch.** The same advisory showing up in many
+repos does not mean the same sentence applies to each one. Two facts differ per repo: whether the
+module is present **at all**, and **which version** it sits at. Confirm both in the repo you are
+about to write about, and state that repo-level fact in the park message rather than repeating a
+batch rationale.
+
+```bash
+go list -m all 2>/dev/null | grep -i <module>   # present? at which version?
+```
+
+If that prints nothing, the finding does not apply to this repo — say that, instead of carrying the
+batch sentence across.
+
+**Measured failure (2026-10).** One ignore rationale — *"containerd v1.7.36, no fix available"* — was
+stamped across 25 PRs, and **no repo had v1.7.36**. 17 carried `containerd/v2 v2.3.3`, which
+GO-2026-6791 affects and **v2.3.4 fixes** — so those were *fixable*, not parkable, and the rationale
+suppressed a real vulnerability. The other 8 carried no containerd at all, so the rationale was
+meaningless there. All 25 were wrong, and none was wrong in the same way: the defect is not the
+rationale, it is applying one rationale without reading the repo it lands in.
+
 **For the operator** (not the agent): the exclusion procedure is per-repo config edits —
 `VULNCHECK_IGNORE` in Makefile/Makefile.precommit, `<GO-ID>` in `.trivyignore`, an `[[IgnoredVulns]]`
 block in `.osv-scanner.toml` — see runbook `[[Exclude a No-Fix Vulnerability Across the Fleet]]`.
