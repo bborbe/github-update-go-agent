@@ -46,48 +46,17 @@ RUN curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/
 # IS the go-directive bump target, kept current by this very pipeline.
 COPY --from=build /usr/local/go /usr/local/go
 ENV PATH=/usr/local/go/bin:${PATH}
-# Pre-warm the Go module + build cache for the nine scanners the repo gates
-# invoke via `go run <tool>@<ver>` (the tools.env pins errcheck and gosec are
-# omitted: Makefile.precommit embeds both in golangci-lint, so no gate runs
-# them). On a cold pod each tool is downloaded and compiled per Job (minutes);
-# with the cache baked in at the runtime HOME, a repo pinning the canonical
-# version gets a cache hit.
-# A repo pinning another version just misses the cache — today's behaviour.
-# Versions are read from tools.env so there is no second copy of the pins.
-# Cost (measured 2026-10-21, linux/amd64): +4.09 GB layer (2.4 GB modules,
-# 1.5 GB build cache; image ~1.2 -> 5.3 GB), ~9 min build under emulation.
-# NOT used in production: every fleet sets GOMODCACHE/GOCACHE over a PVC, so Go
-# never reads this cache and no Job gets the saving. The layer is slated for
-# removal — see the v0.21.1 CHANGELOG entry.
-ENV HOME=/home/claude
-COPY tools.env /tmp/tools.env
-RUN set -e; v() { sed -nE "s/^$1[[:space:]]*\?=[[:space:]]*([^[:space:]]+).*/\1/p" /tmp/tools.env; }; \
-    for t in \
-      "github.com/shoenig/go-modtool@$(v GO_MODTOOL_VERSION)" \
-      "github.com/incu6us/goimports-reviser/v3@$(v GOIMPORTS_REVISER_VERSION)" \
-      "github.com/segmentio/golines@$(v GOLINES_VERSION)" \
-      "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(v GOLANGCI_LINT_VERSION)" \
-      "golang.org/x/vuln/cmd/govulncheck@$(v GOVULNCHECK_VERSION)" \
-      "github.com/google/osv-scanner/v2/cmd/osv-scanner@$(v OSV_SCANNER_VERSION)" \
-      "github.com/google/addlicense@$(v ADDLICENSE_VERSION)" \
-      "github.com/maxbrunsfeld/counterfeiter/v6@$(v COUNTERFEITER_VERSION)" \
-      "github.com/onsi/ginkgo/v2/ginkgo@$(v GINKGO_VERSION)" \
-    ; do \
-      case "$t" in *@) echo "missing version for $t" >&2; exit 1;; esac; \
-      # go install fails the build on a download/compile error (set -e), so a
-      # bad pin or network failure cannot ship a silently cold cache.
-      GOBIN=/tmp/warm-bin go install "$t"; \
-      # go run caches the linked executable too; --help exit codes vary per tool.
-      go run "$t" --help >/dev/null 2>&1 </dev/null || true; \
-    done; \
-    # Smoke assertion: the caches must be non-empty and a re-run of one tool
-    # must resolve from them, so a base-image or HOME drift that would silently
-    # re-cold-start every gate fails the build instead.
-    [ -n "$(ls -A "$(go env GOMODCACHE)")" ] && [ -n "$(ls -A "$(go env GOCACHE)")" ]; \
-    case "$(go run github.com/google/addlicense@$(v ADDLICENSE_VERSION) --help 2>&1 </dev/null)" in \
-      *"go: downloading"*) echo "warm cache not used: addlicense re-downloaded" >&2; exit 1;; \
-    esac; \
-    rm -rf /tmp/tools.env /tmp/warm-bin
+# The Go module + build cache pre-warm was REMOVED here (2026-10-29). It cost a
+# 4.09 GB layer and never reached a production Job: every fleet sets
+# GOMODCACHE/GOCACHE over a PVC, so Go never read the baked cache. v0.21.1
+# recorded it as "slated for removal"; this is that removal. Gates that run
+# `go run <tool>@<ver>` now compile on a cold cache exactly as they did before
+# v0.21.1 — the behaviour the layer was measured against.
+#
+# Why it mattered beyond size: the layer pushed the image to ~5.3 GB with two
+# ~1.6 GB blobs, and those blobs could not be uploaded to the registry from a
+# normal connection — the push stalled repeatedly while ~300 MB blobs from a
+# sibling image completed fine. Dropping it also restores a pushable image.
 
 FROM alpine
 ARG BUILD_GIT_VERSION=dev
