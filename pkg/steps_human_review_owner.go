@@ -8,11 +8,8 @@ import (
 	"context"
 
 	agentlib "github.com/bborbe/agent"
+	domain "github.com/bborbe/vault-cli/pkg/domain"
 )
-
-// humanReviewPhase is the phase a step routes a record into when the pipeline
-// ends in a state a person must resolve.
-const humanReviewPhase = "human_review"
 
 // reassignDeclarationKey names the frontmatter key that declares an assignee
 // write as a deliberate reassignment rather than an echo of the emitter's
@@ -100,7 +97,10 @@ func (s *humanReviewOwnerStep) Run(
 	md *agentlib.Markdown,
 ) (*agentlib.Result, error) {
 	result, err := s.inner.Run(ctx, md)
-	if result == nil || result.NextPhase != humanReviewPhase {
+	// The domain constant, not a local literal: the three routing sites build
+	// NextPhase from domain.TaskPhaseHumanReview.String(), and a hand-written
+	// "human_review" here would drift from that enum silently.
+	if result == nil || result.NextPhase != domain.TaskPhaseHumanReview.String() {
 		return result, err
 	}
 	if md.Frontmatter == nil {
