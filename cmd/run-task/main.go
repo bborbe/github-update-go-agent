@@ -87,6 +87,11 @@ type application struct {
 	// TaskType selects which domain agent to run: github-update-go (default)
 	// or build-fix. Mirrors the Kafka entry point's TASK_TYPE dispatch.
 	TaskType string `required:"false" arg:"task-type" env:"TASK_TYPE" usage:"Task type: github-update-go (default) | build-fix" default:"github-update-go"`
+
+	// HumanReviewOwner is the GitHub login stamped as the assignee on every record
+	// routed into human_review. Empty disables the stamp — the local replay then
+	// behaves exactly as before this change.
+	HumanReviewOwner string `required:"false" arg:"human-review-owner" env:"HUMAN_REVIEW_OWNER" usage:"GitHub login stamped as assignee on every record routed to human_review; empty disables the stamp"`
 }
 
 func (a *application) Run(ctx context.Context, _ libsentry.Client) error {
@@ -149,6 +154,9 @@ func (a *application) Run(ctx context.Context, _ libsentry.Client) error {
 		// createCmd: nil in local mode — chain emission records a no-op so
 		// a build-fix replay still exercises the full phase path.
 		nil,
+		factory.ResolveHumanReviewOwner(map[string]string{
+			factory.HumanReviewOwnerEnv: a.HumanReviewOwner,
+		}),
 	)
 	agent, err := provider.Get(ctx, agentlib.TaskType(a.TaskType))
 	if err != nil {

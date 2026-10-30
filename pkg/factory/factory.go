@@ -328,6 +328,7 @@ func CreateAgent(
 	prTarget updatepkg.PRTarget,
 	autoMergeLabel string,
 	updateScope updatepkg.UpdateScope,
+	humanReviewOwner string,
 ) *agentlib.Agent {
 	claudeAuth := updatepkg.NewClaudeAuthStep(claudeProber)
 	ghTokenCheck := updatepkg.NewGHTokenCheckStep(ghToken)
@@ -375,10 +376,48 @@ func CreateAgent(
 	)
 
 	return agentlib.NewAgent(
-		agentlib.NewPhase(domain.TaskPhasePlanning, claudeAuth, ghTokenCheck, planningStep),
-		agentlib.NewPhase(domain.TaskPhaseExecution, claudeAuth, executionStep),
-		agentlib.NewPhase(domain.TaskPhaseAIReview, reviewStep),
+		updaterPhases(
+			claudeAuth,
+			ghTokenCheck,
+			planningStep,
+			executionStep,
+			reviewStep,
+			humanReviewOwner,
+		)...,
 	)
+}
+
+// updaterPhases assembles the updater's three phase bodies.
+//
+// It is a named function rather than an inline literal so the composition test
+// can assert the human-review owner wrapper is actually applied to the phase
+// bodies this agent runs — a direct wrapper test passes while the wrapper is
+// never composed, which is the defect the sibling agent shipped in #61.
+//
+// planning and ai_review are the two phases that can route into human_review
+// (the malformed-config failure and the approved-but-unmerged PR); execution
+// never does, so it needs no wrapper.
+func updaterPhases(
+	claudeAuth agentlib.Step,
+	ghTokenCheck agentlib.Step,
+	planningStep agentlib.Step,
+	executionStep agentlib.Step,
+	reviewStep agentlib.Step,
+	humanReviewOwner string,
+) []agentlib.Phase {
+	return []agentlib.Phase{
+		agentlib.NewPhase(
+			domain.TaskPhasePlanning,
+			claudeAuth,
+			ghTokenCheck,
+			updatepkg.NewHumanReviewOwnerStep(planningStep, humanReviewOwner),
+		),
+		agentlib.NewPhase(domain.TaskPhaseExecution, claudeAuth, executionStep),
+		agentlib.NewPhase(
+			domain.TaskPhaseAIReview,
+			updatepkg.NewHumanReviewOwnerStep(reviewStep, humanReviewOwner),
+		),
+	}
 }
 
 // CreateBuildFixAgent assembles the build-fixer's three phases (the second
@@ -403,6 +442,7 @@ func CreateBuildFixAgent(
 	ghCli updatepkg.GhCli,
 	claudeProber updatepkg.ClaudeProber,
 	createCmd updatepkg.CreateCommandFunc,
+	humanReviewOwner string,
 ) *agentlib.Agent {
 	claudeAuth := updatepkg.NewClaudeAuthStep(claudeProber)
 	fixRunner := CreateClaudeRunner(
@@ -427,10 +467,31 @@ func CreateBuildFixAgent(
 	reviewStep := updatepkg.NewFixReviewStep(gitOps, ghToken)
 
 	return agentlib.NewAgent(
+		buildFixPhases(claudeAuth, planningStep, executionStep, reviewStep, humanReviewOwner)...,
+	)
+}
+
+// buildFixPhases assembles the build-fixer's three phase bodies. Named for the
+// same reason as updaterPhases: the composition test asserts the owner wrapper
+// is applied to the phase body this agent actually runs.
+//
+// Only ai_review routes into human_review here (the verified hand-off);
+// planning and execution never do.
+func buildFixPhases(
+	claudeAuth agentlib.Step,
+	planningStep agentlib.Step,
+	executionStep agentlib.Step,
+	reviewStep agentlib.Step,
+	humanReviewOwner string,
+) []agentlib.Phase {
+	return []agentlib.Phase{
 		agentlib.NewPhase(domain.TaskPhasePlanning, claudeAuth, planningStep),
 		agentlib.NewPhase(domain.TaskPhaseExecution, executionStep),
-		agentlib.NewPhase(domain.TaskPhaseAIReview, reviewStep),
-	)
+		agentlib.NewPhase(
+			domain.TaskPhaseAIReview,
+			updatepkg.NewHumanReviewOwnerStep(reviewStep, humanReviewOwner),
+		),
+	}
 }
 
 // CreateAgentProvider wires the per-task-type dispatch table.
@@ -454,6 +515,7 @@ func CreateAgentProvider(
 	autoMergeLabel string,
 	updateScope updatepkg.UpdateScope,
 	createCmd updatepkg.CreateCommandFunc,
+	humanReviewOwner string,
 ) agentlib.AgentProvider {
 	domainAgent := CreateAgent(
 		claudeConfigDir,
@@ -468,6 +530,7 @@ func CreateAgentProvider(
 		prTarget,
 		autoMergeLabel,
 		updateScope,
+		humanReviewOwner,
 	)
 	fixAgent := CreateBuildFixAgent(
 		claudeConfigDir,
@@ -479,6 +542,7 @@ func CreateAgentProvider(
 		ghCli,
 		claudeProber,
 		createCmd,
+		humanReviewOwner,
 	)
 	healthcheckRunner := CreateClaudeRunner(
 		claudeConfigDir,
