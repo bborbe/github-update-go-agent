@@ -129,8 +129,8 @@ var _ = Describe("human-review owner composition", func() {
 		}
 	})
 
-	It("composes no wrapper when the owner is unconfigured", func() {
-		for _, p := range updater("") {
+	It("composes no wrapper when the owner is unconfigured, on either composition site", func() {
+		for _, p := range append(updater(""), buildFix("")...) {
 			for _, step := range p.Steps {
 				_, isWrapper := updatepkg.IsHumanReviewOwnerStep(step)
 				Expect(isWrapper).To(BeFalse(), "an unset owner must compose no wrapper")
