@@ -39,14 +39,9 @@ func (s noopStep) Run(_ context.Context, _ *agentlib.Markdown) (*agentlib.Result
 // unstamped — the same silent-coverage failure these specs exist to prevent.
 func wrapperIn(phases []agentlib.Phase, phase string) agentlib.Step {
 	var found []agentlib.Step
-	for _, p := range phases {
-		if string(p.Name) != phase {
-			continue
-		}
-		for _, step := range p.Steps {
-			if _, ok := updatepkg.IsHumanReviewOwnerStep(step); ok {
-				found = append(found, step)
-			}
+	for _, step := range phaseNamed(phases, phase).Steps {
+		if _, ok := updatepkg.IsHumanReviewOwnerStep(step); ok {
+			found = append(found, step)
 		}
 	}
 	ExpectWithOffset(
@@ -54,6 +49,19 @@ func wrapperIn(phases []agentlib.Phase, phase string) agentlib.Step {
 		found,
 	).To(HaveLen(1), "phase %q must carry exactly one owner wrapper", phase)
 	return found[0]
+}
+
+// phaseNamed returns the named phase, failing when it is absent. Every spec goes
+// through it, so removing a phase from the factory fails loudly instead of
+// leaving a spec's loop body unreachable and the spec vacuously green.
+func phaseNamed(phases []agentlib.Phase, name string) agentlib.Phase {
+	for _, p := range phases {
+		if string(p.Name) == name {
+			return p
+		}
+	}
+	Fail("phase " + name + " is missing from the composed phase list")
+	return agentlib.Phase{}
 }
 
 // These specs exist because a direct NewHumanReviewOwnerStep test passes while
@@ -94,14 +102,14 @@ var _ = Describe("human-review owner composition", func() {
 	})
 
 	It("does not wrap the updater's execution phase — it never routes to human_review", func() {
-		for _, p := range updater(owner) {
-			if string(p.Name) != "execution" {
-				continue
-			}
-			for _, step := range p.Steps {
-				_, isWrapper := updatepkg.IsHumanReviewOwnerStep(step)
-				Expect(isWrapper).To(BeFalse(), "execution must stay unwrapped")
-			}
+		// Assert the phase exists first: a loop over matching phases passes
+		// vacuously if the phase is removed entirely, which is a silent coverage
+		// hole of exactly the kind this file exists to close.
+		phase := phaseNamed(updater(owner), "execution")
+		Expect(phase.Steps).NotTo(BeEmpty())
+		for _, step := range phase.Steps {
+			_, isWrapper := updatepkg.IsHumanReviewOwnerStep(step)
+			Expect(isWrapper).To(BeFalse(), "execution must stay unwrapped")
 		}
 	})
 
@@ -111,13 +119,12 @@ var _ = Describe("human-review owner composition", func() {
 	})
 
 	It("leaves the build-fixer's planning and execution phases unwrapped", func() {
-		for _, p := range buildFix(owner) {
-			if string(p.Name) == "ai_review" {
-				continue
-			}
-			for _, step := range p.Steps {
+		for _, name := range []string{"planning", "execution"} {
+			phase := phaseNamed(buildFix(owner), name)
+			Expect(phase.Steps).NotTo(BeEmpty(), "phase %q must exist to be checked", name)
+			for _, step := range phase.Steps {
 				_, isWrapper := updatepkg.IsHumanReviewOwnerStep(step)
-				Expect(isWrapper).To(BeFalse(), "phase %q must stay unwrapped", p.Name)
+				Expect(isWrapper).To(BeFalse(), "phase %q must stay unwrapped", name)
 			}
 		}
 	})
