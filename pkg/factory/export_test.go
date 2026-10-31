@@ -14,4 +14,11 @@ var (
 	// asserts the real published shape, not just the title helper in
 	// isolation.
 	BuildChainCommand = buildChainCommand
+	// UpdaterPhases exposes the updater's phase assembly so the composition
+	// test can assert the human-review owner wrapper is applied to the phase
+	// bodies this agent actually runs. A direct wrapper test passes while the
+	// wrapper is never composed — the defect the sibling agent shipped in #61.
+	UpdaterPhases = updaterPhases
+	// BuildFixPhases is the build-fixer's counterpart to UpdaterPhases.
+	BuildFixPhases = buildFixPhases
 )

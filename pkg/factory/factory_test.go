@@ -45,6 +45,7 @@ var _ = Describe("CreateAgentProvider", func() {
 			"",
 			updatepkg.UpdateScopeBoth,
 			nil, // createCmd: nil in local tests — chain emission disabled
+			"",  // humanReviewOwner: unset disables the stamp, as in the unconfigured default
 		)
 	})
 
@@ -190,6 +191,7 @@ var _ = Describe("CreateAgent", func() {
 			updatepkg.PRTargetDraft,
 			"",
 			updatepkg.UpdateScopeBoth,
+			"", // humanReviewOwner: unset disables the stamp
 		)
 		Expect(agent).NotTo(BeNil())
 	})
@@ -281,6 +283,7 @@ var _ = Describe("CreateAgent with PRTargetReady", func() {
 				updatepkg.PRTargetReady,
 				"",
 				updatepkg.UpdateScopeBoth,
+				"", // humanReviewOwner: unset disables the stamp
 			)
 		})
 
@@ -334,6 +337,7 @@ var _ = Describe("CreateAgent with PRTargetReady", func() {
 				updatepkg.PRTargetDraft,
 				"",
 				updatepkg.UpdateScopeBoth,
+				"", // humanReviewOwner: unset disables the stamp
 			)
 		})
 

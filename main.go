@@ -101,6 +101,13 @@ type application struct {
 	// this deployment default. Unset behaves exactly as the previous release.
 	UpdateScope string `required:"false" arg:"update-scope" env:"UPDATE_SCOPE" usage:"Update scope: both (default) | golang | deps"`
 
+	// HumanReviewOwner is the GitHub login stamped as the assignee on every record
+	// this agent routes into human_review. Empty (the default) disables the stamp,
+	// and the controller's chokepoint then clears the agent's assignee — leaving
+	// the record owned by nobody while its PR stays open. The deploy supplies the
+	// value; the warning in Run names an unset or malformed one at startup.
+	HumanReviewOwner string `required:"false" arg:"human-review-owner" env:"HUMAN_REVIEW_OWNER" usage:"GitHub login stamped as assignee on every record routed to human_review; empty disables the stamp"`
+
 	// GitHub App authentication (design § 7.2). When APP_ID, INSTALLATION_ID,
 	// and a PEM (file or inline) are all set, the pod mints a short-lived
 	// installation access token at startup and forwards it to every git/gh
@@ -134,6 +141,7 @@ func (a *application) Run(ctx context.Context, _ libsentry.Client) error {
 	if err != nil {
 		return err
 	}
+	a.warnHumanReviewOwner()
 
 	registry := prometheus.NewRegistry()
 	jobMetrics := libmetrics.NewJobMetrics(registry, libtime.NewCurrentDateTime())
@@ -228,6 +236,14 @@ func (a *application) buildRun(
 	}
 
 	claudeEnv := a.buildClaudeEnv(ctx, resolvedToken)
+	// The owner reaches the factory through its own env map and nowhere else, so
+	// Create* stays pure composition. Without this line ResolveHumanReviewOwner
+	// always resolves empty and the stamp never fires — the exact no-op the
+	// sibling agent shipped in #61 and needed a follow-up commit to fix.
+	humanReviewEnv := map[string]string{}
+	if a.HumanReviewOwner != "" {
+		humanReviewEnv[factory.HumanReviewOwnerEnv] = a.HumanReviewOwner
+	}
 	provider := factory.CreateAgentProvider(
 		a.ClaudeConfigDir,
 		a.AgentDir,
@@ -242,6 +258,7 @@ func (a *application) buildRun(
 		a.AutoMergeLabel,
 		updateScope,
 		createCmd,
+		factory.ResolveHumanReviewOwner(humanReviewEnv),
 	)
 
 	cleanup := func() {
@@ -365,4 +382,18 @@ func (a *application) resolveAuth(ctx context.Context) (string, error) {
 		ctx,
 		"github-update-go-agent auth: no credentials configured — set GitHub App creds (APP_ID, INSTALLATION_ID, PEM_KEY_FILE or PEM_KEY) or GH_TOKEN",
 	)
+}
+
+// warnHumanReviewOwner logs when the owner is unset or malformed. Both disable
+// the stamp, so a record this agent routes into human_review loses its owner at
+// the controller's chokepoint and lands in no queue at all — a state that is
+// invisible from the record itself and only diagnosable from this line.
+//
+// The message comes from the factory so the pod and cmd/run-task cannot drift:
+// an earlier version of this change warned here and not there, while the docs
+// promised both.
+func (a *application) warnHumanReviewOwner() {
+	if warning := factory.HumanReviewOwnerWarning(a.HumanReviewOwner); warning != "" {
+		glog.Warning(warning)
+	}
 }
