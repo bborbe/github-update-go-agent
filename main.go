@@ -388,20 +388,12 @@ func (a *application) resolveAuth(ctx context.Context) (string, error) {
 // the stamp, so a record this agent routes into human_review loses its owner at
 // the controller's chokepoint and lands in no queue at all — a state that is
 // invisible from the record itself and only diagnosable from this line.
-// The two cases need different operator actions, so they are logged separately.
+//
+// The message comes from the factory so the pod and cmd/run-task cannot drift:
+// an earlier version of this change warned here and not there, while the docs
+// promised both.
 func (a *application) warnHumanReviewOwner() {
-	switch {
-	case a.HumanReviewOwner == "":
-		glog.Warningf(
-			"%s is unset: a record routed to human_review keeps the agent's assignee, "+
-				"which the controller's chokepoint clears — the record is then owned by nobody",
-			factory.HumanReviewOwnerEnv,
-		)
-	case !factory.IsHumanReviewOwnerValid(a.HumanReviewOwner):
-		glog.Warningf(
-			"%s=%q is not a valid GitHub login: the stamp is disabled and a routed "+
-				"record is left owned by nobody",
-			factory.HumanReviewOwnerEnv, a.HumanReviewOwner,
-		)
+	if warning := factory.HumanReviewOwnerWarning(a.HumanReviewOwner); warning != "" {
+		glog.Warning(warning)
 	}
 }

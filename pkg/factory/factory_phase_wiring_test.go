@@ -16,8 +16,8 @@ import (
 )
 
 // noopStep is an inert agentlib.Step: the composition specs assert on which
-// wrapper the factory applied to a phase body, not on what the body does, so the
-// body itself is irrelevant.
+// wrapper the factory applied to which phase body, not on what the body does,
+// so the body itself is irrelevant.
 type noopStep struct{ name string }
 
 func (s noopStep) Name() string { return s.name }
@@ -30,6 +30,32 @@ func (s noopStep) Run(_ context.Context, _ *agentlib.Markdown) (*agentlib.Result
 	return &agentlib.Result{}, nil
 }
 
+// wrapperIn returns the single wrapper in the named phase, or fails when the
+// phase carries none or more than one.
+//
+// It asserts position and inner body, not just "this phase has a wrapper": a
+// wrapper applied to claudeAuth instead of planningStep would satisfy a
+// per-phase membership check while leaving the planning human_review route
+// unstamped — the same silent-coverage failure these specs exist to prevent.
+func wrapperIn(phases []agentlib.Phase, phase string) agentlib.Step {
+	var found []agentlib.Step
+	for _, p := range phases {
+		if string(p.Name) != phase {
+			continue
+		}
+		for _, step := range p.Steps {
+			if _, ok := updatepkg.IsHumanReviewOwnerStep(step); ok {
+				found = append(found, step)
+			}
+		}
+	}
+	ExpectWithOffset(
+		1,
+		found,
+	).To(HaveLen(1), "phase %q must carry exactly one owner wrapper", phase)
+	return found[0]
+}
+
 // These specs exist because a direct NewHumanReviewOwnerStep test passes while
 // the wrapper is never composed into the phase list — exactly how the sibling
 // agent's #61 shipped a stamp that fired nowhere. They assert on the phase list
@@ -37,59 +63,71 @@ func (s noopStep) Run(_ context.Context, _ *agentlib.Markdown) (*agentlib.Result
 var _ = Describe("human-review owner composition", func() {
 	const owner = "bborbe"
 
-	// stepOwners reports, per phase, the owner stamped on each of that phase's
-	// steps (empty string where the step is not a wrapper).
-	stepOwners := func(phases []agentlib.Phase) map[string][]string {
-		owners := map[string][]string{}
-		for _, phase := range phases {
-			for _, step := range phase.Steps {
-				if o, ok := updatepkg.IsHumanReviewOwnerStep(step); ok {
-					owners[string(phase.Name)] = append(owners[string(phase.Name)], o)
-				}
-			}
-		}
-		return owners
-	}
-
-	DescribeTable("the updater wraps every phase that can route to human_review",
-		func(phase string) {
-			phases := factory.UpdaterPhases(
-				noopStep{"auth"}, noopStep{"gh-token"},
-				noopStep{"planning"}, noopStep{"execution"}, noopStep{"review"},
-				owner,
-			)
-			Expect(stepOwners(phases)).To(HaveKeyWithValue(phase, []string{owner}))
-		},
-		Entry("planning (malformed .maintainer.yaml)", "planning"),
-		Entry("ai_review (approved, PR not yet merged)", "ai_review"),
-	)
-
-	It("does not wrap the updater's execution phase — it never routes to human_review", func() {
-		phases := factory.UpdaterPhases(
+	updater := func(owner string) []agentlib.Phase {
+		return factory.UpdaterPhases(
 			noopStep{"auth"}, noopStep{"gh-token"},
 			noopStep{"planning"}, noopStep{"execution"}, noopStep{"review"},
 			owner,
 		)
-		Expect(stepOwners(phases)).NotTo(HaveKey("execution"))
-	})
-
-	It("wraps the build-fixer's ai_review phase — its only human_review site", func() {
-		phases := factory.BuildFixPhases(
+	}
+	buildFix := func(owner string) []agentlib.Phase {
+		return factory.BuildFixPhases(
 			noopStep{"auth"}, noopStep{"fix-planning"},
 			noopStep{"fix-execution"}, noopStep{"fix-review"},
 			owner,
 		)
-		Expect(stepOwners(phases)).To(HaveKeyWithValue("ai_review", []string{owner}))
-		Expect(stepOwners(phases)).NotTo(HaveKey("planning"))
-		Expect(stepOwners(phases)).NotTo(HaveKey("execution"))
+	}
+
+	It("wraps the updater's planning body, not a neighbour in that phase", func() {
+		step := wrapperIn(updater(owner), "planning")
+		// The wrapper delegates Name to its inner step, so this is what proves it
+		// wraps planningStep and not claudeAuth or ghTokenCheck.
+		Expect(step.Name()).To(Equal("planning"))
+		stamped, isWrapper := updatepkg.IsHumanReviewOwnerStep(step)
+		Expect(isWrapper).To(BeTrue())
+		Expect(stamped).To(Equal(owner))
+	})
+
+	It("wraps the updater's ai_review body", func() {
+		step := wrapperIn(updater(owner), "ai_review")
+		Expect(step.Name()).To(Equal("review"))
+	})
+
+	It("does not wrap the updater's execution phase — it never routes to human_review", func() {
+		for _, p := range updater(owner) {
+			if string(p.Name) != "execution" {
+				continue
+			}
+			for _, step := range p.Steps {
+				_, isWrapper := updatepkg.IsHumanReviewOwnerStep(step)
+				Expect(isWrapper).To(BeFalse(), "execution must stay unwrapped")
+			}
+		}
+	})
+
+	It("wraps the build-fixer's ai_review body — its only human_review site", func() {
+		step := wrapperIn(buildFix(owner), "ai_review")
+		Expect(step.Name()).To(Equal("fix-review"))
+	})
+
+	It("leaves the build-fixer's planning and execution phases unwrapped", func() {
+		for _, p := range buildFix(owner) {
+			if string(p.Name) == "ai_review" {
+				continue
+			}
+			for _, step := range p.Steps {
+				_, isWrapper := updatepkg.IsHumanReviewOwnerStep(step)
+				Expect(isWrapper).To(BeFalse(), "phase %q must stay unwrapped", p.Name)
+			}
+		}
 	})
 
 	It("composes no wrapper when the owner is unconfigured", func() {
-		phases := factory.UpdaterPhases(
-			noopStep{"auth"}, noopStep{"gh-token"},
-			noopStep{"planning"}, noopStep{"execution"}, noopStep{"review"},
-			"",
-		)
-		Expect(stepOwners(phases)).To(BeEmpty())
+		for _, p := range updater("") {
+			for _, step := range p.Steps {
+				_, isWrapper := updatepkg.IsHumanReviewOwnerStep(step)
+				Expect(isWrapper).To(BeFalse(), "an unset owner must compose no wrapper")
+			}
+		}
 	})
 })

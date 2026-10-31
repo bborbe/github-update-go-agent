@@ -6,6 +6,7 @@ package factory
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -54,4 +55,26 @@ func ResolveHumanReviewOwner(env map[string]string) string {
 func IsHumanReviewOwnerValid(value string) bool {
 	trimmed := strings.TrimSpace(value)
 	return len(trimmed) <= maxGitHubLoginLength && humanLoginPattern.MatchString(trimmed)
+}
+
+// HumanReviewOwnerWarning returns the startup warning for a raw HUMAN_REVIEW_OWNER
+// value, or "" when the value is usable.
+//
+// It is a pure function rather than a logging call so this package stays free of
+// I/O, and it exists at all so the two entry points cannot drift: the pod
+// (main.go) and the local replay (cmd/run-task) each log what it returns. A
+// warning that lived in one of them and not the other is how this change first
+// shipped — the docs promised both, only one warned, and a local replay with the
+// value unset silently composed no wrapper and left records unowned.
+func HumanReviewOwnerWarning(raw string) string {
+	switch {
+	case strings.TrimSpace(raw) == "":
+		return HumanReviewOwnerEnv + " is unset: a record routed to human_review keeps " +
+			"the agent's assignee, which the controller's chokepoint clears — the record " +
+			"is then owned by nobody"
+	case !IsHumanReviewOwnerValid(raw):
+		return HumanReviewOwnerEnv + "=" + strconv.Quote(raw) + " is not a valid GitHub " +
+			"login: the stamp is disabled and a routed record is left owned by nobody"
+	}
+	return ""
 }
