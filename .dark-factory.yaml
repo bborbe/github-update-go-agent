@@ -1,5 +1,5 @@
-workflow: direct
-pr: false
+workflow: worktree
+pr: true
 autoMerge: false
 autoRelease: false
 autoGeneratePrompts: true
