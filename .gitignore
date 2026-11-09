@@ -5,6 +5,7 @@
 /prompts/**/*.md.lock
 /prompts/log/
 /specs/log/
+/specs/in-progress/*.lock
 /.claude/
 /CLAUDE.md
 /.mcp-*
