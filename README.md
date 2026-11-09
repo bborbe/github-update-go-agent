@@ -105,6 +105,8 @@ Local (the default) builds with the local Docker daemon, exactly as before:
 make build
 ```
 
+Both arms build with `-mod=mod`, so the image build resolves Go modules over the network: `vendor/` is no longer used and is excluded from the build context. The local arm therefore needs proxy access at `docker build` time, which it did not need while it vendored first.
+
 Cluster builds inside the sun cluster as a Kubernetes Job and pushes to Docker Hub at `docker.io/bborbe/github-update-go-agent`:
 
 ```bash
