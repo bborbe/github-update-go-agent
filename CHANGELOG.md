@@ -7,9 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-- feat: Add a `BUILD_TARGET` switch to `make build`; the default `local` arm keeps the existing `docker build` with `check-version-tag` and `check-go-mod`, while any other value dispatches to `hack/build-cluster.sh` to build the named `REF` as a Kubernetes Job, refuses unless `VERSION` is caller-supplied, and makes `upload`, `clean` and `buca` local-only.
-- feat: Add the cluster build helpers under `hack/` — `build-cluster.sh`, `cluster-alias.sh`, `build-job.yaml`, `build-cluster-bootstrap.sh` and `dockerconfig.json.tpl` — copied unmodified from `agent-task-executor` and `go-skeleton`; switch the Dockerfile Go build from `-mod=vendor` to `-mod=mod` so a clone without `vendor/` builds, and add `vendor` to `.dockerignore`.
-- feat: add a cluster build arm — `make build BUILD_TARGET=<cluster> REF=<sha> VERSION=<tag>` builds and pushes the image inside the cluster as a Kubernetes Job, alongside the unchanged local `make build`
+- feat: add a cluster build arm to `make build` — `BUILD_TARGET` defaults to `local`, which keeps today's `docker build` guarded by `check-version-tag` and `check-go-mod`; any other value dispatches to `hack/build-cluster.sh`, which renders `hack/build-job.yaml` and builds the named `REF` as a Kubernetes Job pushing `docker.io/bborbe/github-update-go-agent:<VERSION>`, refuses unless `VERSION` is caller-supplied, and makes `upload`, `clean` and `buca` local-only. Adds the five `hack/` helpers copied unmodified from `agent-task-executor` and `go-skeleton`, and switches the Dockerfile from `-mod=vendor` to `-mod=mod` (with `vendor` in `.dockerignore`) so a clone without `vendor/` builds.
 
 ## v0.21.13
 
