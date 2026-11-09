@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- feat: Add a `BUILD_TARGET` switch to `make build`; the default `local` arm keeps the existing `docker build` with `check-version-tag` and `check-go-mod`, while any other value dispatches to `hack/build-cluster.sh` to build the named `REF` as a Kubernetes Job, refuses unless `VERSION` is caller-supplied, and makes `upload`, `clean` and `buca` local-only.
+
 ## v0.21.13
 
 - chore: restate the do-not-merge contract in the gate workflow
