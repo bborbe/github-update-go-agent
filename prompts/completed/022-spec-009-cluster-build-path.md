@@ -1,8 +1,13 @@
 ---
-status: approved
+status: completed
 spec: [009-cluster-build-arm]
+summary: Copied the five unmodified hack/ build files with correct modes, switched the Dockerfile Go build to -mod=mod, added vendor to .dockerignore, and updated CHANGELOG.md
+execution_id: ca50dcd1-c9a2-5752-b6d6-83d7e195168b-exec-022-spec-009-cluster-build-path
+dark-factory-version: dev
 created: "2026-11-08T23:32:54Z"
 queued: "2026-11-08T23:57:52Z"
+started: "2026-11-09T00:25:14Z"
+completed: "2026-11-09T00:33:26Z"
 branch: dark-factory/cluster-build-arm
 ---
 
