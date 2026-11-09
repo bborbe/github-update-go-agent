@@ -1,8 +1,13 @@
 ---
-status: approved
+status: completed
 spec: [009-cluster-build-arm]
+summary: Added the README Build section documenting both local and cluster arms, cross-linked it from docs/design.md, extended the existing Unreleased changelog with the cluster build bullet, and added the specs in-progress lock ignore.
+execution_id: ca50dcd1-c9a2-5752-b6d6-83d7e195168b-exec-023-spec-009-cluster-build-docs
+dark-factory-version: dev
 created: "2026-11-08T23:32:54Z"
 queued: "2026-11-09T00:14:27Z"
+started: "2026-11-09T00:33:27Z"
+completed: "2026-11-09T00:37:57Z"
 branch: dark-factory/cluster-build-arm
 ---
 

@@ -95,6 +95,30 @@ local runs silently:
   from another project's alt-provider routing) silently overrides the
   intended provider/model for this run.
 
+## Build
+
+Two arms build the same image from the same checkout.
+
+Local (the default) builds with the local Docker daemon, exactly as before:
+
+```bash
+make build
+```
+
+Cluster builds inside the sun cluster as a Kubernetes Job and pushes to Docker Hub at `docker.io/bborbe/github-update-go-agent`:
+
+```bash
+make build BUILD_TARGET=sun REF=<sha> VERSION=<tag>
+```
+
+The cluster arm requires `VERSION` on the command line or in the environment; it refuses to fall back to the Makefile's default (the newest release tag), because that would replace a released image. `REF` must be the full 40-character SHA of a commit that is already on `origin`.
+
+`make buca` (build, upload, clean) is local-only: it needs a local Docker daemon. The cluster arm pushes from inside the Job, so there is nothing to upload or clean locally.
+
+The image is consumed by `bborbe/nuke`; its mirror step copies the Docker Hub tag into the private registry when the pin is bumped.
+
+See [docs/design.md](docs/design.md) for the image and its deployment story.
+
 ## Links
 
 Admin endpoints:

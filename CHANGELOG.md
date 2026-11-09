@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - feat: Add a `BUILD_TARGET` switch to `make build`; the default `local` arm keeps the existing `docker build` with `check-version-tag` and `check-go-mod`, while any other value dispatches to `hack/build-cluster.sh` to build the named `REF` as a Kubernetes Job, refuses unless `VERSION` is caller-supplied, and makes `upload`, `clean` and `buca` local-only.
 - feat: Add the cluster build helpers under `hack/` — `build-cluster.sh`, `cluster-alias.sh`, `build-job.yaml`, `build-cluster-bootstrap.sh` and `dockerconfig.json.tpl` — copied unmodified from `agent-task-executor` and `go-skeleton`; switch the Dockerfile Go build from `-mod=vendor` to `-mod=mod` so a clone without `vendor/` builds, and add `vendor` to `.dockerignore`.
+- feat: add a cluster build arm — `make build BUILD_TARGET=<cluster> REF=<sha> VERSION=<tag>` builds and pushes the image inside the cluster as a Kubernetes Job, alongside the unchanged local `make build`
 
 ## v0.21.13
 
