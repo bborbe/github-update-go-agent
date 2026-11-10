@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- chore: update github.com/bborbe/agent to v0.140.0, github.com/bborbe/kafka to v1.29.13, github.com/bborbe/log to v1.7.8, github.com/bborbe/maintainer to v0.51.2, github.com/bborbe/service to v1.11.3, github.com/bborbe/time to v1.27.27, github.com/bborbe/vault-cli to v0.192.0, golang.org/x/mod to v0.43.0
+
 ## v0.22.0
 
 - feat: add a cluster build arm to `make build` — `BUILD_TARGET` defaults to `local`, which keeps today's `docker build` guarded by `check-version-tag` and `check-go-mod`; any other value dispatches to `hack/build-cluster.sh`, which renders `hack/build-job.yaml` and builds the named `REF` as a Kubernetes Job pushing `docker.io/bborbe/github-update-go-agent:<VERSION>`, refuses unless `VERSION` is caller-supplied, and makes `upload`, `clean` and `buca` local-only. Adds the five `hack/` helpers copied unmodified from `agent-task-executor` and `go-skeleton`, and switches the Dockerfile from `-mod=vendor` to `-mod=mod` (with `vendor` in `.dockerignore`) so a clone without `vendor/` builds.
