@@ -135,6 +135,21 @@ jobs:
 			Expect(ok).To(BeFalse())
 		})
 
+		It("ignores a go-version-file that escapes the workdir", func() {
+			writeFixture(workdir, ".github/workflows/ci.yml", `
+jobs:
+  test:
+    steps:
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: ../../../etc/go.mod
+`)
+			writeFixture(workdir, "go.mod", "module example.com/x\n\ngo 1.28.1\n")
+
+			_, ok := updatepkg.CIGoBaseline(workdir)
+			Expect(ok).To(BeFalse())
+		})
+
 		It("ignores a workflow with no setup-go step", func() {
 			writeFixture(workdir, ".github/workflows/ci.yml", `
 jobs:
@@ -240,9 +255,10 @@ jobs:
 		})
 
 		It("never returns a target below the baseline", func() {
-			// The index only knows 1.27, while the repo is already on 1.28.1.
+			// The index's highest 1.28 release is older than the repo's own
+			// directive, so the clamp — not the error path — has to hold it.
 			server := releaseIndexServer(http.StatusOK, `[
-  {"version":"go1.27.4","stable":true}
+  {"version":"go1.28.1","stable":true}
 ]`)
 			defer server.Close()
 			restore := updatepkg.SetGoReleaseIndexForTest(server.URL)
@@ -250,9 +266,9 @@ jobs:
 
 			workdir := GinkgoT().TempDir()
 			writeFixture(workdir, ".github/workflows/ci.yml", setupGoWorkflow)
-			writeFixture(workdir, "go.mod", "module example.com/x\n\ngo 1.28.1\n")
+			writeFixture(workdir, "go.mod", "module example.com/x\n\ngo 1.28.3\n")
 
-			Expect(updatepkg.ResolveTargetGo(ctx, workdir)).To(Equal("1.28.1"))
+			Expect(updatepkg.ResolveTargetGo(ctx, workdir)).To(Equal("1.28.3"))
 		})
 	})
 })

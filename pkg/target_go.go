@@ -7,10 +7,12 @@ package pkg
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -32,6 +34,10 @@ var goReleaseIndexClient = &http.Client{Timeout: 20 * time.Second}
 // goDirectiveRegexp matches the `go` directive line of a go.mod file.
 var goDirectiveRegexp = regexp.MustCompile(`(?m)^go\s+(\S+)\s*$`)
 
+// maxReleaseIndexBytes bounds how much of the release index is read, so a
+// misbehaving endpoint cannot exhaust memory.
+const maxReleaseIndexBytes = 1 << 20
+
 // resolveTargetGo returns the Go version the update should bump to.
 //
 // The toolchain a repo's CI installs is the toolchain its vulncheck runs
@@ -41,9 +47,6 @@ var goDirectiveRegexp = regexp.MustCompile(`(?m)^go\s+(\S+)\s*$`)
 // same minor line, read from the Go release index. Without such a step the
 // image toolchain remains the target.
 //
-// A failed index lookup falls back to the image toolchain rather than failing
-// the run: the index is a network read and the pipeline must not depend on it
-// being reachable.
 // A failed index lookup keeps the baseline rather than dropping to the image
 // toolchain: the baseline is a version CI demonstrably installs, while the
 // image may be older than the repo, and a target below the baseline would
@@ -110,11 +113,19 @@ func ciGoBaseline(workdir string) (string, bool) {
 		if !ok {
 			continue
 		}
-		directive, ok := goDirective(filepath.Join(workdir, versionFile))
+		rel := filepath.Clean(versionFile)
+		if filepath.IsAbs(rel) ||
+			rel == ".." ||
+			strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			glog.V(2).
+				Infof("target go: ignoring go-version-file %q outside the workdir", versionFile)
+			continue
+		}
+		directive, ok := goDirective(filepath.Join(workdir, rel))
 		if !ok {
 			continue
 		}
-		if filepath.Clean(versionFile) == "go.mod" {
+		if rel == "go.mod" {
 			return directive, true
 		}
 		if !fallbackOK {
@@ -148,8 +159,13 @@ func workflowGoVersionFile(path string) (string, bool) {
 	if err := yaml.Unmarshal(content, &doc); err != nil {
 		return "", false
 	}
-	for _, job := range doc.Jobs {
-		for _, step := range job.Steps {
+	names := make([]string, 0, len(doc.Jobs))
+	for name := range doc.Jobs {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		for _, step := range doc.Jobs[name].Steps {
 			if !strings.HasPrefix(step.Uses, "actions/setup-go") {
 				continue
 			}
@@ -209,7 +225,7 @@ func latestGoPatch(ctx context.Context, minor string) (string, error) {
 		return "", errors.Errorf(ctx, "release index returned status %d", resp.StatusCode)
 	}
 	var releases []goRelease
-	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxReleaseIndexBytes)).Decode(&releases); err != nil {
 		return "", errors.Wrap(ctx, err, "decode release index")
 	}
 
