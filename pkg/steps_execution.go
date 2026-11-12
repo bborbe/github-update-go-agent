@@ -623,7 +623,7 @@ func (s *executionStep) runUpdate(
 	}
 	prompt := prompts.ExecutionPrompt() +
 		"\n\n## Workdir\n\n" + workdir +
-		"\n\n## Target Go\n\n" + targetGoVersion() +
+		"\n\n## Target Go\n\n" + resolveTargetGo(ctx, workdir) +
 		"\n\n" + updateScopeSection(updateScope) +
 		"\n\n" + bulkUpdateSection(bulk, updateScope, advisoryDriven) +
 		"\n\n" + planJSON.Heading + "\n\n" + planJSON.Body

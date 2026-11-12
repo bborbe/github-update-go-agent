@@ -495,7 +495,7 @@ func (s *planningStep) runInspection(
 	}
 	prompt := prompts.PlanningPrompt() +
 		"\n\n## Workdir\n\n" + workdir +
-		"\n\n## Target Go\n\n" + targetGoVersion() +
+		"\n\n## Target Go\n\n" + resolveTargetGo(ctx, workdir) +
 		"\n\n" + updateScopeSection(updateScope) +
 		"\n\n## Scanner Findings\n\nThe findings below were captured by Go from the repo's own gate targets and, when the task carries one, from the validated external advisory in the task frontmatter — together they are the ONLY source of advisory IDs. Every vuln ID you report MUST appear in this table verbatim.\n\n" + renderScannerTable(table) +
 		"\n\n## Task\n\n" + taskContent
@@ -822,8 +822,10 @@ func sanitizePathComponent(s string) string {
 	return pathComponentRegexp.ReplaceAllString(s, "-")
 }
 
-// targetGoVersion returns the toolchain baked into this image (design D5:
-// the image toolchain IS the bump target), without the "go" prefix.
+// targetGoVersion returns the toolchain baked into this image, without the
+// "go" prefix. It is the bump target only for a repo whose CI does not pin
+// its toolchain from a file; otherwise resolveTargetGo takes the target from
+// the Go release index.
 func targetGoVersion() string {
 	return strings.TrimPrefix(runtime.Version(), "go")
 }
