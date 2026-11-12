@@ -17,6 +17,7 @@ import (
 
 	"github.com/bborbe/errors"
 	"github.com/golang/glog"
+	"golang.org/x/mod/semver"
 	"gopkg.in/yaml.v3"
 )
 
@@ -43,6 +44,10 @@ var goDirectiveRegexp = regexp.MustCompile(`(?m)^go\s+(\S+)\s*$`)
 // A failed index lookup falls back to the image toolchain rather than failing
 // the run: the index is a network read and the pipeline must not depend on it
 // being reachable.
+// A failed index lookup keeps the baseline rather than dropping to the image
+// toolchain: the baseline is a version CI demonstrably installs, while the
+// image may be older than the repo, and a target below the baseline would
+// instruct the model to write a downgrade into the go directive.
 func resolveTargetGo(ctx context.Context, workdir string) string {
 	baseline, ok := ciGoBaseline(workdir)
 	if !ok {
@@ -50,30 +55,49 @@ func resolveTargetGo(ctx context.Context, workdir string) string {
 	}
 	minor, ok := goMinorLine(baseline)
 	if !ok {
-		glog.V(2).
-			Infof("target go: baseline %q carries no minor line, using image toolchain", baseline)
-		return targetGoVersion()
+		glog.V(2).Infof("target go: baseline %q carries no minor line, keeping baseline", baseline)
+		return baseline
+	}
+	select {
+	case <-ctx.Done():
+		return baseline
+	default:
 	}
 	latest, err := latestGoPatch(ctx, minor)
 	if err != nil {
 		glog.Warningf(
-			"target go: release index lookup for %s failed, using image toolchain: %v",
+			"target go: release index lookup for %s failed, keeping baseline %s: %v",
 			minor,
+			baseline,
 			err,
 		)
-		return targetGoVersion()
+		return baseline
 	}
+	if semver.Compare("v"+latest, "v"+baseline) < 0 {
+		glog.Warningf(
+			"target go: index latest %s is below baseline %s, keeping baseline",
+			latest,
+			baseline,
+		)
+		return baseline
+	}
+	glog.V(2).Infof("target go: baseline %s -> target %s", baseline, latest)
 	return latest
 }
 
 // ciGoBaseline returns the go directive that CI installs its toolchain from,
-// when a workflow pins actions/setup-go to a version file.
+// when a workflow pins actions/setup-go to a version file. The file must be
+// go.mod syntax; a workflow whose version file resolves to the repo-root
+// go.mod wins over any other, since a sibling workflow may pin a different
+// module.
 func ciGoBaseline(workdir string) (string, bool) {
 	dir := filepath.Join(workdir, ".github", "workflows")
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return "", false
 	}
+	fallback := ""
+	fallbackOK := false
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
@@ -87,9 +111,18 @@ func ciGoBaseline(workdir string) (string, bool) {
 			continue
 		}
 		directive, ok := goDirective(filepath.Join(workdir, versionFile))
-		if ok {
+		if !ok {
+			continue
+		}
+		if filepath.Clean(versionFile) == "go.mod" {
 			return directive, true
 		}
+		if !fallbackOK {
+			fallback, fallbackOK = directive, true
+		}
+	}
+	if fallbackOK {
+		return fallback, true
 	}
 	return "", false
 }
@@ -142,7 +175,7 @@ func goDirective(path string) (string, bool) {
 	if match == nil {
 		return "", false
 	}
-	return strings.TrimPrefix(string(match[1]), "go"), true
+	return string(match[1]), true
 }
 
 // goMinorLine turns "1.27.3" into "1.27".

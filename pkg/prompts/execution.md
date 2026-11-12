@@ -29,8 +29,10 @@ The context sections appended after this prompt provide:
 
 - `## Workdir` — absolute path of the checkout. Run commands as
   `go -C <workdir> ...` and edit via absolute paths.
-- `## Target Go` — the toolchain version to put into the go.mod go-directive
-  (and the Dockerfile `golang:` base image tag, if the repo has one).
+- `## Target Go` — the version to put into the go.mod go-directive (and the
+  Dockerfile `golang:` base image tag, if the repo has one): the latest
+  published patch for the minor line CI installs, never below the directive
+  already there.
 - `## Plan` — the planning phase's JSON: `go_bump`, `gate_targets`, and the
   `vulns` list (only `action: "fix"` entries are yours to resolve).
 

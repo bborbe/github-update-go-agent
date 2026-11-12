@@ -138,13 +138,12 @@ func ParseLLMJSONProbe(ctx context.Context, response string) (*LLMJSONProbe, err
 // minor-line split and the release-index lookup, so pkg_test can cover the
 // baseline resolution and the bump target without a live network.
 var (
-	ResolveTargetGo       = resolveTargetGo
-	TargetGoVersion       = targetGoVersion
-	CIGoBaseline          = ciGoBaseline
-	WorkflowGoVersionFile = workflowGoVersionFile
-	GoDirective           = goDirective
-	GoMinorLine           = goMinorLine
-	LatestGoPatch         = latestGoPatch
+	ResolveTargetGo = resolveTargetGo
+	TargetGoVersion = targetGoVersion
+	CIGoBaseline    = ciGoBaseline
+	GoDirective     = goDirective
+	GoMinorLine     = goMinorLine
+	LatestGoPatch   = latestGoPatch
 )
 
 // SetGoReleaseIndexForTest points the release-index lookup at url and returns

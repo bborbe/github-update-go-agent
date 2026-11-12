@@ -13,9 +13,11 @@ The context sections appended after this prompt provide:
   the task's trigger ref. Run every command against this path
   (`git -C <workdir> ...`, `make -C <workdir> ...`, `go -C <workdir> ...`)
   and read files via absolute paths.
-- `## Target Go` — the Go toolchain version baked into this image. This is
-  the bump target for the repo's `go.mod` go-directive (never trust the
-  task's `latest_go` frontmatter — it is a watcher trigger signal only).
+- `## Target Go` — the Go version to bump the repo's `go.mod` go-directive
+  to: the latest published patch for the minor line CI installs, resolved
+  from the Go release index, or the image toolchain when the repo pins no
+  toolchain from a file. Never trust the task's `latest_go` frontmatter — it
+  is a watcher trigger signal only.
 - `## Task` — the task markdown (frontmatter `repo`, `clone_url`, `ref`).
 - `## Scanner Findings` — the findings table Go captured by running the
   repo's own gate targets and parsing their output, plus, when the task

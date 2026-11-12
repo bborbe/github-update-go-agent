@@ -822,8 +822,10 @@ func sanitizePathComponent(s string) string {
 	return pathComponentRegexp.ReplaceAllString(s, "-")
 }
 
-// targetGoVersion returns the toolchain baked into this image (design D5:
-// the image toolchain IS the bump target), without the "go" prefix.
+// targetGoVersion returns the toolchain baked into this image, without the
+// "go" prefix. It is the bump target only for a repo whose CI does not pin
+// its toolchain from a file; otherwise resolveTargetGo takes the target from
+// the Go release index.
 func targetGoVersion() string {
 	return strings.TrimPrefix(runtime.Version(), "go")
 }
