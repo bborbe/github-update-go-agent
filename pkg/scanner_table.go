@@ -111,14 +111,26 @@ func (t ScannerTable) collapseExternalDuplicates() ScannerTable {
 	return collapsed
 }
 
-// Row returns the first row whose ID equals id exactly.
+// Row returns the row for id. When the same ID appears more than once (one
+// finding reported by several scanners), the row carrying a non-empty
+// FixedVersion wins — a fix reported by any scanner is a fix, and returning a
+// bare first row would let a no-fix duplicate hide it. Falls back to the first
+// matching row when none carries a version.
 func (t ScannerTable) Row(id string) (ScannerFinding, bool) {
+	var first ScannerFinding
+	found := false
 	for _, row := range t {
-		if row.ID == id {
+		if row.ID != id {
+			continue
+		}
+		if !found {
+			first, found = row, true
+		}
+		if strings.TrimSpace(row.FixedVersion) != "" {
 			return row, true
 		}
 	}
-	return ScannerFinding{}, false
+	return first, found
 }
 
 // knownGateTargets is the deterministic preference order of repo gate

@@ -19,6 +19,7 @@ import (
 	"github.com/bborbe/errors"
 	domain "github.com/bborbe/vault-cli/pkg/domain"
 	"github.com/golang/glog"
+	"golang.org/x/mod/semver"
 
 	"github.com/bborbe/github-update-go-agent/pkg/git"
 	"github.com/bborbe/github-update-go-agent/pkg/maintainerconfig"
@@ -645,12 +646,57 @@ func effectiveFixedVersion(v *PlanVuln, table ScannerTable) string {
 	return strings.TrimSpace(v.FixedVersion)
 }
 
+// effectivePackage returns the package a finding actually affects, preferring
+// the captured scanner row. The model regularly reports a stdlib advisory
+// against the repo's own main module (observed across the 2026-11-12
+// population), which would send execution after a `go get` of a version that
+// does not exist — the table's `stdlib` is the correction.
+func effectivePackage(v *PlanVuln, table ScannerTable) string {
+	if row, ok := table.Row(v.ID); ok {
+		if pkg := strings.TrimSpace(row.Package); pkg != "" {
+			return pkg
+		}
+	}
+	return strings.TrimSpace(v.Package)
+}
+
+// isToolchainFinding reports whether a finding is cleared by the go-directive
+// bump rather than by `go get`. Only a stdlib finding is.
+func isToolchainFinding(v PlanVuln) bool {
+	return strings.TrimSpace(v.Package) == "stdlib"
+}
+
+// normalizeVersion returns a semver-comparable form (leading "v").
+func normalizeVersion(version string) string {
+	v := strings.TrimSpace(version)
+	if v == "" || strings.HasPrefix(v, "v") {
+		return v
+	}
+	return "v" + v
+}
+
+// ensureGoBump records a go-directive bump that reaches fixedVersion. A stdlib
+// finding is only cleared when the directive moves, so reclassifying one to
+// `fix` without this would send execution after a `go get` that cannot work.
+func ensureGoBump(plan *PlanOutput, fixedVersion string) {
+	to := normalizeVersion(fixedVersion)
+	if plan.GoBump == nil {
+		plan.GoBump = &GoBump{To: to}
+		return
+	}
+	if semver.Compare(normalizeVersion(plan.GoBump.To), to) < 0 {
+		plan.GoBump.To = to
+	}
+}
+
 // reclassifyFixableParks enforces the invariant that a finding carrying a
 // populated fixed_version is never parked. fixed_version names the version
 // that clears the finding, so such a finding belongs on the bump path — a
-// stdlib advisory fixed in a newer toolchain included. Only a genuinely
-// no-fix finding (empty fixed_version in both the scanner table and the plan)
-// may park. Returns the moved IDs so the caller can log them.
+// stdlib advisory fixed in a newer toolchain included, whose package is
+// corrected to stdlib and whose go_bump is recorded so execution does not
+// chase a nonexistent module release. Only a genuinely no-fix finding (empty
+// fixed_version in both the scanner table and the plan) may park. Returns the
+// moved IDs so the caller can log them.
 func reclassifyFixableParks(plan *PlanOutput, table ScannerTable) []string {
 	var moved []string
 	for i := range plan.Vulns {
@@ -662,10 +708,16 @@ func reclassifyFixableParks(plan *PlanOutput, table ScannerTable) []string {
 		if fv == "" {
 			continue
 		}
-		v.Action = VulnActionFix
 		v.FixedVersion = fv
+		if pkg := effectivePackage(v, table); pkg != "" {
+			v.Package = pkg
+		}
+		v.Action = VulnActionFix
 		v.Reason = "reclassified: fixed_version " + fv +
 			" is available — routed to the bump path instead of park"
+		if isToolchainFinding(*v) {
+			ensureGoBump(plan, fv)
+		}
 		moved = append(moved, v.ID)
 	}
 	return moved
@@ -684,6 +736,13 @@ func parkResult(
 ) (*agentlib.Result, error) {
 	if moved := reclassifyFixableParks(plan, table); len(moved) > 0 {
 		glog.V(2).Infof("planning: reclassified fixable findings off the park path: %v", moved)
+		// The model may have answered needs_input purely because of a finding
+		// it had parked. With every such finding now on the fix path, that
+		// reason no longer describes the plan — clear it so the task proceeds.
+		if plan.Outcome == PlanOutcomeNeedsInput && len(parkFindings(plan)) == 0 {
+			plan.Outcome = PlanOutcomeReady
+			plan.Reason = ""
+		}
 	}
 	parked := parkFindings(plan)
 	if len(parked) == 0 {

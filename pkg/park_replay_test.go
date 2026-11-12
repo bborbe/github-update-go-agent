@@ -37,7 +37,30 @@ var _ = Describe("reclassifyFixableParks over the recorded 2026-11-12 population
 		var stillParkedPopulated int
 		for _, f := range fixtures {
 			plan := f.Plan
-			reclassified += len(pkg.ReclassifyFixableParks(&plan, pkg.ScannerTable{}))
+			// Rebuild the scanner table the plans were written against.
+			// GO-2026-6859 is a stdlib advisory that the model recorded
+			// against the repo's own main module; the table carries the
+			// authoritative `stdlib` package.
+			table := pkg.ScannerTable{}
+			for _, v := range plan.Vulns {
+				pkgName := v.Package
+				if v.ID == "GO-2026-6859" {
+					pkgName = "stdlib"
+				}
+				table = append(table, pkg.ScannerFinding{
+					ID:           v.ID,
+					Package:      pkgName,
+					Scanner:      v.Scanner,
+					FixedVersion: v.FixedVersion,
+				})
+			}
+
+			moved := pkg.ReclassifyFixableParks(&plan, table)
+			reclassified += len(moved)
+			if len(moved) > 0 {
+				Expect(plan.GoBump).NotTo(BeNil(), f.Source)
+				Expect(plan.GoBump.To).To(Equal("v1.27.4"), f.Source)
+			}
 			for _, v := range plan.Vulns {
 				if v.Action != "park" {
 					continue

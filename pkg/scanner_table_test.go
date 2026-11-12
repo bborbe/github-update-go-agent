@@ -546,4 +546,74 @@ var _ = Describe("reclassifyFixableParks", func() {
 		Expect(pkg.ReclassifyFixableParks(plan, pkg.ScannerTable{})).To(BeEmpty())
 		Expect(plan.Vulns[0].Action).To(Equal("fix"))
 	})
+
+	It("corrects a stdlib finding's package and records the go_bump", func() {
+		plan := &pkg.PlanOutput{Vulns: []pkg.PlanVuln{
+			{
+				ID:           "GO-2026-6859",
+				Package:      "github.com/bborbe/agent-claude",
+				Action:       "park",
+				FixedVersion: "v1.27.4",
+			},
+		}}
+		table := pkg.ScannerTable{
+			{
+				ID:           "GO-2026-6859",
+				Package:      "stdlib",
+				Scanner:      "govulncheck",
+				FixedVersion: "v1.27.4",
+			},
+		}
+		pkg.ReclassifyFixableParks(plan, table)
+		Expect(plan.Vulns[0].Action).To(Equal("fix"))
+		Expect(plan.Vulns[0].Package).To(Equal("stdlib"))
+		Expect(plan.GoBump).NotTo(BeNil())
+		Expect(plan.GoBump.To).To(Equal("v1.27.4"))
+	})
+
+	It("leaves a module finding without a go_bump", func() {
+		plan := &pkg.PlanOutput{Vulns: []pkg.PlanVuln{
+			{
+				ID:           "GO-2026-5932",
+				Package:      "golang.org/x/crypto/openpgp",
+				Action:       "park",
+				FixedVersion: "v0.38.0",
+			},
+		}}
+		table := pkg.ScannerTable{
+			{
+				ID:           "GO-2026-5932",
+				Package:      "golang.org/x/crypto/openpgp",
+				Scanner:      "govulncheck",
+				FixedVersion: "v0.38.0",
+			},
+		}
+		pkg.ReclassifyFixableParks(plan, table)
+		Expect(plan.Vulns[0].Action).To(Equal("fix"))
+		Expect(plan.GoBump).To(BeNil())
+	})
+
+	It("raises an existing go_bump that does not reach the fix", func() {
+		plan := &pkg.PlanOutput{
+			GoBump: &pkg.GoBump{From: "1.27.3", To: "v1.27.3"},
+			Vulns: []pkg.PlanVuln{
+				{ID: "GO-2026-6859", Package: "stdlib", Action: "park", FixedVersion: "v1.27.4"},
+			},
+		}
+		pkg.ReclassifyFixableParks(plan, pkg.ScannerTable{})
+		Expect(plan.GoBump.To).To(Equal("v1.27.4"))
+	})
+})
+
+var _ = Describe("ScannerTable.Row", func() {
+	It("prefers a duplicate row that carries a fixed version", func() {
+		table := pkg.ScannerTable{
+			{ID: "GO-2026-0001", Scanner: "trivy"},
+			{ID: "GO-2026-0001", Scanner: "govulncheck", FixedVersion: "v1.2.3"},
+		}
+		row, ok := table.Row("GO-2026-0001")
+		Expect(ok).To(BeTrue())
+		Expect(row.Scanner).To(Equal("govulncheck"))
+		Expect(row.FixedVersion).To(Equal("v1.2.3"))
+	})
 })
