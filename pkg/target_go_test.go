@@ -10,8 +10,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"runtime"
-	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -37,7 +35,8 @@ const releaseIndexBody = `[
   {"version":"go1.27.3","stable":true},
   {"version":"go1.27.4","stable":true},
   {"version":"go1.27.5","stable":false},
-  {"version":"go1.28.0","stable":true}
+  {"version":"go1.28.0","stable":true},
+  {"version":"go1.28.3","stable":true}
 ]`
 
 var _ = Describe("target go", func() {
@@ -206,12 +205,17 @@ jobs:
 			Expect(updatepkg.ResolveTargetGo(ctx, workdir)).To(Equal(updatepkg.TargetGoVersion()))
 		})
 
-		It("never returns the image toolchain when the repo's CI is behind a later patch", func() {
+		It("targets the index's latest patch, not the baseline or the image toolchain", func() {
 			server := releaseIndexServer(http.StatusOK, releaseIndexBody)
 			defer server.Close()
 			restore := updatepkg.SetGoReleaseIndexForTest(server.URL)
 			defer restore()
 
+			// A 1.28 fixture on purpose: the running image is a 1.27 toolchain,
+			// so a target of 1.28.3 cannot have come from targetGoVersion(). With
+			// a 1.27 fixture the fallback and the fix return the same string
+			// whenever the image is current, and the spec would pass against the
+			// bug it exists to catch.
 			workdir := GinkgoT().TempDir()
 			writeFixture(workdir, ".github/workflows/ci.yml", `
 jobs:
@@ -221,11 +225,16 @@ jobs:
         with:
           go-version-file: go.mod
 `)
-			writeFixture(workdir, "go.mod", "module example.com/x\n\ngo 1.27.3\n")
+			writeFixture(workdir, "go.mod", "module example.com/x\n\ngo 1.28.1\n")
+
+			baseline, ok := updatepkg.CIGoBaseline(workdir)
+			Expect(ok).To(BeTrue())
+			Expect(baseline).To(Equal("1.28.1"))
 
 			target := updatepkg.ResolveTargetGo(ctx, workdir)
-			Expect(target).To(Equal("1.27.4"))
-			Expect(strings.TrimPrefix(runtime.Version(), "go")).NotTo(Equal(target))
+			Expect(target).To(Equal("1.28.3"))
+			Expect(target).NotTo(Equal(baseline))
+			Expect(target).NotTo(Equal(updatepkg.TargetGoVersion()))
 		})
 	})
 })
