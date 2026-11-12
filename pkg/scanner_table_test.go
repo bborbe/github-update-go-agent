@@ -478,4 +478,48 @@ var _ = Describe("parkMessage", func() {
 		Expect(msg).To(ContainSubstring("GO-9999-0001 (scanner=trivy, fixed_version=)"))
 		Expect(msg).To(ContainSubstring("VULNCHECK_IGNORE"))
 	})
+
+	It("names the bump as the alternative to a suppression", func() {
+		msg := pkg.ParkMessage(
+			[]pkg.PlanVuln{{ID: "GO-9999-0002", Action: "park", Scanner: "govulncheck"}},
+			pkg.ScannerTable{},
+		)
+		Expect(msg).To(ContainSubstring("bump instead of suppressing"))
+	})
+})
+
+var _ = Describe("reclassifyFixableParks", func() {
+	It("moves a parked finding with a populated fixed_version onto the fix path", func() {
+		plan := &pkg.PlanOutput{Vulns: []pkg.PlanVuln{
+			{ID: "GO-2026-6859", Action: "park", FixedVersion: "v1.27.4"},
+		}}
+		moved := pkg.ReclassifyFixableParks(plan)
+		Expect(moved).To(Equal([]string{"GO-2026-6859"}))
+		Expect(plan.Vulns[0].Action).To(Equal("fix"))
+		Expect(plan.Vulns[0].Reason).To(ContainSubstring("v1.27.4"))
+	})
+
+	It("leaves a park with an empty fixed_version on the park path", func() {
+		plan := &pkg.PlanOutput{Vulns: []pkg.PlanVuln{
+			{ID: "GO-0000-0001", Action: "park", FixedVersion: ""},
+		}}
+		Expect(pkg.ReclassifyFixableParks(plan)).To(BeEmpty())
+		Expect(plan.Vulns[0].Action).To(Equal("park"))
+	})
+
+	It("treats a whitespace-only fixed_version as empty", func() {
+		plan := &pkg.PlanOutput{Vulns: []pkg.PlanVuln{
+			{ID: "GO-0000-0002", Action: "park", FixedVersion: "   "},
+		}}
+		Expect(pkg.ReclassifyFixableParks(plan)).To(BeEmpty())
+		Expect(plan.Vulns[0].Action).To(Equal("park"))
+	})
+
+	It("leaves an already-fix finding untouched", func() {
+		plan := &pkg.PlanOutput{Vulns: []pkg.PlanVuln{
+			{ID: "GO-2026-1234", Action: "fix", FixedVersion: "v0.39.0"},
+		}}
+		Expect(pkg.ReclassifyFixableParks(plan)).To(BeEmpty())
+		Expect(plan.Vulns[0].Action).To(Equal("fix"))
+	})
 })

@@ -176,13 +176,8 @@ func (s *planningStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentli
 	// classified ready.
 	plan.appliesScope(updateScope)
 
-	if parked := parkFindings(plan); len(parked) > 0 {
-		if err := writePlanSection(ctx, md, plan); err != nil {
-			return nil, err
-		}
-		msg := parkMessage(parked, table)
-		glog.V(2).Infof("planning: parking task — %s", msg)
-		return needsInput(msg), nil
+	if res, err := parkResult(ctx, md, plan, table); err != nil || res != nil {
+		return res, err
 	}
 
 	if plan.Outcome == PlanOutcomeNeedsInput {
@@ -636,6 +631,53 @@ func (s *planningStep) failResolve(repo string, err error) *agentlib.Result {
 	)
 }
 
+// reclassifyFixableParks enforces the invariant that a finding carrying a
+// populated fixed_version is never parked. fixed_version names the version
+// that clears the finding, so such a finding belongs on the bump path — a
+// stdlib advisory fixed in a newer toolchain included. Only a genuinely
+// no-fix finding (empty fixed_version) may park. Returns the moved IDs so
+// the caller can log them.
+func reclassifyFixableParks(plan *PlanOutput) []string {
+	var moved []string
+	for i := range plan.Vulns {
+		v := &plan.Vulns[i]
+		if v.Action != VulnActionPark || strings.TrimSpace(v.FixedVersion) == "" {
+			continue
+		}
+		v.Action = VulnActionFix
+		v.Reason = "reclassified: fixed_version " + v.FixedVersion +
+			" is available — routed to the bump path instead of park"
+		moved = append(moved, v.ID)
+	}
+	return moved
+}
+
+// parkResult reclassifies fixable findings off the park path, then writes the
+// plan and returns a needs_input Result when park findings remain. A finding
+// with a populated fixed_version names the version that clears it, so it must
+// never park — only a genuinely no-fix finding may. Returns (nil, nil) when
+// nothing parks, leaving the caller on the ready path.
+func parkResult(
+	ctx context.Context,
+	md *agentlib.Markdown,
+	plan *PlanOutput,
+	table ScannerTable,
+) (*agentlib.Result, error) {
+	if moved := reclassifyFixableParks(plan); len(moved) > 0 {
+		glog.V(2).Infof("planning: reclassified fixable findings off the park path: %v", moved)
+	}
+	parked := parkFindings(plan)
+	if len(parked) == 0 {
+		return nil, nil
+	}
+	if err := writePlanSection(ctx, md, plan); err != nil {
+		return nil, err
+	}
+	msg := parkMessage(parked, table)
+	glog.V(2).Infof("planning: parking task — %s", msg)
+	return needsInput(msg), nil
+}
+
 // parkFindings returns the park-action vulns of the plan.
 func parkFindings(plan *PlanOutput) []PlanVuln {
 	var parked []PlanVuln
@@ -653,6 +695,12 @@ func parkFindings(plan *PlanOutput) []PlanVuln {
 // operator-approved suppression would touch. The model's prose reason is
 // deliberately NOT carried — the operator's suppression decision must be
 // made against the real finding.
+//
+// Callers pass only findings with an empty fixed_version (reclassifyFixableParks
+// moves every populated one onto the bump path first), so this message can
+// only ever describe genuinely no-fix findings. It still names the bump as
+// the alternative, because the reader is deciding whether to suppress and
+// must not suppress something a version bump would clear.
 func parkMessage(parked []PlanVuln, table ScannerTable) string {
 	findings := make([]string, 0, len(parked))
 	for _, v := range parked {
@@ -664,7 +712,8 @@ func parkMessage(parked []PlanVuln, table ScannerTable) string {
 		findings = append(findings, entry)
 	}
 	return fmt.Sprintf(
-		"unfixable findings — suppress with justification or hold: %s; %s",
+		"unfixable findings — no patched version exists, so suppression or hold is the only remedy; "+
+			"if a fix does exist, bump instead of suppressing: %s; %s",
 		strings.Join(findings, "; "),
 		suppressionSurfacesHint,
 	)

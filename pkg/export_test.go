@@ -48,6 +48,7 @@ var (
 	ParseModuleList         = parseModuleList
 	ModuleForPackage        = moduleForPackage
 	ParkMessage             = parkMessage
+	ReclassifyFixableParks  = reclassifyFixableParks
 	ExtractToolResultBodies = extractToolResultBodies
 	PlanningResultText      = planningResultText
 	ScanPlanningOutput      = scanPlanningOutput

@@ -43,16 +43,21 @@ The context sections appended after this prompt provide:
    (or inspect go.mod) and note whether direct dependencies have newer
    versions → `dep_updates_expected`.
 
-4. **Classify each finding listed in `## Scanner Findings` fix-vs-park** per
-   the existing rules:
-   - `"fix"` — a patched module version exists (the finding's
-     `fixed_version` column is a real version) and reaching it does not
-     require a major (v1→v2) bump. Record the id, package, fixed_version,
-     and which scanner flagged it.
-   - `"park"` — no fixed version exists (empty), or the fix requires an
-     out-of-scope major bump. Never plan a suppression: writing ignore
-     entries is a human risk call. The agent will park the whole task naming
-     your park findings.
+4. **Classify each finding listed in `## Scanner Findings` fix-vs-park.**
+   The rule is one condition: **a populated `fixed_version` means the
+   finding is fixable.**
+   - `"fix"` — the finding's `fixed_version` column is a real version.
+     This includes a stdlib advisory whose `fixed_version` is at or below
+     `## Target Go`: record the `go_bump` that reaches it (the directive
+     bump is mandatory — CI pins its toolchain to go.mod, so a stdlib CVE
+     is only fixed when the directive moves) and mark the finding `fix`.
+     Record the id, package, fixed_version, and which scanner flagged it.
+   - `"park"` — **only** when `fixed_version` is empty. Never park a
+     finding whose `fixed_version` is populated: that field names the
+     version that clears it, and Go reclassifies such a finding onto the
+     bump path regardless, so a `park` there mislabels a fixable finding
+     as unfixable.
+   Never plan a suppression: writing ignore entries is a human risk call.
 
    Report ONLY findings listed in `## Scanner Findings`.
    Never add a finding ID that is not in the table.
