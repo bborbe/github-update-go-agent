@@ -40,8 +40,11 @@ The context sections appended after this prompt provide:
 
 Execute in order, repairing as you go:
 
-1. **Go directive bump**: set the go.mod `go` directive to the target Go
-   version. If a Dockerfile pins a `golang:<version>` base, bump it to match.
+1. **Go directive bump**: set the go.mod `go` directive to the **higher** of
+   the `## Target Go` version and the plan's `go_bump.to` — the plan raises it
+   to the version that clears a stdlib advisory, so never record a directive
+   below that value. If a Dockerfile pins a `golang:<version>` base, bump it to
+   match.
    The directive bump is mandatory: CI pins its toolchain to the directive
    (`go-version-file: go.mod`), so stdlib CVEs ("found in <pkg>@go1.X.Y")
    only clear when the directive moves.
@@ -54,8 +57,12 @@ Execute in order, repairing as you go:
    you run those two commands yourself, in the foreground. If it says
    **SKIPPED**, do not run them under any circumstances — read that section
    for why.
-4. **Targeted vuln fixes**: for each plan vuln with `action: "fix"`:
-   `go -C <workdir> get <package>@<fixed_version>` then `go mod tidy`.
+4. **Targeted vuln fixes**: for each plan vuln with `action: "fix"` whose
+   `package` is **not** `stdlib`: `go -C <workdir> get <package>@<fixed_version>`
+   then `go mod tidy`. A `stdlib` finding has no module to `go get` — it is
+   cleared by the directive bump in step 1, which is why the plan carries a
+   `go_bump` for it. Running `go get stdlib@…` (or a `go get` of the repo's own
+   module at a Go version) fails and leaves the gate red.
 5. **Vendor**: if the repo has a vendor/ directory or the Makefile runs
    vendored builds, run `go -C <workdir> mod vendor`.
 6. **CHANGELOG bullet — DETERMINISTIC, do NOT write it yourself.** The

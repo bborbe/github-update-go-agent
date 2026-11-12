@@ -19,6 +19,7 @@ import (
 	"github.com/bborbe/errors"
 	domain "github.com/bborbe/vault-cli/pkg/domain"
 	"github.com/golang/glog"
+	"golang.org/x/mod/semver"
 
 	"github.com/bborbe/github-update-go-agent/pkg/git"
 	"github.com/bborbe/github-update-go-agent/pkg/maintainerconfig"
@@ -176,13 +177,8 @@ func (s *planningStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentli
 	// classified ready.
 	plan.appliesScope(updateScope)
 
-	if parked := parkFindings(plan); len(parked) > 0 {
-		if err := writePlanSection(ctx, md, plan); err != nil {
-			return nil, err
-		}
-		msg := parkMessage(parked, table)
-		glog.V(2).Infof("planning: parking task — %s", msg)
-		return needsInput(msg), nil
+	if res, err := parkResult(ctx, md, plan, table); err != nil || res != nil {
+		return res, err
 	}
 
 	if plan.Outcome == PlanOutcomeNeedsInput {
@@ -636,6 +632,158 @@ func (s *planningStep) failResolve(repo string, err error) *agentlib.Result {
 	)
 }
 
+// effectiveFixedVersion returns the fixed version a finding actually has: the
+// captured scanner row's value when the table knows the finding, falling back
+// to the model's plan field. The table is authoritative — parkMessage renders
+// from it, so the park decision must read the same source or a finding can be
+// parked while the message quotes the fix it carries.
+func effectiveFixedVersion(v *PlanVuln, table ScannerTable) string {
+	if row, ok := table.Row(v.ID); ok {
+		if fv := strings.TrimSpace(row.FixedVersion); fv != "" {
+			return fv
+		}
+	}
+	return strings.TrimSpace(v.FixedVersion)
+}
+
+// effectivePackage returns the package a finding actually affects, preferring
+// the captured scanner row. The model regularly reports a stdlib advisory
+// against the repo's own main module (observed across the 2026-11-12
+// population), which would send execution after a `go get` of a version that
+// does not exist — the table's `stdlib` is the correction.
+func effectivePackage(v *PlanVuln, table ScannerTable) string {
+	if row, ok := table.Row(v.ID); ok {
+		if pkg := strings.TrimSpace(row.Package); pkg != "" {
+			return pkg
+		}
+	}
+	return strings.TrimSpace(v.Package)
+}
+
+// isToolchainFinding reports whether a finding is cleared by the go-directive
+// bump rather than by `go get`. Only a stdlib finding is.
+func isToolchainFinding(v PlanVuln) bool {
+	return strings.TrimSpace(v.Package) == "stdlib"
+}
+
+// normalizeVersion returns a semver-comparable form with a leading "v". Go
+// toolchain versions are reported as `go1.27.4` (govulncheck's "found in
+// <pkg>@go1.X.Y" shape), so the `go` prefix is stripped first — otherwise the
+// value becomes the invalid `vgo1.27.4`.
+func normalizeVersion(version string) string {
+	v := strings.TrimSpace(version)
+	if strings.HasPrefix(v, "go") && len(v) > 2 && v[2] >= '0' && v[2] <= '9' {
+		v = v[2:]
+	} else if v == "go" {
+		// A bare `go` carries no version; treat it as no fix rather than
+		// normalizing it to the meaningless `vgo`.
+		return ""
+	}
+	if v == "" || strings.HasPrefix(v, "v") {
+		return v
+	}
+	return "v" + v
+}
+
+// ensureGoBump records a go-directive bump that reaches fixedVersion. A stdlib
+// finding is only cleared when the directive moves, so reclassifying one to
+// `fix` without this would send execution after a `go get` that cannot work.
+func ensureGoBump(plan *PlanOutput, fixedVersion string) {
+	to := normalizeVersion(fixedVersion)
+	if plan.GoBump == nil {
+		plan.GoBump = &GoBump{To: to}
+		return
+	}
+	if semver.Compare(normalizeVersion(plan.GoBump.To), to) < 0 {
+		plan.GoBump.To = to
+	}
+}
+
+// reclassifyFixableParks enforces the invariant that a finding carrying a
+// populated fixed_version is never parked. fixed_version names the version
+// that clears the finding, so such a finding belongs on the bump path — a
+// stdlib advisory fixed in a newer toolchain included, whose package is
+// corrected to stdlib and whose go_bump is recorded so execution does not
+// chase a nonexistent module release. Only a genuinely no-fix finding (empty
+// fixed_version in both the scanner table and the plan) may park. Returns the
+// moved IDs so the caller can log them.
+func reclassifyFixableParks(plan *PlanOutput, table ScannerTable) []string {
+	var moved []string
+	for i := range plan.Vulns {
+		v := &plan.Vulns[i]
+		if v.Action != VulnActionPark {
+			continue
+		}
+		fv := normalizeVersion(effectiveFixedVersion(v, table))
+		if fv == "" {
+			continue
+		}
+		v.FixedVersion = fv
+		if pkg := effectivePackage(v, table); pkg != "" {
+			v.Package = pkg
+		}
+		v.Action = VulnActionFix
+		v.Reason = "reclassified: fixed_version " + fv +
+			" is available — routed to the bump path instead of park"
+		if isToolchainFinding(*v) {
+			ensureGoBump(plan, fv)
+		}
+		moved = append(moved, v.ID)
+	}
+	return moved
+}
+
+// reasonNamesAny reports whether the needs_input reason is empty or names one
+// of the findings that just moved. A reason describing a different blocker (a
+// nested module, a broken gate) must survive: clearing it would drop the real
+// reason the plan could not proceed.
+func reasonNamesAny(reason string, ids []string) bool {
+	if strings.TrimSpace(reason) == "" {
+		return true
+	}
+	lowered := strings.ToLower(reason)
+	for _, id := range ids {
+		if strings.Contains(lowered, strings.ToLower(id)) {
+			return true
+		}
+	}
+	return false
+}
+
+// parkResult reclassifies fixable findings off the park path, then writes the
+// plan and returns a needs_input Result when park findings remain. A finding
+// with a populated fixed_version names the version that clears it, so it must
+// never park — only a genuinely no-fix finding may. Returns (nil, nil) when
+// nothing parks, leaving the caller on the ready path.
+func parkResult(
+	ctx context.Context,
+	md *agentlib.Markdown,
+	plan *PlanOutput,
+	table ScannerTable,
+) (*agentlib.Result, error) {
+	if moved := reclassifyFixableParks(plan, table); len(moved) > 0 {
+		glog.V(2).Infof("planning: reclassified fixable findings off the park path: %v", moved)
+		// The model may have answered needs_input purely because of a finding
+		// it had parked. With every such finding now on the fix path, that
+		// reason no longer describes the plan — clear it so the task proceeds.
+		if plan.Outcome == PlanOutcomeNeedsInput && len(parkFindings(plan)) == 0 &&
+			reasonNamesAny(plan.Reason, moved) {
+			plan.Outcome = PlanOutcomeReady
+			plan.Reason = ""
+		}
+	}
+	parked := parkFindings(plan)
+	if len(parked) == 0 {
+		return nil, nil
+	}
+	if err := writePlanSection(ctx, md, plan); err != nil {
+		return nil, err
+	}
+	msg := parkMessage(parked, table)
+	glog.V(2).Infof("planning: parking task — %s", msg)
+	return needsInput(msg), nil
+}
+
 // parkFindings returns the park-action vulns of the plan.
 func parkFindings(plan *PlanOutput) []PlanVuln {
 	var parked []PlanVuln
@@ -653,6 +801,12 @@ func parkFindings(plan *PlanOutput) []PlanVuln {
 // operator-approved suppression would touch. The model's prose reason is
 // deliberately NOT carried — the operator's suppression decision must be
 // made against the real finding.
+//
+// Callers pass only findings with an empty fixed_version (reclassifyFixableParks
+// moves every populated one onto the bump path first), so this message can
+// only ever describe genuinely no-fix findings. It still names the bump as
+// the alternative, because the reader is deciding whether to suppress and
+// must not suppress something a version bump would clear.
 func parkMessage(parked []PlanVuln, table ScannerTable) string {
 	findings := make([]string, 0, len(parked))
 	for _, v := range parked {
@@ -664,7 +818,8 @@ func parkMessage(parked []PlanVuln, table ScannerTable) string {
 		findings = append(findings, entry)
 	}
 	return fmt.Sprintf(
-		"unfixable findings — suppress with justification or hold: %s; %s",
+		"unfixable findings — no patched version exists, so suppression or hold is the only remedy; "+
+			"if a fix does exist, bump instead of suppressing: %s; %s",
 		strings.Join(findings, "; "),
 		suppressionSurfacesHint,
 	)

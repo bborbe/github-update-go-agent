@@ -478,4 +478,144 @@ var _ = Describe("parkMessage", func() {
 		Expect(msg).To(ContainSubstring("GO-9999-0001 (scanner=trivy, fixed_version=)"))
 		Expect(msg).To(ContainSubstring("VULNCHECK_IGNORE"))
 	})
+
+	It("names the bump as the alternative to a suppression", func() {
+		msg := pkg.ParkMessage(
+			[]pkg.PlanVuln{{ID: "GO-9999-0002", Action: "park", Scanner: "govulncheck"}},
+			pkg.ScannerTable{},
+		)
+		Expect(msg).To(ContainSubstring("bump instead of suppressing"))
+	})
+})
+
+var _ = Describe("reclassifyFixableParks", func() {
+	It("moves a parked finding with a populated fixed_version onto the fix path", func() {
+		plan := &pkg.PlanOutput{Vulns: []pkg.PlanVuln{
+			{ID: "GO-2026-6859", Action: "park", FixedVersion: "v1.27.4"},
+		}}
+		moved := pkg.ReclassifyFixableParks(plan, pkg.ScannerTable{})
+		Expect(moved).To(Equal([]string{"GO-2026-6859"}))
+		Expect(plan.Vulns[0].Action).To(Equal("fix"))
+		Expect(plan.Vulns[0].Reason).To(ContainSubstring("v1.27.4"))
+	})
+
+	It("reclassifies when only the scanner table carries the fix", func() {
+		plan := &pkg.PlanOutput{Vulns: []pkg.PlanVuln{
+			{ID: "GO-2026-6859", Action: "park"},
+		}}
+		table := pkg.ScannerTable{
+			{ID: "GO-2026-6859", Scanner: "govulncheck", FixedVersion: "v1.27.4"},
+		}
+		moved := pkg.ReclassifyFixableParks(plan, table)
+		Expect(moved).To(Equal([]string{"GO-2026-6859"}))
+		Expect(plan.Vulns[0].Action).To(Equal("fix"))
+		Expect(plan.Vulns[0].FixedVersion).To(Equal("v1.27.4"))
+	})
+
+	It("prefers the scanner table's version over the plan's", func() {
+		plan := &pkg.PlanOutput{Vulns: []pkg.PlanVuln{
+			{ID: "GO-2026-6859", Action: "park", FixedVersion: "v1.27.3"},
+		}}
+		table := pkg.ScannerTable{
+			{ID: "GO-2026-6859", Scanner: "govulncheck", FixedVersion: "v1.27.4"},
+		}
+		pkg.ReclassifyFixableParks(plan, table)
+		Expect(plan.Vulns[0].FixedVersion).To(Equal("v1.27.4"))
+	})
+
+	It("leaves a park with an empty fixed_version on the park path", func() {
+		plan := &pkg.PlanOutput{Vulns: []pkg.PlanVuln{
+			{ID: "GO-0000-0001", Action: "park", FixedVersion: ""},
+		}}
+		Expect(pkg.ReclassifyFixableParks(plan, pkg.ScannerTable{})).To(BeEmpty())
+		Expect(plan.Vulns[0].Action).To(Equal("park"))
+	})
+
+	It("treats a whitespace-only fixed_version as empty", func() {
+		plan := &pkg.PlanOutput{Vulns: []pkg.PlanVuln{
+			{ID: "GO-0000-0002", Action: "park", FixedVersion: "   "},
+		}}
+		Expect(pkg.ReclassifyFixableParks(plan, pkg.ScannerTable{})).To(BeEmpty())
+		Expect(plan.Vulns[0].Action).To(Equal("park"))
+	})
+
+	It("leaves an already-fix finding untouched", func() {
+		plan := &pkg.PlanOutput{Vulns: []pkg.PlanVuln{
+			{ID: "GO-2026-1234", Action: "fix", FixedVersion: "v0.39.0"},
+		}}
+		Expect(pkg.ReclassifyFixableParks(plan, pkg.ScannerTable{})).To(BeEmpty())
+		Expect(plan.Vulns[0].Action).To(Equal("fix"))
+	})
+
+	It("corrects a stdlib finding's package and records the go_bump", func() {
+		plan := &pkg.PlanOutput{Vulns: []pkg.PlanVuln{
+			{
+				ID:           "GO-2026-6859",
+				Package:      "github.com/bborbe/agent-claude",
+				Action:       "park",
+				FixedVersion: "v1.27.4",
+			},
+		}}
+		// The scanner reports a stdlib fix as `go1.27.4`, not `v1.27.4`.
+		table := pkg.ScannerTable{
+			{
+				ID:           "GO-2026-6859",
+				Package:      "stdlib",
+				Scanner:      "govulncheck",
+				FixedVersion: "go1.27.4",
+			},
+		}
+		pkg.ReclassifyFixableParks(plan, table)
+		Expect(plan.Vulns[0].Action).To(Equal("fix"))
+		Expect(plan.Vulns[0].Package).To(Equal("stdlib"))
+		Expect(plan.Vulns[0].FixedVersion).To(Equal("v1.27.4"))
+		Expect(plan.GoBump).NotTo(BeNil())
+		Expect(plan.GoBump.To).To(Equal("v1.27.4"))
+	})
+
+	It("leaves a module finding without a go_bump", func() {
+		plan := &pkg.PlanOutput{Vulns: []pkg.PlanVuln{
+			{
+				ID:           "GO-2026-5932",
+				Package:      "golang.org/x/crypto/openpgp",
+				Action:       "park",
+				FixedVersion: "v0.38.0",
+			},
+		}}
+		table := pkg.ScannerTable{
+			{
+				ID:           "GO-2026-5932",
+				Package:      "golang.org/x/crypto/openpgp",
+				Scanner:      "govulncheck",
+				FixedVersion: "v0.38.0",
+			},
+		}
+		pkg.ReclassifyFixableParks(plan, table)
+		Expect(plan.Vulns[0].Action).To(Equal("fix"))
+		Expect(plan.GoBump).To(BeNil())
+	})
+
+	It("raises an existing go_bump that does not reach the fix", func() {
+		plan := &pkg.PlanOutput{
+			GoBump: &pkg.GoBump{From: "1.27.3", To: "v1.27.3"},
+			Vulns: []pkg.PlanVuln{
+				{ID: "GO-2026-6859", Package: "stdlib", Action: "park", FixedVersion: "v1.27.4"},
+			},
+		}
+		pkg.ReclassifyFixableParks(plan, pkg.ScannerTable{})
+		Expect(plan.GoBump.To).To(Equal("v1.27.4"))
+	})
+})
+
+var _ = Describe("ScannerTable.Row", func() {
+	It("prefers a duplicate row that carries a fixed version", func() {
+		table := pkg.ScannerTable{
+			{ID: "GO-2026-0001", Scanner: "trivy"},
+			{ID: "GO-2026-0001", Scanner: "govulncheck", FixedVersion: "v1.2.3"},
+		}
+		row, ok := table.Row("GO-2026-0001")
+		Expect(ok).To(BeTrue())
+		Expect(row.Scanner).To(Equal("govulncheck"))
+		Expect(row.FixedVersion).To(Equal("v1.2.3"))
+	})
 })
