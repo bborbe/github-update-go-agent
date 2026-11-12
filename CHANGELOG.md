@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- fix: target the latest published patch for the minor line CI installs, instead of the image toolchain — the planning and execution prompts now resolve the baseline from the workflow's `setup-go`/`go-version-file` step and read the bump target from the Go release index, so a repo whose `go.mod` already equalled the pod's Go no longer reports `no_update_needed` while its `vulncheck` fails on a stdlib CVE a later patch fixes; the image toolchain stays the fallback where no such step exists
+
 ## v0.22.2
 
 - chore: track prompts/in-progress so the dark-factory worktree lane can save prompt metadata

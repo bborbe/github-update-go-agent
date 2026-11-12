@@ -495,7 +495,7 @@ func (s *planningStep) runInspection(
 	}
 	prompt := prompts.PlanningPrompt() +
 		"\n\n## Workdir\n\n" + workdir +
-		"\n\n## Target Go\n\n" + targetGoVersion() +
+		"\n\n## Target Go\n\n" + resolveTargetGo(ctx, workdir) +
 		"\n\n" + updateScopeSection(updateScope) +
 		"\n\n## Scanner Findings\n\nThe findings below were captured by Go from the repo's own gate targets and, when the task carries one, from the validated external advisory in the task frontmatter — together they are the ONLY source of advisory IDs. Every vuln ID you report MUST appear in this table verbatim.\n\n" + renderScannerTable(table) +
 		"\n\n## Task\n\n" + taskContent

@@ -133,3 +133,24 @@ type LLMJSONProbe struct {
 func ParseLLMJSONProbe(ctx context.Context, response string) (*LLMJSONProbe, error) {
 	return parseJSONResponse[LLMJSONProbe](ctx, response)
 }
+
+// Target-go exports: the resolver, its workflow and go.mod parsers, the
+// minor-line split and the release-index lookup, so pkg_test can cover the
+// baseline resolution and the bump target without a live network.
+var (
+	ResolveTargetGo       = resolveTargetGo
+	TargetGoVersion       = targetGoVersion
+	CIGoBaseline          = ciGoBaseline
+	WorkflowGoVersionFile = workflowGoVersionFile
+	GoDirective           = goDirective
+	GoMinorLine           = goMinorLine
+	LatestGoPatch         = latestGoPatch
+)
+
+// SetGoReleaseIndexForTest points the release-index lookup at url and returns
+// a func that restores the previous value.
+func SetGoReleaseIndexForTest(url string) func() {
+	previous := goReleaseIndexURL
+	goReleaseIndexURL = url
+	return func() { goReleaseIndexURL = previous }
+}
