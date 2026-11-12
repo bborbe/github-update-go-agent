@@ -46,12 +46,16 @@ The context sections appended after this prompt provide:
 4. **Classify each finding listed in `## Scanner Findings` fix-vs-park.**
    The rule is one condition: **a populated `fixed_version` means the
    finding is fixable.**
-   - `"fix"` — the finding's `fixed_version` column is a real version.
-     This includes a stdlib advisory whose `fixed_version` is at or below
-     `## Target Go`: record the `go_bump` that reaches it (the directive
-     bump is mandatory — CI pins its toolchain to go.mod, so a stdlib CVE
-     is only fixed when the directive moves) and mark the finding `fix`.
-     Record the id, package, fixed_version, and which scanner flagged it.
+   - `"fix"` — the finding's `fixed_version` column is populated. That is
+     the only condition: reachability does not change it, because a
+     populated version always names a version to move to. For a stdlib
+     advisory, record the `go_bump` that reaches `fixed_version` (the
+     directive bump is mandatory — CI pins its toolchain to go.mod, so a
+     stdlib CVE is only fixed when the directive moves). When
+     `fixed_version` is above `## Target Go`, record the bump to
+     `fixed_version` and say so in `reason` — it is still `fix`, never
+     `park`. Record the id, package, fixed_version, and which scanner
+     flagged it.
    - `"park"` — **only** when `fixed_version` is empty. Never park a
      finding whose `fixed_version` is populated: that field names the
      version that clears it, and Go reclassifies such a finding onto the

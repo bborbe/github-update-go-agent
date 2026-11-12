@@ -47,6 +47,14 @@ var fixtureMakefile = ".PHONY: check vulncheck\n" +
 	"vulncheck:\n" +
 	"\t@echo 'CVE-2026-9999\tgolang.org/x/net@v0.32.0 -> v0.36.0\tsummary'\n"
 
+// fixtureMakefileNoFix emits two scanner findings that carry no fixed version
+// (`fixed` with no version), so they are genuinely unfixable and must park.
+var fixtureMakefileNoFix = ".PHONY: check vulncheck\n" +
+	"check:\n" +
+	"\t@echo 'GO-2026-7777 | stdlib | 1.26.5 | fixed'\n" +
+	"vulncheck:\n" +
+	"\t@echo 'CVE-2026-8888 | stdlib | 1.26.5 | fixed'\n"
+
 // fixtureMakefilePrefixCollision adds a GO-2026-5026 row whose 5-digit tail
 // shares a prefix with the fabricated GO-2026-50260.
 var fixtureMakefilePrefixCollision = ".PHONY: check vulncheck\n" +
@@ -577,15 +585,15 @@ jobs:
 
 	Describe("park path (design D4)", func() {
 		BeforeEach(func() {
-			setupFixture(fixtureMakefile)
+			setupFixture(fixtureMakefileNoFix)
 			runner.RunReturns(&claudelib.ClaudeResult{Result: `{
 				"outcome": "ready",
 				"has_work": true,
 				"dep_updates_expected": false,
 				"gate_targets": ["check"],
 				"vulns": [
-					{"id": "GO-2026-5932", "package": "golang.org/x/crypto/openpgp", "scanner": "govulncheck", "action": "park", "reason": "no upstream fix"},
-					{"id": "CVE-2026-9999", "scanner": "govulncheck", "action": "park", "reason": "major bump required"}
+					{"id": "GO-2026-7777", "package": "stdlib", "scanner": "govulncheck", "action": "park", "reason": "no upstream fix"},
+					{"id": "CVE-2026-8888", "package": "stdlib", "scanner": "govulncheck", "action": "park", "reason": "no upstream fix"}
 				]
 			}`}, nil)
 		})
@@ -598,15 +606,15 @@ jobs:
 				Expect(result.Status).To(Equal(agentlib.AgentStatusNeedsInput))
 				Expect(
 					result.Message,
-				).To(ContainSubstring("GO-2026-5932 (scanner=govulncheck, fixed_version=v0.38.0)"))
+				).To(ContainSubstring("GO-2026-7777 (scanner=osv-scanner, fixed_version=)"))
 				Expect(
 					result.Message,
-				).To(ContainSubstring("CVE-2026-9999 (scanner=govulncheck, fixed_version=v0.36.0)"))
+				).To(ContainSubstring("CVE-2026-8888 (scanner=osv-scanner, fixed_version=)"))
 				Expect(result.Message).To(ContainSubstring("VULNCHECK_IGNORE"))
 				Expect(result.Message).To(ContainSubstring(".osv-scanner.toml"))
 				Expect(result.Message).To(ContainSubstring(".trivyignore"))
 				Expect(result.Message).NotTo(ContainSubstring("no upstream fix"))
-				Expect(result.Message).NotTo(ContainSubstring("major bump required"))
+				Expect(result.Message).To(ContainSubstring("bump instead of suppressing"))
 			},
 		)
 
@@ -621,6 +629,32 @@ jobs:
 			_, _ = step.Run(ctx, md)
 			assignee, _ := md.Frontmatter.String("assignee")
 			Expect(assignee).To(Equal("github-update-go-agent"))
+		})
+	})
+
+	Describe("fixable findings never park", func() {
+		BeforeEach(func() {
+			setupFixture(fixtureMakefile)
+			runner.RunReturns(&claudelib.ClaudeResult{Result: `{
+				"outcome": "ready",
+				"has_work": true,
+				"dep_updates_expected": false,
+				"gate_targets": ["check"],
+				"vulns": [
+					{"id": "GO-2026-5932", "package": "golang.org/x/crypto/openpgp", "scanner": "govulncheck", "action": "park", "reason": "no upstream fix"}
+				]
+			}`}, nil)
+		})
+
+		It("reclassifies a park whose scanner table carries a fix instead of parking", func() {
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).NotTo(Equal(agentlib.AgentStatusNeedsInput))
+			plan, err := agentlib.ExtractSection[pkg.PlanOutput](ctx, md, "## Plan")
+			Expect(err).To(BeNil())
+			Expect(plan.Vulns).To(HaveLen(1))
+			Expect(plan.Vulns[0].Action).To(Equal("fix"))
+			Expect(plan.Vulns[0].FixedVersion).To(Equal("v0.38.0"))
 		})
 	})
 

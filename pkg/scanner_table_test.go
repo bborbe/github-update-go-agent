@@ -493,17 +493,41 @@ var _ = Describe("reclassifyFixableParks", func() {
 		plan := &pkg.PlanOutput{Vulns: []pkg.PlanVuln{
 			{ID: "GO-2026-6859", Action: "park", FixedVersion: "v1.27.4"},
 		}}
-		moved := pkg.ReclassifyFixableParks(plan)
+		moved := pkg.ReclassifyFixableParks(plan, pkg.ScannerTable{})
 		Expect(moved).To(Equal([]string{"GO-2026-6859"}))
 		Expect(plan.Vulns[0].Action).To(Equal("fix"))
 		Expect(plan.Vulns[0].Reason).To(ContainSubstring("v1.27.4"))
+	})
+
+	It("reclassifies when only the scanner table carries the fix", func() {
+		plan := &pkg.PlanOutput{Vulns: []pkg.PlanVuln{
+			{ID: "GO-2026-6859", Action: "park"},
+		}}
+		table := pkg.ScannerTable{
+			{ID: "GO-2026-6859", Scanner: "govulncheck", FixedVersion: "v1.27.4"},
+		}
+		moved := pkg.ReclassifyFixableParks(plan, table)
+		Expect(moved).To(Equal([]string{"GO-2026-6859"}))
+		Expect(plan.Vulns[0].Action).To(Equal("fix"))
+		Expect(plan.Vulns[0].FixedVersion).To(Equal("v1.27.4"))
+	})
+
+	It("prefers the scanner table's version over the plan's", func() {
+		plan := &pkg.PlanOutput{Vulns: []pkg.PlanVuln{
+			{ID: "GO-2026-6859", Action: "park", FixedVersion: "v1.27.3"},
+		}}
+		table := pkg.ScannerTable{
+			{ID: "GO-2026-6859", Scanner: "govulncheck", FixedVersion: "v1.27.4"},
+		}
+		pkg.ReclassifyFixableParks(plan, table)
+		Expect(plan.Vulns[0].FixedVersion).To(Equal("v1.27.4"))
 	})
 
 	It("leaves a park with an empty fixed_version on the park path", func() {
 		plan := &pkg.PlanOutput{Vulns: []pkg.PlanVuln{
 			{ID: "GO-0000-0001", Action: "park", FixedVersion: ""},
 		}}
-		Expect(pkg.ReclassifyFixableParks(plan)).To(BeEmpty())
+		Expect(pkg.ReclassifyFixableParks(plan, pkg.ScannerTable{})).To(BeEmpty())
 		Expect(plan.Vulns[0].Action).To(Equal("park"))
 	})
 
@@ -511,7 +535,7 @@ var _ = Describe("reclassifyFixableParks", func() {
 		plan := &pkg.PlanOutput{Vulns: []pkg.PlanVuln{
 			{ID: "GO-0000-0002", Action: "park", FixedVersion: "   "},
 		}}
-		Expect(pkg.ReclassifyFixableParks(plan)).To(BeEmpty())
+		Expect(pkg.ReclassifyFixableParks(plan, pkg.ScannerTable{})).To(BeEmpty())
 		Expect(plan.Vulns[0].Action).To(Equal("park"))
 	})
 
@@ -519,7 +543,7 @@ var _ = Describe("reclassifyFixableParks", func() {
 		plan := &pkg.PlanOutput{Vulns: []pkg.PlanVuln{
 			{ID: "GO-2026-1234", Action: "fix", FixedVersion: "v0.39.0"},
 		}}
-		Expect(pkg.ReclassifyFixableParks(plan)).To(BeEmpty())
+		Expect(pkg.ReclassifyFixableParks(plan, pkg.ScannerTable{})).To(BeEmpty())
 		Expect(plan.Vulns[0].Action).To(Equal("fix"))
 	})
 })

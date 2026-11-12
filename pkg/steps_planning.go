@@ -631,21 +631,40 @@ func (s *planningStep) failResolve(repo string, err error) *agentlib.Result {
 	)
 }
 
+// effectiveFixedVersion returns the fixed version a finding actually has: the
+// captured scanner row's value when the table knows the finding, falling back
+// to the model's plan field. The table is authoritative — parkMessage renders
+// from it, so the park decision must read the same source or a finding can be
+// parked while the message quotes the fix it carries.
+func effectiveFixedVersion(v *PlanVuln, table ScannerTable) string {
+	if row, ok := table.Row(v.ID); ok {
+		if fv := strings.TrimSpace(row.FixedVersion); fv != "" {
+			return fv
+		}
+	}
+	return strings.TrimSpace(v.FixedVersion)
+}
+
 // reclassifyFixableParks enforces the invariant that a finding carrying a
 // populated fixed_version is never parked. fixed_version names the version
 // that clears the finding, so such a finding belongs on the bump path — a
 // stdlib advisory fixed in a newer toolchain included. Only a genuinely
-// no-fix finding (empty fixed_version) may park. Returns the moved IDs so
-// the caller can log them.
-func reclassifyFixableParks(plan *PlanOutput) []string {
+// no-fix finding (empty fixed_version in both the scanner table and the plan)
+// may park. Returns the moved IDs so the caller can log them.
+func reclassifyFixableParks(plan *PlanOutput, table ScannerTable) []string {
 	var moved []string
 	for i := range plan.Vulns {
 		v := &plan.Vulns[i]
-		if v.Action != VulnActionPark || strings.TrimSpace(v.FixedVersion) == "" {
+		if v.Action != VulnActionPark {
+			continue
+		}
+		fv := effectiveFixedVersion(v, table)
+		if fv == "" {
 			continue
 		}
 		v.Action = VulnActionFix
-		v.Reason = "reclassified: fixed_version " + v.FixedVersion +
+		v.FixedVersion = fv
+		v.Reason = "reclassified: fixed_version " + fv +
 			" is available — routed to the bump path instead of park"
 		moved = append(moved, v.ID)
 	}
@@ -663,7 +682,7 @@ func parkResult(
 	plan *PlanOutput,
 	table ScannerTable,
 ) (*agentlib.Result, error) {
-	if moved := reclassifyFixableParks(plan); len(moved) > 0 {
+	if moved := reclassifyFixableParks(plan, table); len(moved) > 0 {
 		glog.V(2).Infof("planning: reclassified fixable findings off the park path: %v", moved)
 	}
 	parked := parkFindings(plan)

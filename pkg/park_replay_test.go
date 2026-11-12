@@ -37,7 +37,7 @@ var _ = Describe("reclassifyFixableParks over the recorded 2026-11-12 population
 		var stillParkedPopulated int
 		for _, f := range fixtures {
 			plan := f.Plan
-			reclassified += len(pkg.ReclassifyFixableParks(&plan))
+			reclassified += len(pkg.ReclassifyFixableParks(&plan, pkg.ScannerTable{}))
 			for _, v := range plan.Vulns {
 				if v.Action != "park" {
 					continue

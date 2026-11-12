@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-- fix: never park a finding that carries a populated `fixed_version` — `reclassifyFixableParks` moves such a finding onto the bump path before the park decision, so a stdlib advisory whose fix is reachable by the go-directive bump is no longer labelled `unfixable findings` while quoting the version that clears it; the planning prompt now states the same single condition (populated `fixed_version` ⇒ fix), and the park message names the bump as the alternative to a suppression
+- fix: never park a finding that carries a populated `fixed_version` — `reclassifyFixableParks` moves such a finding onto the bump path before the park decision, reading the captured scanner table as authoritative (falling back to the plan field), so a stdlib advisory is no longer labelled `unfixable findings` while the message quotes the version that clears it; the planning prompt states the same single condition (populated `fixed_version` ⇒ fix, reachability notwithstanding), and the park message names the bump as the alternative to a suppression
 
 ## v0.22.4
 
