@@ -35,8 +35,11 @@ var goReleaseIndexClient = &http.Client{Timeout: 20 * time.Second}
 var goDirectiveRegexp = regexp.MustCompile(`(?m)^go\s+(\S+)\s*$`)
 
 // maxReleaseIndexBytes bounds how much of the release index is read, so a
-// misbehaving endpoint cannot exhaust memory.
-const maxReleaseIndexBytes = 1 << 20
+// misbehaving endpoint cannot exhaust memory. The live `include=all` payload is
+// ~2.2 MiB, so the cap must sit well above it: a cap below the real payload
+// truncates the JSON, fails the decode, and silently drops every repo back to
+// the baseline fallback.
+const maxReleaseIndexBytes = 16 << 20
 
 // resolveTargetGo returns the Go version the update should bump to.
 //

@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -185,6 +186,21 @@ jobs:
 			latest, err := updatepkg.LatestGoPatch(ctx, "1.27")
 			Expect(err).To(BeNil())
 			Expect(latest).To(Equal("1.27.4"))
+		})
+
+		It("reads an index payload larger than one mebibyte", func() {
+			// The live include=all index is ~2.2 MiB. A read cap below that
+			// truncates the JSON, fails the decode and silently drops every repo
+			// to the baseline, so this spec pins the cap above the real payload.
+			body := strings.Repeat(" ", 2<<20) + `[{"version":"go1.28.3","stable":true}]`
+			server := releaseIndexServer(http.StatusOK, body)
+			defer server.Close()
+			restore := updatepkg.SetGoReleaseIndexForTest(server.URL)
+			defer restore()
+
+			latest, err := updatepkg.LatestGoPatch(ctx, "1.28")
+			Expect(err).To(BeNil())
+			Expect(latest).To(Equal("1.28.3"))
 		})
 
 		It("reports an error when the minor line has no release", func() {
