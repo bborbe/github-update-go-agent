@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -44,14 +45,21 @@ var _ = Describe("reclassifyFixableParks over the recorded 2026-11-12 population
 			table := pkg.ScannerTable{}
 			for _, v := range plan.Vulns {
 				pkgName := v.Package
+				tableFV := v.FixedVersion
 				if v.ID == "GO-2026-6859" {
 					pkgName = "stdlib"
+					// govulncheck reports a stdlib fix as `go1.27.4`, not
+					// `v1.27.4` — the real scanner format. An empty
+					// fixed_version stays empty (a genuinely no-fix row).
+					if trimmed := strings.TrimPrefix(v.FixedVersion, "v"); trimmed != "" {
+						tableFV = "go" + trimmed
+					}
 				}
 				table = append(table, pkg.ScannerFinding{
 					ID:           v.ID,
 					Package:      pkgName,
 					Scanner:      v.Scanner,
-					FixedVersion: v.FixedVersion,
+					FixedVersion: tableFV,
 				})
 			}
 

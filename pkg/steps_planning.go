@@ -666,9 +666,19 @@ func isToolchainFinding(v PlanVuln) bool {
 	return strings.TrimSpace(v.Package) == "stdlib"
 }
 
-// normalizeVersion returns a semver-comparable form (leading "v").
+// normalizeVersion returns a semver-comparable form with a leading "v". Go
+// toolchain versions are reported as `go1.27.4` (govulncheck's "found in
+// <pkg>@go1.X.Y" shape), so the `go` prefix is stripped first — otherwise the
+// value becomes the invalid `vgo1.27.4`.
 func normalizeVersion(version string) string {
 	v := strings.TrimSpace(version)
+	if strings.HasPrefix(v, "go") && len(v) > 2 && v[2] >= '0' && v[2] <= '9' {
+		v = v[2:]
+	} else if v == "go" {
+		// A bare `go` carries no version; treat it as no fix rather than
+		// normalizing it to the meaningless `vgo`.
+		return ""
+	}
 	if v == "" || strings.HasPrefix(v, "v") {
 		return v
 	}
@@ -704,7 +714,7 @@ func reclassifyFixableParks(plan *PlanOutput, table ScannerTable) []string {
 		if v.Action != VulnActionPark {
 			continue
 		}
-		fv := effectiveFixedVersion(v, table)
+		fv := normalizeVersion(effectiveFixedVersion(v, table))
 		if fv == "" {
 			continue
 		}
@@ -723,6 +733,23 @@ func reclassifyFixableParks(plan *PlanOutput, table ScannerTable) []string {
 	return moved
 }
 
+// reasonNamesAny reports whether the needs_input reason is empty or names one
+// of the findings that just moved. A reason describing a different blocker (a
+// nested module, a broken gate) must survive: clearing it would drop the real
+// reason the plan could not proceed.
+func reasonNamesAny(reason string, ids []string) bool {
+	if strings.TrimSpace(reason) == "" {
+		return true
+	}
+	lowered := strings.ToLower(reason)
+	for _, id := range ids {
+		if strings.Contains(lowered, strings.ToLower(id)) {
+			return true
+		}
+	}
+	return false
+}
+
 // parkResult reclassifies fixable findings off the park path, then writes the
 // plan and returns a needs_input Result when park findings remain. A finding
 // with a populated fixed_version names the version that clears it, so it must
@@ -739,7 +766,8 @@ func parkResult(
 		// The model may have answered needs_input purely because of a finding
 		// it had parked. With every such finding now on the fix path, that
 		// reason no longer describes the plan — clear it so the task proceeds.
-		if plan.Outcome == PlanOutcomeNeedsInput && len(parkFindings(plan)) == 0 {
+		if plan.Outcome == PlanOutcomeNeedsInput && len(parkFindings(plan)) == 0 &&
+			reasonNamesAny(plan.Reason, moved) {
 			plan.Outcome = PlanOutcomeReady
 			plan.Reason = ""
 		}

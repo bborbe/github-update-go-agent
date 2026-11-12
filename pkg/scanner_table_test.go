@@ -556,17 +556,19 @@ var _ = Describe("reclassifyFixableParks", func() {
 				FixedVersion: "v1.27.4",
 			},
 		}}
+		// The scanner reports a stdlib fix as `go1.27.4`, not `v1.27.4`.
 		table := pkg.ScannerTable{
 			{
 				ID:           "GO-2026-6859",
 				Package:      "stdlib",
 				Scanner:      "govulncheck",
-				FixedVersion: "v1.27.4",
+				FixedVersion: "go1.27.4",
 			},
 		}
 		pkg.ReclassifyFixableParks(plan, table)
 		Expect(plan.Vulns[0].Action).To(Equal("fix"))
 		Expect(plan.Vulns[0].Package).To(Equal("stdlib"))
+		Expect(plan.Vulns[0].FixedVersion).To(Equal("v1.27.4"))
 		Expect(plan.GoBump).NotTo(BeNil())
 		Expect(plan.GoBump.To).To(Equal("v1.27.4"))
 	})

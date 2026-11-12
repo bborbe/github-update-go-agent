@@ -40,8 +40,11 @@ The context sections appended after this prompt provide:
 
 Execute in order, repairing as you go:
 
-1. **Go directive bump**: set the go.mod `go` directive to the target Go
-   version. If a Dockerfile pins a `golang:<version>` base, bump it to match.
+1. **Go directive bump**: set the go.mod `go` directive to the **higher** of
+   the `## Target Go` version and the plan's `go_bump.to` — the plan raises it
+   to the version that clears a stdlib advisory, so never record a directive
+   below that value. If a Dockerfile pins a `golang:<version>` base, bump it to
+   match.
    The directive bump is mandatory: CI pins its toolchain to the directive
    (`go-version-file: go.mod`), so stdlib CVEs ("found in <pkg>@go1.X.Y")
    only clear when the directive moves.
