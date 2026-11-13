@@ -199,6 +199,37 @@ var _ = Describe("httpFetcher", func() {
 		Expect(cfg.GoUpdate.AutoUpdate).To(BeTrue())
 	})
 
+	It("ignores unknown fields inside a known namespace (go-skeleton regression)", func() {
+		// bborbe/go-skeleton's real .maintainer.yaml carries dockerBuild
+		// .pushSecret and .deadlineSeconds, which this binary's pinned
+		// maintainerconfig does not define. ParseStrict rejected the whole file
+		// and aborted the run with invalid_config; the lenient Parse must
+		// accept it so the planning step can reach the Go-target decision.
+		yamlBytes := []byte(
+			"release:\n  autoRelease: true\ngoUpdate:\n  autoUpdate: true\n" +
+				"dockerBuild:\n  autoBuild: true\n  destinations:\n    - internal\n" +
+				"  pushSecret: docker\n  deadlineSeconds: 3600\n",
+		)
+		encoded := base64.StdEncoding.EncodeToString(yamlBytes)
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"encoding": "base64",
+				"content":  encoded,
+			})
+		}))
+		defer server.Close()
+
+		fetcher := maintainerconfig.NewHTTPFetcherForTest("", server.URL)
+		data, err := fetcher.Fetch(ctx, "bborbe", "go-skeleton", "master")
+		Expect(err).NotTo(HaveOccurred())
+
+		cfg, err := maintainerconfig.Parse(ctx, data)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(cfg.GoUpdate.AutoUpdate).To(BeTrue())
+		Expect(cfg.DockerBuild.AutoBuild).To(BeTrue())
+	})
+
 	It("authorization header forwarded when token is set", func() {
 		var capturedAuth string
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

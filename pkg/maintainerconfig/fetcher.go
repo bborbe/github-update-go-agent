@@ -35,10 +35,19 @@ type (
 	GoUpdateConfig = libmaintainerconfig.GoUpdateConfig
 )
 
-// Parse is a thin alias to lib/maintainerconfig.ParseStrict so the agent's
-// planning step fails closed on unknown/typo'd keys. The watcher uses the
-// lenient lib.Parse directly (fleet tolerance — see lib comment on Parse).
-var Parse = libmaintainerconfig.ParseStrict
+// Parse is a thin alias to the lenient lib/maintainerconfig.Parse. The agent's
+// planning step must tolerate a .maintainer.yaml carrying fields this binary's
+// pinned maintainerconfig does not define yet — e.g.
+// dockerBuild.pushSecret / dockerBuild.deadlineSeconds, which the
+// github-release watcher's build job consumes. ParseStrict applies
+// KnownFields(true) inside every namespace it knows and rejects exactly those,
+// aborting the whole run with invalid_config before the Go-target decision — so
+// an upstream schema addition would silently disable the Go-update sweep for
+// that repo. The github-release watcher uses the same lenient Parse. Tradeoff
+// accepted: a typo'd key inside a known namespace is now ignored rather than
+// failing closed — a silent default is recoverable, a spurious invalid_config
+// is not.
+var Parse = libmaintainerconfig.Parse
 
 // fetchTimeout caps the GitHub contents-API call. Set high enough to
 // survive typical transient latency, low enough to fail the planning

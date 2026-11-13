@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- fix: parse `.maintainer.yaml` leniently so a field this binary's pinned `maintainerconfig` does not define — e.g. `dockerBuild.pushSecret` / `dockerBuild.deadlineSeconds`, as in `bborbe/go-skeleton` — no longer aborts the planning step with `invalid_config` before the Go-target decision; unknown fields inside a known namespace are ignored, matching the github-release watcher's parser, and the regression is covered by a fetcher round-trip and a planning-step test that reaches the inspection call
+
 ## v0.22.5
 
 - fix: never park a finding that carries a populated `fixed_version` — `reclassifyFixableParks` moves such a finding onto the bump path before the park decision, reading the captured scanner table as authoritative (falling back to the plan field), so a stdlib advisory is no longer labelled `unfixable findings` while the message quotes the version that clears it; for a stdlib finding it also corrects the package (the model routinely records it against the repo's own main module), normalizes the scanner's `go1.27.4` form to semver, and records the `go_bump` that reaches the fix — which execution now consumes by bumping the directive to the higher of `## Target Go` and `go_bump.to`, and no longer runs `go get` for a `stdlib` finding; `ScannerTable.Row` now prefers a duplicate row that carries a fixed version, and a model `needs_input` that existed only because of a now-reclassified park is cleared; the planning prompt states the same single condition (populated `fixed_version` ⇒ fix, reachability notwithstanding), and the park message names the bump as the alternative to a suppression
