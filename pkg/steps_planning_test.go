@@ -198,6 +198,44 @@ var _ = Describe("PlanningStep", func() {
 			Expect(ops.CloneAtRefCallCount()).To(Equal(1))
 		})
 
+		It(
+			"reaches the Go-target decision for a .maintainer.yaml with dockerBuild fields this binary does not define",
+			func() {
+				// go-skeleton regression: ParseStrict rejected dockerBuild
+				// .pushSecret / .deadlineSeconds and aborted the whole run with
+				// invalid_config before the Go-target decision. Lenient parsing
+				// must let planning reach the inspection call.
+				setupFixture(fixtureMakefile)
+				maintainerConfig.FetchReturns([]byte(
+					"release:\n  autoRelease: true\ngoUpdate:\n  autoUpdate: true\n"+
+						"dockerBuild:\n  autoBuild: true\n  destinations:\n    - internal\n"+
+						"  pushSecret: docker\n  deadlineSeconds: 3600\n",
+				), nil)
+				runner.RunReturns(&claudelib.ClaudeResult{Result: `{
+					"outcome": "ready",
+					"has_work": true,
+					"go_bump": {"from": "1.27.3", "to": "1.27.4"},
+					"dep_updates_expected": true,
+					"gate_targets": ["precommit", "check"],
+					"vulns": []
+				}`}, nil)
+
+				result, err := step.Run(ctx, md)
+				Expect(err).To(BeNil())
+				Expect(result.Status).To(Equal(agentlib.AgentStatusDone))
+				Expect(result.NextPhase).To(Equal("execution"))
+				// The Go-target decision ran: the repo was cloned and inspected.
+				Expect(ops.CloneAtRefCallCount()).To(Equal(1))
+
+				plan, err := agentlib.ExtractSection[pkg.PlanOutput](ctx, md, "## Plan")
+				Expect(err).To(BeNil())
+				Expect(plan.Outcome).To(Equal(pkg.PlanOutcomeReady))
+				Expect(plan.ErrorCategory).NotTo(Equal(pkg.ErrorCategoryInvalidConfig))
+				Expect(plan.GoBump.From).To(Equal("1.27.3"))
+				Expect(plan.GoBump.To).To(Equal("1.27.4"))
+			},
+		)
+
 		It("skips with auto_update_disabled when goUpdate.autoUpdate=false", func() {
 			maintainerConfig.FetchReturns([]byte("goUpdate:\n  autoUpdate: false\n"), nil)
 			result, err := step.Run(ctx, md)
@@ -251,7 +289,7 @@ var _ = Describe("PlanningStep", func() {
 
 		It("fails closed to human_review on non-boolean goUpdate.autoUpdate", func() {
 			// `yes` is a valid YAML 1.1 boolean (yaml.v3 resolves it to true);
-			// use a genuine non-boolean scalar so ParseStrict errors.
+			// use a genuine non-boolean scalar so Parse errors.
 			maintainerConfig.FetchReturns([]byte("goUpdate:\n  autoUpdate: sometimes\n"), nil)
 			result, err := step.Run(ctx, md)
 			Expect(err).To(BeNil())
