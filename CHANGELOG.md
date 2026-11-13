@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.22.6
 
 - fix: parse `.maintainer.yaml` leniently so a field this binary's pinned `maintainerconfig` does not define — e.g. `dockerBuild.pushSecret` / `dockerBuild.deadlineSeconds`, as in `bborbe/go-skeleton` — no longer aborts the planning step with `invalid_config` before the Go-target decision; unknown fields inside a known namespace are ignored, matching the github-release watcher's parser, and the regression is covered by a fetcher round-trip and a planning-step test that reaches the inspection call
 
