@@ -295,7 +295,7 @@ func (s *planningStep) ciPinPreflight(
 //     distinguishable from a deliberate false)
 //   - Malformed YAML / non-boolean    → fail-closed: PlanOutcomeFailed +
 //     ErrorCategoryInvalidConfig + InvalidField=goUpdate.autoUpdate, routed
-//     to human_review (a config typo on a high-trust field must not be
+//     to human_review (a high-trust field that cannot be read must not be
 //     silently downgraded to a skip)
 //   - File present, AutoUpdate==false → skip, reason `auto_update_disabled`
 //   - File present, AutoUpdate==true  → proceed (nil)
@@ -340,9 +340,11 @@ func (s *planningStep) gateOnAutoUpdate(
 	}
 	cfg, err := maintainerconfig.Parse(ctx, bytes)
 	if err != nil {
-		// YAML parse error or non-boolean value: fail-closed. Route to
-		// human_review so an operator fixes the typo rather than the repo
-		// silently dropping off the sweep.
+		// Malformed YAML or a non-boolean value: fail-closed. Route to
+		// human_review rather than letting the repo silently drop off the
+		// sweep. An unknown key is NOT an error here — Parse is lenient, so a
+		// mistyped `goUpdate.autoUpdte` reads as AutoUpdate=false and takes
+		// the skip path instead.
 		glog.V(2).Infof("planning: invalid .maintainer.yaml: field=goUpdate.autoUpdate err=%v", err)
 		return s.failInvalidConfig(ctx, md, "goUpdate.autoUpdate", err)
 	}

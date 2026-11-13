@@ -231,6 +231,7 @@ var _ = Describe("PlanningStep", func() {
 				Expect(err).To(BeNil())
 				Expect(plan.Outcome).To(Equal(pkg.PlanOutcomeReady))
 				Expect(plan.ErrorCategory).NotTo(Equal(pkg.ErrorCategoryInvalidConfig))
+				Expect(plan.GoBump.From).To(Equal("1.27.3"))
 				Expect(plan.GoBump.To).To(Equal("1.27.4"))
 			},
 		)
@@ -288,7 +289,7 @@ var _ = Describe("PlanningStep", func() {
 
 		It("fails closed to human_review on non-boolean goUpdate.autoUpdate", func() {
 			// `yes` is a valid YAML 1.1 boolean (yaml.v3 resolves it to true);
-			// use a genuine non-boolean scalar so ParseStrict errors.
+			// use a genuine non-boolean scalar so Parse errors.
 			maintainerConfig.FetchReturns([]byte("goUpdate:\n  autoUpdate: sometimes\n"), nil)
 			result, err := step.Run(ctx, md)
 			Expect(err).To(BeNil())

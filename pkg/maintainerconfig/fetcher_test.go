@@ -169,10 +169,9 @@ var _ = Describe("httpFetcher", func() {
 		Expect(cfg.GoUpdate.AutoUpdate).To(BeTrue())
 	})
 
-	It("an unknown top-level namespace no longer fails the whole config", func() {
+	It("an unknown top-level namespace does not fail the whole config", func() {
 		// Same failure class as the allowFork regression in github-releaser-agent.
-		// maintainer v0.49.0+ makes ParseStrict ignore namespaces it does not
-		// know, while still rejecting typos INSIDE a namespace it owns.
+		// Parse is lenient, so it ignores any namespace it does not know.
 		// `futureBot:` below is deliberately a namespace no released maintainer
 		// declares — this must keep passing as new bots are added, without
 		// another bump here.
