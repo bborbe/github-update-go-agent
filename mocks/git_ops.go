@@ -109,19 +109,21 @@ type GitOps struct {
 		result1 string
 		result2 error
 	}
-	ResolveDefaultBranchHeadStub        func(context.Context, string) (string, error)
-	resolveDefaultBranchHeadMutex       sync.RWMutex
-	resolveDefaultBranchHeadArgsForCall []struct {
+	ResolveDefaultBranchStub        func(context.Context, string) (string, string, error)
+	resolveDefaultBranchMutex       sync.RWMutex
+	resolveDefaultBranchArgsForCall []struct {
 		arg1 context.Context
 		arg2 string
 	}
-	resolveDefaultBranchHeadReturns struct {
+	resolveDefaultBranchReturns struct {
 		result1 string
-		result2 error
+		result2 string
+		result3 error
 	}
-	resolveDefaultBranchHeadReturnsOnCall map[int]struct {
+	resolveDefaultBranchReturnsOnCall map[int]struct {
 		result1 string
-		result2 error
+		result2 string
+		result3 error
 	}
 	RevListStub        func(context.Context, string, string) ([]string, error)
 	revListMutex       sync.RWMutex
@@ -626,69 +628,72 @@ func (fake *GitOps) RemoteBranchSHAReturnsOnCall(i int, result1 string, result2 
 	}{result1, result2}
 }
 
-func (fake *GitOps) ResolveDefaultBranchHead(arg1 context.Context, arg2 string) (string, error) {
-	fake.resolveDefaultBranchHeadMutex.Lock()
-	ret, specificReturn := fake.resolveDefaultBranchHeadReturnsOnCall[len(fake.resolveDefaultBranchHeadArgsForCall)]
-	fake.resolveDefaultBranchHeadArgsForCall = append(fake.resolveDefaultBranchHeadArgsForCall, struct {
+func (fake *GitOps) ResolveDefaultBranch(arg1 context.Context, arg2 string) (string, string, error) {
+	fake.resolveDefaultBranchMutex.Lock()
+	ret, specificReturn := fake.resolveDefaultBranchReturnsOnCall[len(fake.resolveDefaultBranchArgsForCall)]
+	fake.resolveDefaultBranchArgsForCall = append(fake.resolveDefaultBranchArgsForCall, struct {
 		arg1 context.Context
 		arg2 string
 	}{arg1, arg2})
-	stub := fake.ResolveDefaultBranchHeadStub
-	fakeReturns := fake.resolveDefaultBranchHeadReturns
-	fake.recordInvocation("ResolveDefaultBranchHead", []interface{}{arg1, arg2})
-	fake.resolveDefaultBranchHeadMutex.Unlock()
+	stub := fake.ResolveDefaultBranchStub
+	fakeReturns := fake.resolveDefaultBranchReturns
+	fake.recordInvocation("ResolveDefaultBranch", []interface{}{arg1, arg2})
+	fake.resolveDefaultBranchMutex.Unlock()
 	if stub != nil {
 		return stub(arg1, arg2)
 	}
 	if specificReturn {
-		return ret.result1, ret.result2
+		return ret.result1, ret.result2, ret.result3
 	}
-	return fakeReturns.result1, fakeReturns.result2
+	return fakeReturns.result1, fakeReturns.result2, fakeReturns.result3
 }
 
-func (fake *GitOps) ResolveDefaultBranchHeadCallCount() int {
-	fake.resolveDefaultBranchHeadMutex.RLock()
-	defer fake.resolveDefaultBranchHeadMutex.RUnlock()
-	return len(fake.resolveDefaultBranchHeadArgsForCall)
+func (fake *GitOps) ResolveDefaultBranchCallCount() int {
+	fake.resolveDefaultBranchMutex.RLock()
+	defer fake.resolveDefaultBranchMutex.RUnlock()
+	return len(fake.resolveDefaultBranchArgsForCall)
 }
 
-func (fake *GitOps) ResolveDefaultBranchHeadCalls(stub func(context.Context, string) (string, error)) {
-	fake.resolveDefaultBranchHeadMutex.Lock()
-	defer fake.resolveDefaultBranchHeadMutex.Unlock()
-	fake.ResolveDefaultBranchHeadStub = stub
+func (fake *GitOps) ResolveDefaultBranchCalls(stub func(context.Context, string) (string, string, error)) {
+	fake.resolveDefaultBranchMutex.Lock()
+	defer fake.resolveDefaultBranchMutex.Unlock()
+	fake.ResolveDefaultBranchStub = stub
 }
 
-func (fake *GitOps) ResolveDefaultBranchHeadArgsForCall(i int) (context.Context, string) {
-	fake.resolveDefaultBranchHeadMutex.RLock()
-	defer fake.resolveDefaultBranchHeadMutex.RUnlock()
-	argsForCall := fake.resolveDefaultBranchHeadArgsForCall[i]
+func (fake *GitOps) ResolveDefaultBranchArgsForCall(i int) (context.Context, string) {
+	fake.resolveDefaultBranchMutex.RLock()
+	defer fake.resolveDefaultBranchMutex.RUnlock()
+	argsForCall := fake.resolveDefaultBranchArgsForCall[i]
 	return argsForCall.arg1, argsForCall.arg2
 }
 
-func (fake *GitOps) ResolveDefaultBranchHeadReturns(result1 string, result2 error) {
-	fake.resolveDefaultBranchHeadMutex.Lock()
-	defer fake.resolveDefaultBranchHeadMutex.Unlock()
-	fake.ResolveDefaultBranchHeadStub = nil
-	fake.resolveDefaultBranchHeadReturns = struct {
+func (fake *GitOps) ResolveDefaultBranchReturns(result1 string, result2 string, result3 error) {
+	fake.resolveDefaultBranchMutex.Lock()
+	defer fake.resolveDefaultBranchMutex.Unlock()
+	fake.ResolveDefaultBranchStub = nil
+	fake.resolveDefaultBranchReturns = struct {
 		result1 string
-		result2 error
-	}{result1, result2}
+		result2 string
+		result3 error
+	}{result1, result2, result3}
 }
 
-func (fake *GitOps) ResolveDefaultBranchHeadReturnsOnCall(i int, result1 string, result2 error) {
-	fake.resolveDefaultBranchHeadMutex.Lock()
-	defer fake.resolveDefaultBranchHeadMutex.Unlock()
-	fake.ResolveDefaultBranchHeadStub = nil
-	if fake.resolveDefaultBranchHeadReturnsOnCall == nil {
-		fake.resolveDefaultBranchHeadReturnsOnCall = make(map[int]struct {
+func (fake *GitOps) ResolveDefaultBranchReturnsOnCall(i int, result1 string, result2 string, result3 error) {
+	fake.resolveDefaultBranchMutex.Lock()
+	defer fake.resolveDefaultBranchMutex.Unlock()
+	fake.ResolveDefaultBranchStub = nil
+	if fake.resolveDefaultBranchReturnsOnCall == nil {
+		fake.resolveDefaultBranchReturnsOnCall = make(map[int]struct {
 			result1 string
-			result2 error
+			result2 string
+			result3 error
 		})
 	}
-	fake.resolveDefaultBranchHeadReturnsOnCall[i] = struct {
+	fake.resolveDefaultBranchReturnsOnCall[i] = struct {
 		result1 string
-		result2 error
-	}{result1, result2}
+		result2 string
+		result3 error
+	}{result1, result2, result3}
 }
 
 func (fake *GitOps) RevList(arg1 context.Context, arg2 string, arg3 string) ([]string, error) {

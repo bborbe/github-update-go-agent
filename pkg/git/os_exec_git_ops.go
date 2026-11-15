@@ -86,7 +86,7 @@ func (g *osExecGitOps) cmdEnv() []string {
 func (g *osExecGitOps) CloneAtRef(ctx context.Context, cloneURL, ref, workdir string) error {
 	// git clone <cloneURL> <workdir> — FULL clone (no --depth): the trigger
 	// ref is an arbitrary commit SHA that a shallow default-branch clone may
-	// not contain, and ai_review needs origin/master for the CHANGELOG
+	// not contain, and ai_review needs origin/<default> for the CHANGELOG
 	// comparison plus rev-list history.
 	// #nosec G204 -- cloneURL constructed in caller from validated frontmatter; workdir is os.TempDir-rooted
 	cmd := exec.CommandContext(ctx, "git", "clone", cloneURL, workdir)
@@ -134,17 +134,17 @@ func (g *osExecGitOps) SwitchNewBranch(ctx context.Context, workdir, branch stri
 	return nil
 }
 
-// ResolveDefaultBranchHead returns the commit SHA at the remote's default
-// branch, using `git ls-remote --symref <cloneURL> HEAD`. The first output
-// line is the symref `ref: refs/heads/<branch>\tHEAD`; the second is the
-// SHA. A non-master default branch is an error: the deterministic PR base
-// (master) and the review step's origin/master comparison both depend on
-// master, and silently bumping the wrong branch would be the kind of bug
-// this code is the only defense against.
-func (g *osExecGitOps) ResolveDefaultBranchHead(
+// ResolveDefaultBranch returns the remote's default branch name and the
+// commit SHA at its tip, using `git ls-remote --symref <cloneURL> HEAD`. The
+// first output line is the symref `ref: refs/heads/<branch>\tHEAD`; the second
+// is the SHA. The branch name is returned without the refs/heads/ prefix so
+// callers can use it directly as the PR base and as the `origin/<default>`
+// comparison ref. Any default branch is accepted — a repo whose default is
+// `main` must update exactly as one whose default is `master`.
+func (g *osExecGitOps) ResolveDefaultBranch(
 	ctx context.Context,
 	cloneURL string,
-) (string, error) {
+) (branch, headSHA string, err error) {
 	// #nosec G204 -- cloneURL is authed by caller from validated frontmatter
 	cmd := exec.CommandContext(ctx, "git", "ls-remote", "--symref", cloneURL, "HEAD")
 	cmd.Env = g.cmdEnv()
@@ -152,7 +152,7 @@ func (g *osExecGitOps) ResolveDefaultBranchHead(
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		return "", errors.Errorf(
+		return "", "", errors.Errorf(
 			ctx,
 			"git ls-remote --symref HEAD: %s",
 			redactToken(strings.TrimSpace(stderr.String())),
@@ -160,23 +160,24 @@ func (g *osExecGitOps) ResolveDefaultBranchHead(
 	}
 	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
 	if len(lines) < 2 || !strings.HasPrefix(lines[0], "ref: ") {
-		return "", errors.Errorf(
+		return "", "", errors.Errorf(
 			ctx,
 			"git ls-remote --symref HEAD: no default-branch symref in %q",
 			string(out),
 		)
 	}
 	defaultRef := strings.Fields(lines[0])[1]
-	if defaultRef != "refs/heads/master" {
-		return "", errors.Errorf(
+	branch = strings.TrimPrefix(defaultRef, "refs/heads/")
+	if branch == "" || branch == defaultRef {
+		return "", "", errors.Errorf(
 			ctx,
-			"default branch is %s, expected refs/heads/master",
+			"git ls-remote --symref HEAD: unexpected default-branch ref %q",
 			defaultRef,
 		)
 	}
 	shaFields := strings.Fields(lines[1])
 	if len(shaFields) == 0 {
-		return "", errors.Errorf(
+		return "", "", errors.Errorf(
 			ctx,
 			"git ls-remote --symref HEAD: no SHA for default branch in %q",
 			string(out),
@@ -188,7 +189,7 @@ func (g *osExecGitOps) ResolveDefaultBranchHead(
 		defaultRef,
 		sha,
 	)
-	return sha, nil
+	return branch, sha, nil
 }
 
 // ChangedFiles returns all uncommitted repo-relative paths via

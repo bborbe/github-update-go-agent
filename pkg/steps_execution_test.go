@@ -70,7 +70,7 @@ var _ = Describe("ExecutionStep", func() {
 		gate = &mocks.GateRunner{}
 		bulk = &mocks.BulkUpdater{}
 		bulk.RunReturns(pkg.BulkUpdateResult{Ran: true, Output: "ok"}, nil)
-		ops.ResolveDefaultBranchHeadReturns("0cafebabe1234567890abcdef1234567890abcdef", nil)
+		ops.ResolveDefaultBranchReturns("master", "0cafebabe1234567890abcdef1234567890abcdef", nil)
 		step = pkg.NewExecutionStep(
 			runner,
 			ops,
@@ -173,7 +173,9 @@ var _ = Describe("ExecutionStep", func() {
 			Expect(ops.PushCallCount()).To(Equal(0))
 			Expect(ops.SwitchNewBranchCallCount()).To(Equal(0))
 			Expect(ops.CommitCallCount()).To(Equal(0))
-			Expect(ops.ResolveDefaultBranchHeadCallCount()).To(Equal(0))
+			// The PR base must be the repo's real default branch, so the
+			// resolver runs even on the pushed-branch path.
+			Expect(ops.ResolveDefaultBranchCallCount()).To(Equal(1))
 			Expect(runner.RunCallCount()).To(Equal(0))
 			Expect(gate.RunTargetCallCount()).To(Equal(0))
 			Expect(bulk.RunCallCount()).To(Equal(0))
@@ -307,9 +309,30 @@ var _ = Describe("ExecutionStep", func() {
 		})
 	})
 
+	Describe("non-master default branch", func() {
+		BeforeEach(func() {
+			ops.ResolveDefaultBranchReturns(
+				"main", "0cafebabe1234567890abcdef1234567890abcdef", nil,
+			)
+		})
+
+		It("opens the PR against main, the repo's resolved default branch", func() {
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusDone))
+			Expect(result.NextPhase).To(Equal("ai_review"))
+
+			Expect(gh.CreatePRCallCount()).To(Equal(1))
+			_, _, base, head, _, _, _, _ := gh.CreatePRArgsForCall(0)
+			Expect(base).To(Equal("main"))
+			Expect(head).To(Equal("fix/update-go-6d1f27f"))
+		})
+	})
+
 	Describe("current-HEAD resolution failure", func() {
 		BeforeEach(func() {
-			ops.ResolveDefaultBranchHeadReturns(
+			ops.ResolveDefaultBranchReturns(
+				"",
 				"",
 				stderrors.New("git ls-remote --symref HEAD: could not read Username"),
 			)
@@ -319,7 +342,7 @@ var _ = Describe("ExecutionStep", func() {
 			result, err := step.Run(ctx, md)
 			Expect(err).To(BeNil())
 			Expect(result.Status).To(Equal(agentlib.AgentStatusFailed))
-			Expect(result.Message).To(ContainSubstring("resolve current default-branch HEAD"))
+			Expect(result.Message).To(ContainSubstring("resolve current default branch"))
 			Expect(ops.CloneAtRefCallCount()).To(Equal(0))
 			Expect(ops.PushCallCount()).To(Equal(0))
 			Expect(gh.CreatePRCallCount()).To(Equal(0))

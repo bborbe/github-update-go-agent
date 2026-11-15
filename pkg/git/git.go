@@ -37,13 +37,14 @@ type GitOps interface {
 	// against origin). cloneURL MUST already include any auth token.
 	CloneAtRef(ctx context.Context, cloneURL, ref, workdir string) error
 
-	// ResolveDefaultBranchHead shells out `git ls-remote --symref <cloneURL> HEAD`
-	// and returns the commit SHA at the remote's default branch. The default
-	// branch MUST be master — the deterministic PR base and the review step's
-	// origin/master comparison depend on it — so a different default branch
-	// returns an error naming the branch (fail loud, never bump the wrong
-	// branch). cloneURL MUST already include any auth token.
-	ResolveDefaultBranchHead(ctx context.Context, cloneURL string) (string, error)
+	// ResolveDefaultBranch shells out `git ls-remote --symref <cloneURL> HEAD`
+	// and returns the remote's default branch name (without the refs/heads/
+	// prefix) plus the commit SHA at its tip. The branch name is the PR base
+	// and the prefix of every `origin/<default>` comparison the execution and
+	// review steps make, so a repo whose default is `main` updates exactly as
+	// one whose default is `master`. cloneURL MUST already include any auth
+	// token.
+	ResolveDefaultBranch(ctx context.Context, cloneURL string) (branch, headSHA string, err error)
 
 	// SwitchNewBranch creates and switches to a new local branch
 	// (git switch -c <branch>).
@@ -88,6 +89,6 @@ type GitOps interface {
 	RevList(ctx context.Context, workdir, base string) ([]string, error)
 
 	// ShowFile returns the content of path at the given ref
-	// (git show <ref>:<path>) — e.g. origin/master:CHANGELOG.md.
+	// (git show <ref>:<path>) — e.g. origin/<default>:CHANGELOG.md.
 	ShowFile(ctx context.Context, workdir, ref, path string) ([]byte, error)
 }
