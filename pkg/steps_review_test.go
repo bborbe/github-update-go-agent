@@ -311,6 +311,7 @@ var _ = Describe("ReviewStep", func() {
 				0o600,
 			)
 		}
+		ops.ResolveDefaultBranchReturns("master", "0cafebabe1234567890abcdef1234567890abcdef", nil)
 		ops.ShowFileReturns([]byte(changelogMaster), nil)
 		gate.RunTargetReturns("", 0, nil)
 		ops.RevListReturns([]string{"deadbeef1", "deadbeef2"}, nil)

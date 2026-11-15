@@ -239,7 +239,7 @@ func (s *planningStep) resolveAndClone(
 	repo, cloneURL, ref, workdir string,
 ) *agentlib.Result {
 	authedURL := injectToken(normalizeCloneURLToHTTPS(cloneURL), s.ghToken)
-	head, err := s.ops.ResolveDefaultBranchHead(ctx, authedURL)
+	_, head, err := s.ops.ResolveDefaultBranch(ctx, authedURL)
 	if err != nil {
 		return s.failResolve(repo, err)
 	}

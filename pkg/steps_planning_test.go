@@ -141,7 +141,7 @@ var _ = Describe("PlanningStep", func() {
 		scope = &mocks.InstallationScope{}
 		maintainerConfig = &mocks.MaintainerConfigFetcher{}
 		scope.AllowsReturns(pkg.ScopeAllowed)
-		ops.ResolveDefaultBranchHeadReturns("0cafebabe1234567890abcdef1234567890abcdef", nil)
+		ops.ResolveDefaultBranchReturns("master", "0cafebabe1234567890abcdef1234567890abcdef", nil)
 		// Default consent: repo opted in, so the gate passes and the test
 		// exercises the downstream inspection path. Gate-specific specs
 		// override this return.
@@ -321,7 +321,7 @@ var _ = Describe("PlanningStep", func() {
 		It("does not clone", func() {
 			_, _ = step.Run(ctx, md)
 			Expect(ops.CloneAtRefCallCount()).To(Equal(0))
-			Expect(ops.ResolveDefaultBranchHeadCallCount()).To(Equal(0))
+			Expect(ops.ResolveDefaultBranchCallCount()).To(Equal(0))
 		})
 
 		It("never mutates assignee/status and never writes ## Failure", func() {
@@ -508,7 +508,8 @@ jobs:
 
 	Describe("current-HEAD resolution failure", func() {
 		BeforeEach(func() {
-			ops.ResolveDefaultBranchHeadReturns(
+			ops.ResolveDefaultBranchReturns(
+				"",
 				"",
 				stderrors.New("git ls-remote --symref HEAD: Repository not found"),
 			)
@@ -548,7 +549,7 @@ jobs:
 				_, url, ref, _ := ops.CloneAtRefArgsForCall(0)
 				Expect(url).To(Equal("https://x-access-token:tok@github.com/bborbe/demo.git"))
 				Expect(ref).To(Equal("0cafebabe1234567890abcdef1234567890abcdef"))
-				Expect(ops.ResolveDefaultBranchHeadCallCount()).To(Equal(1))
+				Expect(ops.ResolveDefaultBranchCallCount()).To(Equal(1))
 			},
 		)
 

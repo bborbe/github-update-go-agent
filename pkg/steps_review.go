@@ -126,6 +126,16 @@ func (s *reviewStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentlib.
 	repo, _ := md.Frontmatter.String("repo")
 	authedURL := injectToken(normalizeCloneURLToHTTPS(cloneURL), s.ghToken)
 
+	// Resolve the remote's default branch so the CHANGELOG and tag checks
+	// compare against origin/<default> rather than a hardcoded origin/master.
+	// A resolution failure fails the review closed: without it there is no
+	// base to compare against.
+	defaultBranch, _, resolveErr := s.ops.ResolveDefaultBranch(ctx, authedURL)
+	if resolveErr != nil {
+		notes = append(notes, "resolve default branch failed: "+
+			git.RedactToken(resolveErr.Error()))
+	}
+
 	workdir := setupWorkdir(md, repo)
 	defer func() {
 		if err := os.RemoveAll(workdir); err != nil {
@@ -139,8 +149,10 @@ func (s *reviewStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentlib.
 	} else {
 		s.checkGates(ctx, workdir, plan, &checks, &notes)
 		s.checkAdvisories(ctx, advisory, advisoryErr, workdir, &checks, &notes)
-		s.checkChangelog(ctx, workdir, &checks, &notes)
-		s.checkNoNewTag(ctx, workdir, authedURL, &checks, &notes)
+		if resolveErr == nil {
+			s.checkChangelog(ctx, workdir, defaultBranch, &checks, &notes)
+			s.checkNoNewTag(ctx, workdir, authedURL, defaultBranch, &checks, &notes)
+		}
 	}
 
 	approved := prAccepted && checks.GateGreen &&
@@ -322,11 +334,11 @@ func (s *reviewStep) checkAdvisories(
 
 // checkChangelog verifies CHANGELOG.md on the branch carries at least one
 // bullet under ## Unreleased and introduces NO new version header compared
-// to origin/master (the release agent finalizes versions on merge — a new
+// to origin/<default> (the release agent finalizes versions on merge — a new
 // header here means the update finalized a version, which is forbidden).
 func (s *reviewStep) checkChangelog(
 	ctx context.Context,
-	workdir string,
+	workdir, defaultBranch string,
 	checks *ReviewChecks,
 	notes *[]string,
 ) {
@@ -341,9 +353,11 @@ func (s *reviewStep) checkChangelog(
 		*notes = append(*notes, "CHANGELOG has no bullet under ## Unreleased")
 		return
 	}
-	masterContent, err := s.ops.ShowFile(ctx, workdir, "origin/master", changelogFileName)
+	masterContent, err := s.ops.ShowFile(
+		ctx, workdir, "origin/"+defaultBranch, changelogFileName,
+	)
 	if err != nil {
-		*notes = append(*notes, "read master CHANGELOG failed: "+err.Error())
+		*notes = append(*notes, "read base CHANGELOG failed: "+err.Error())
 		return
 	}
 	masterHeaders := map[string]struct{}{}
@@ -362,16 +376,17 @@ func (s *reviewStep) checkChangelog(
 
 // checkNoNewTag verifies the remote holds no tag pointing at any commit the
 // update branch itself introduced (git ls-remote --tags vs
-// git rev-list origin/master..HEAD). A tag on a commit already reachable from
-// the PR base — legitimate release history on master — is not a leak; only a
-// tag at a branch-introduced commit fails the check (fail-closed).
+// git rev-list origin/<default>..HEAD). A tag on a commit already reachable
+// from the PR base — legitimate release history on the default branch — is not
+// a leak; only a tag at a branch-introduced commit fails the check
+// (fail-closed).
 func (s *reviewStep) checkNoNewTag(
 	ctx context.Context,
-	workdir, authedURL string,
+	workdir, authedURL, defaultBranch string,
 	checks *ReviewChecks,
 	notes *[]string,
 ) {
-	branchCommits, err := s.ops.RevList(ctx, workdir, "origin/master")
+	branchCommits, err := s.ops.RevList(ctx, workdir, "origin/"+defaultBranch)
 	if err != nil {
 		*notes = append(*notes, "rev-list failed: "+err.Error())
 		return

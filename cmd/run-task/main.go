@@ -82,8 +82,16 @@ type application struct {
 	// deployment default. Unset behaves exactly as the previous release.
 	UpdateScope string `required:"false" arg:"update-scope" env:"UPDATE_SCOPE" usage:"Update scope: both (default) | golang | deps"`
 
-	// Task file for local development
-	TaskFilePath string `required:"true" arg:"task-file" env:"TASK_FILE" usage:"Path to the markdown task file"`
+	// Task file for local development. Optional only because --dry-run needs
+	// no task: Run enforces it for every non-dry-run invocation.
+	TaskFilePath string `required:"false" arg:"task-file" env:"TASK_FILE" usage:"Path to the markdown task file (required unless --dry-run)"`
+
+	// DryRun resolves the target repo's default branch and exits before any
+	// write — no clone, no branch, no commit, no push, no PR. Requires Repo.
+	DryRun bool `required:"false" arg:"dry-run" env:"DRY_RUN" usage:"Resolve --repo's default branch and exit before any write"`
+
+	// Repo is the owner/name target for --dry-run.
+	Repo string `required:"false" arg:"repo" env:"REPO" usage:"owner/name target for --dry-run"`
 
 	// TaskType selects which domain agent to run: github-update-go (default)
 	// or build-fix. Mirrors the Kafka entry point's TASK_TYPE dispatch.
@@ -95,7 +103,36 @@ type application struct {
 	HumanReviewOwner string `required:"false" arg:"human-review-owner" env:"HUMAN_REVIEW_OWNER" usage:"GitHub login stamped as assignee on every record routed to human_review; empty disables the stamp"`
 }
 
+// runDryRun resolves the target repo's default branch and returns without
+// writing anything: no clone, no branch, no commit, no push, no PR. The
+// resolver emits its own `default=refs/heads/<branch>` V(2) line (run with
+// -v=2); the summary line here makes the outcome observable without it.
+func (a *application) runDryRun(ctx context.Context) error {
+	if a.Repo == "" {
+		return errors.Errorf(ctx, "run-task --dry-run: --repo owner/name is required")
+	}
+	branch, headSHA, err := updatepkg.DryRunResolve(
+		ctx, factory.CreateGitOps(), a.GhToken, a.Repo,
+	)
+	if err != nil {
+		return errors.Wrap(ctx, err, "dry-run resolve default branch")
+	}
+	glog.V(0).Infof(
+		"dry-run: repo=%s default=%s head=%s (no write performed)",
+		a.Repo,
+		branch,
+		headSHA,
+	)
+	return nil
+}
+
 func (a *application) Run(ctx context.Context, _ libsentry.Client) error {
+	if a.DryRun {
+		return a.runDryRun(ctx)
+	}
+	if a.TaskFilePath == "" {
+		return errors.Errorf(ctx, "run-task: --task-file is required unless --dry-run")
+	}
 	prTarget, err := updatepkg.ParsePRTarget(ctx, a.PRTarget)
 	if err != nil {
 		return err

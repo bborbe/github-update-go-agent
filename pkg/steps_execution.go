@@ -213,26 +213,22 @@ func (s *executionStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentl
 	result := &ResultOutput{Branch: branch}
 	authedURL := injectToken(normalizeCloneURLToHTTPS(cloneURL), s.ghToken)
 
-	reroute, err := s.adoptPushedBranch(ctx, md, authedURL, workdir, branch, plan, result)
+	defaultBranch, head, failResult, err := s.resolveDefaultBranch(ctx, md, authedURL, result)
+	if failResult != nil || err != nil {
+		return failResult, err
+	}
+	glog.V(2).Infof(
+		"execution: pinned ref=%s (provenance only); default=%s clone base=resolved HEAD=%s",
+		ref, defaultBranch, head,
+	)
+
+	reroute, err := s.adoptPushedBranch(
+		ctx, md, authedURL, workdir, branch, defaultBranch, plan, result,
+	)
 	if err != nil || reroute != nil {
 		return reroute, err
 	}
 
-	head, err := s.ops.ResolveDefaultBranchHead(ctx, authedURL)
-	if err != nil {
-		return s.fail(
-			ctx,
-			md,
-			result,
-			git.ClassifyError(err),
-			errors.Wrap(ctx, err, "resolve current default-branch HEAD"),
-		)
-	}
-	glog.V(2).Infof(
-		"execution: pinned ref=%s (provenance only); clone base=resolved HEAD=%s",
-		ref,
-		head,
-	)
 	if err := s.ops.CloneAtRef(ctx, authedURL, head, workdir); err != nil {
 		return s.fail(ctx, md, result, git.ClassifyError(err), err)
 	}
@@ -249,7 +245,9 @@ func (s *executionStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentl
 
 	report, claudeErr := s.runUpdate(ctx, workdir, plan, bulkResult, updateScope, advisoryDriven)
 	if claudeErr != nil {
-		return s.salvageAfterClaudeFailure(ctx, md, workdir, branch, plan, result, claudeErr)
+		return s.salvageAfterClaudeFailure(
+			ctx, md, workdir, branch, defaultBranch, plan, result, claudeErr,
+		)
 	}
 
 	if failResult, err := s.gatesWithRepair(ctx, md, workdir, plan, result, report); failResult !=
@@ -257,7 +255,30 @@ func (s *executionStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentl
 		return failResult, err
 	}
 
-	return s.commitPushAndOpenPR(ctx, md, workdir, branch, plan, report, result)
+	return s.commitPushAndOpenPR(
+		ctx, md, workdir, branch, defaultBranch, plan, report, result,
+	)
+}
+
+// resolveDefaultBranch resolves the remote's default branch and the SHA at its
+// tip before any adoption or clone. The PR base and every origin/<default>
+// comparison depend on it, so a repo whose default is `main` opens its PR
+// against `main`. Returns the step's failure Result on a resolution error.
+func (s *executionStep) resolveDefaultBranch(
+	ctx context.Context,
+	md *agentlib.Markdown,
+	authedURL string,
+	result *ResultOutput,
+) (defaultBranch, head string, failResult *agentlib.Result, err error) {
+	defaultBranch, head, err = s.ops.ResolveDefaultBranch(ctx, authedURL)
+	if err != nil {
+		failResult, err = s.fail(
+			ctx, md, result, git.ClassifyError(err),
+			errors.Wrap(ctx, err, "resolve current default branch"),
+		)
+		return "", "", failResult, err
+	}
+	return defaultBranch, head, nil, nil
 }
 
 // salvageAfterClaudeFailure decides what to do when the Claude sub-call
@@ -284,7 +305,7 @@ func (s *executionStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentl
 func (s *executionStep) salvageAfterClaudeFailure(
 	ctx context.Context,
 	md *agentlib.Markdown,
-	workdir, branch string,
+	workdir, branch, defaultBranch string,
 	plan *PlanOutput,
 	result *ResultOutput,
 	claudeErr error,
@@ -316,7 +337,9 @@ func (s *executionStep) salvageAfterClaudeFailure(
 		"execution: gates green despite claude failure — salvaging as a pull "+
 			"request (branch=%s, target=%s)", branch, s.prTarget,
 	)
-	return s.commitPushAndOpenPR(ctx, md, workdir, branch, plan, report, result)
+	return s.commitPushAndOpenPR(
+		ctx, md, workdir, branch, defaultBranch, plan, report, result,
+	)
 }
 
 // replayGuard re-routes when a prior run already produced a successful
@@ -387,7 +410,7 @@ func (s *executionStep) adoptExistingPR(
 func (s *executionStep) adoptPushedBranch(
 	ctx context.Context,
 	md *agentlib.Markdown,
-	authedURL, workdir, branch string,
+	authedURL, workdir, branch, defaultBranch string,
 	plan *PlanOutput,
 	result *ResultOutput,
 ) (*agentlib.Result, error) {
@@ -406,7 +429,9 @@ func (s *executionStep) adoptPushedBranch(
 		"execution: branch %s already pushed at %s with no open PR — opening PR from it",
 		branch, pushedSHA,
 	)
-	return s.openPRFromPushedBranch(ctx, md, authedURL, workdir, branch, plan, result)
+	return s.openPRFromPushedBranch(
+		ctx, md, authedURL, workdir, branch, defaultBranch, plan, result,
+	)
 }
 
 // openPRFromPushedBranch is the second crash-window guard: the deterministic
@@ -428,7 +453,7 @@ func (s *executionStep) adoptPushedBranch(
 func (s *executionStep) openPRFromPushedBranch(
 	ctx context.Context,
 	md *agentlib.Markdown,
-	authedURL, workdir, branch string,
+	authedURL, workdir, branch, defaultBranch string,
 	plan *PlanOutput,
 	result *ResultOutput,
 ) (*agentlib.Result, error) {
@@ -438,7 +463,7 @@ func (s *executionStep) openPRFromPushedBranch(
 	}
 
 	prURL, err := s.gh.CreatePR(
-		ctx, workdir, "master", branch, prTitle,
+		ctx, workdir, defaultBranch, branch, prTitle,
 		buildPRBody(plan, &executionReport{}, nil),
 		s.prTarget,
 		s.autoMergeLabel,
@@ -794,7 +819,7 @@ func (s *executionStep) runGateRepair(
 func (s *executionStep) commitPushAndOpenPR(
 	ctx context.Context,
 	md *agentlib.Markdown,
-	workdir, branch string,
+	workdir, branch, defaultBranch string,
 	plan *PlanOutput,
 	report *executionReport,
 	result *ResultOutput,
@@ -806,7 +831,7 @@ func (s *executionStep) commitPushAndOpenPR(
 	if isNoEffectiveChange(changed) {
 		return s.noEffectiveChange(ctx, md, changed)
 	}
-	changed, err = s.filterWorkflowRegen(ctx, workdir, changed)
+	changed, err = s.filterWorkflowRegen(ctx, workdir, defaultBranch, changed)
 	if err != nil {
 		return s.fail(ctx, md, result, git.ErrorCategoryUnexpectedDiff, err)
 	}
@@ -816,10 +841,12 @@ func (s *executionStep) commitPushAndOpenPR(
 	// the CHANGELOG is bot-review-clean before the commit: canonical preamble
 	// on fresh files, `## Unreleased` after the preamble, and a `chore:` bullet
 	// naming the actual bumps. The base go.mod for the diff comes from
-	// origin/master; when it cannot be read (e.g. repo has no go.mod), the
+	// origin/<default>; when it cannot be read (e.g. repo has no go.mod), the
 	// writer falls back to the generic bullet.
 	if _, err := os.Stat(workdir); err == nil {
-		baseGoMod, _ := s.ops.ShowFile(ctx, workdir, "origin/master", "go.mod")
+		baseGoMod, _ := s.ops.ShowFile(
+			ctx, workdir, "origin/"+defaultBranch, "go.mod",
+		)
 		if _, err := EnsureChangelog(ctx, workdir, baseGoMod); err != nil {
 			return s.fail(ctx, md, result, git.ErrorCategoryUnknown, err)
 		}
@@ -844,7 +871,7 @@ func (s *executionStep) commitPushAndOpenPR(
 	if err != nil {
 		return s.fail(ctx, md, result, git.ErrorCategoryUnknown, err)
 	}
-	if err := s.verifyCommittedWorkflows(ctx, workdir, committed); err != nil {
+	if err := s.verifyCommittedWorkflows(ctx, workdir, defaultBranch, committed); err != nil {
 		return s.fail(ctx, md, result, git.ErrorCategoryUnexpectedDiff, err)
 	}
 
@@ -854,7 +881,7 @@ func (s *executionStep) commitPushAndOpenPR(
 
 	vulnsFixed := intersectFixVulns(plan, report)
 	prURL, err := s.gh.CreatePR(
-		ctx, workdir, "master", branch, prTitle,
+		ctx, workdir, defaultBranch, branch, prTitle,
 		buildPRBody(plan, report, vulnsFixed),
 		s.prTarget,
 		s.autoMergeLabel,
@@ -982,12 +1009,12 @@ func workflowPaths(paths []string) []string {
 // dep-bump rewriting `.github/workflows/*`, `.golangci.yml`,
 // `.maintainer.yaml`).
 //
-// A path whose base (origin/master) version cannot be read is a brand-new
+// A path whose base (origin/<default>) version cannot be read is a brand-new
 // workflow file the update could not have regenerated — an unrelated edit,
 // reported as an error so the caller keeps the forbidden-path guard.
 func (s *executionStep) classifyWorkflowChanges(
 	ctx context.Context,
-	workdir string,
+	workdir, defaultBranch string,
 	offending []string,
 ) (legit, noop []string, err error) {
 	for _, p := range offending {
@@ -1006,7 +1033,7 @@ func (s *executionStep) classifyWorkflowChanges(
 		if rerr != nil {
 			return nil, nil, errors.Wrap(ctx, rerr, "read working-tree workflow file "+p)
 		}
-		base, berr := s.ops.ShowFile(ctx, workdir, "origin/master", p)
+		base, berr := s.ops.ShowFile(ctx, workdir, "origin/"+defaultBranch, p)
 		if berr != nil {
 			return nil, nil, errors.Wrap(ctx, berr, "read base workflow file "+p)
 		}
@@ -1031,14 +1058,14 @@ func (s *executionStep) classifyWorkflowChanges(
 //   - brand-new workflow file (no base version)        → still fail
 func (s *executionStep) filterWorkflowRegen(
 	ctx context.Context,
-	workdir string,
+	workdir, defaultBranch string,
 	changed []string,
 ) ([]string, error) {
 	offending := workflowPaths(changed)
 	if len(offending) == 0 {
 		return changed, nil
 	}
-	legit, noop, err := s.classifyWorkflowChanges(ctx, workdir, offending)
+	legit, noop, err := s.classifyWorkflowChanges(ctx, workdir, defaultBranch, offending)
 	if err != nil {
 		return nil, errors.Errorf(ctx,
 			"update touched forbidden workflow paths %v — refusing to commit", offending)
@@ -1061,15 +1088,16 @@ func (s *executionStep) filterWorkflowRegen(
 // regeneration or an unrelated edit in the commit is refused before push.
 func (s *executionStep) verifyCommittedWorkflows(
 	ctx context.Context,
-	workdir string,
+	workdir, defaultBranch string,
 	committed []string,
 ) error {
 	offending := workflowPaths(committed)
 	if len(offending) == 0 {
 		return nil
 	}
-	if _, noop, err := s.classifyWorkflowChanges(ctx, workdir, offending); err != nil ||
-		len(noop) > 0 {
+	if _, noop, err := s.classifyWorkflowChanges(
+		ctx, workdir, defaultBranch, offending,
+	); err != nil || len(noop) > 0 {
 		return errors.Errorf(ctx,
 			"commit contains forbidden workflow paths %v — refusing to push", offending)
 	}

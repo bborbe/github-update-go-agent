@@ -59,7 +59,7 @@ type changelogResult struct {
 //   - existing file: guarantee a `## Unreleased` section directly after the
 //     preamble (never at the top of the file), and a `chore:` bullet naming
 //     the bumps when the section is missing a conventional-prefix bullet.
-//   - the bullet derives from the real go.mod diff (baseGoMod = origin/master,
+//   - the bullet derives from the real go.mod diff (baseGoMod = origin/<default>,
 //     work = the workdir), so it describes only what the update actually
 //     changed — never a fabricated entry.
 //
@@ -188,7 +188,7 @@ func hasPrefixedBullet(ctx context.Context, section string) bool {
 
 // changelogBulletFromGoModDiff derives the `chore:` bullet from the real
 // go.mod change: the go directive bump (if any) plus every direct requirement
-// whose version moved between the base (origin/master) and the workdir.
+// whose version moved between the base (origin/<default>) and the workdir.
 // Naming the actual modules satisfies the bot's "be specific" guidance — the
 // vague `- chore: update dependencies` bullet the model was told to write is
 // itself an anti-pattern in the changelog guide.
@@ -238,7 +238,7 @@ func changelogBulletFromGoModDiff(
 }
 
 // diffRequireVersions returns the "path to version" strings for every direct
-// requirement whose version moved between the base go.mod (origin/master) and
+// requirement whose version moved between the base go.mod (origin/<default>) and
 // the workdir go.mod. Cancellation-aware per the go-context pattern.
 func diffRequireVersions(
 	ctx context.Context,

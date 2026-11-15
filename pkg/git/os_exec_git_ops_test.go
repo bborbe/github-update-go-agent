@@ -209,14 +209,15 @@ var _ = Describe("osExecGitOps boundary contracts", func() {
 			To(Equal(gitRun(source, "rev-parse", "fix/update-go-abcdef0")))
 	})
 
-	It("ResolveDefaultBranchHead returns the master tip SHA", func() {
-		head, err := ops.ResolveDefaultBranchHead(ctx, source)
+	It("ResolveDefaultBranch returns master and its tip SHA", func() {
+		branch, head, err := ops.ResolveDefaultBranch(ctx, source)
 		Expect(err).NotTo(HaveOccurred())
+		Expect(branch).To(Equal("master"))
 		Expect(head).To(Equal(gitRun(source, "rev-parse", "master")))
 	})
 
 	It(
-		"ResolveDefaultBranchHead fails loud naming the branch when the default branch is not master",
+		"ResolveDefaultBranch returns main and its tip SHA for a main-default remote",
 		func() {
 			other := filepath.Join(tmp, "default-main")
 			Expect(os.MkdirAll(other, 0o750)).To(Succeed())
@@ -225,10 +226,10 @@ var _ = Describe("osExecGitOps boundary contracts", func() {
 				To(Succeed())
 			gitRun(other, "add", "MARKER.txt")
 			gitRun(other, "commit", "-m", "main commit")
-			_, err := ops.ResolveDefaultBranchHead(ctx, other)
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("refs/heads/main"))
-			Expect(err.Error()).To(ContainSubstring("refs/heads/master"))
+			branch, head, err := ops.ResolveDefaultBranch(ctx, other)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(branch).To(Equal("main"))
+			Expect(head).To(Equal(gitRun(other, "rev-parse", "main")))
 		},
 	)
 
