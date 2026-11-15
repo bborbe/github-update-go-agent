@@ -47,17 +47,36 @@ const maxReleaseIndexBytes = 16 << 20
 // against. When CI pins that toolchain from a file — an actions/setup-go step
 // carrying go-version-file — the go directive in that file is the version CI
 // actually runs, and the bump target is the latest published patch for the
-// same minor line, read from the Go release index. Without such a step the
-// image toolchain remains the target.
+// same minor line, read from the Go release index.
+//
+// Without such a step the repo's own go.mod directive is the baseline: it is
+// the version the repo has already committed to, so the latest patch for its
+// minor line is a bump the repo asked for by construction. The image toolchain
+// is deliberately NOT that baseline — it is a property of this build, not of
+// the repo, so using it makes a stale image report "already current" for a
+// repo that is a patch behind. That false success is what stranded repos behind
+// the watcher's emission claim (see the task page).
+//
+// The image toolchain survives only as the last resort, for a workdir carrying
+// neither a CI version file nor a go.mod directive: there is then nothing in
+// the repo to derive a target from.
 //
 // A failed index lookup keeps the baseline rather than dropping to the image
-// toolchain: the baseline is a version CI demonstrably installs, while the
+// toolchain: the baseline is a version the repo demonstrably runs, while the
 // image may be older than the repo, and a target below the baseline would
 // instruct the model to write a downgrade into the go directive.
 func resolveTargetGo(ctx context.Context, workdir string) string {
 	baseline, ok := ciGoBaseline(workdir)
 	if !ok {
-		return targetGoVersion()
+		baseline, ok = repoGoDirective(workdir)
+		if !ok {
+			glog.V(2).Infof(
+				"target go: no CI version file and no go directive, using image toolchain %s",
+				targetGoVersion(),
+			)
+			return targetGoVersion()
+		}
+		glog.V(2).Infof("target go: no CI version file, using repo go directive %s", baseline)
 	}
 	minor, ok := goMinorLine(baseline)
 	if !ok {
@@ -195,6 +214,42 @@ func goDirective(path string) (string, bool) {
 		return "", false
 	}
 	return string(match[1]), true
+}
+
+// repoGoDirective returns the version in the workdir's own go.mod `go`
+// directive. It is the baseline a repo without a CI version file has committed
+// to, and so the one resolveTargetGo derives its bump target from.
+func repoGoDirective(workdir string) (string, bool) {
+	return goDirective(filepath.Join(workdir, "go.mod"))
+}
+
+// toolchainBelowTarget reports whether the toolchain baked into this image is
+// older than target, and so cannot perform a bump to it.
+func toolchainBelowTarget(target string) bool {
+	return semver.Compare("v"+targetGoVersion(), "v"+target) < 0
+}
+
+// targetUnreachable reports whether a no-work verdict is really a failure: the
+// repo still sits below the resolved target, and this image's toolchain sits
+// below that target too, so the run could not have performed the bump.
+//
+// A repo already at or above the target is genuinely current, whatever
+// toolchain is doing the reading — the guard must not turn "nothing to do"
+// into a failure just because the image is old. current and toolchain are
+// returned so the caller can name both versions in the failure reason.
+func targetUnreachable(workdir, target string) (current, toolchain string, unreachable bool) {
+	toolchain = targetGoVersion()
+	if !toolchainBelowTarget(target) {
+		return "", toolchain, false
+	}
+	directive, ok := repoGoDirective(workdir)
+	if !ok {
+		return "", toolchain, false
+	}
+	if semver.Compare("v"+directive, "v"+target) >= 0 {
+		return directive, toolchain, false
+	}
+	return directive, toolchain, true
 }
 
 // goMinorLine turns "1.27.3" into "1.27".

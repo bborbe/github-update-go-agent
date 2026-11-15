@@ -659,6 +659,28 @@ body
 			})
 		})
 
+		Context("image toolchain below the planned go bump", func() {
+			BeforeEach(func() {
+				ops.ChangedFilesReturns([]string{"CHANGELOG.md"}, nil)
+				DeferCleanup(pkg.SetToolchainVersionForTest("go1.26.4"))
+			})
+
+			It("fails instead of completing, naming both versions on the ## Plan", func() {
+				result, err := step.Run(ctx, md)
+				Expect(err).To(BeNil())
+				Expect(result.Status).To(Equal(agentlib.AgentStatusFailed))
+				Expect(result.NextPhase).To(Equal("human_review"))
+				Expect(ops.CommitCallCount()).To(Equal(0))
+				Expect(gh.CreatePRCallCount()).To(Equal(0))
+
+				plan, perr := agentlib.ExtractSection[pkg.PlanOutput](ctx, md, "## Plan")
+				Expect(perr).To(BeNil())
+				Expect(plan.Outcome).To(Equal(pkg.PlanOutcomeFailed))
+				Expect(plan.Reason).To(ContainSubstring("1.26.4"))
+				Expect(plan.Reason).To(ContainSubstring("1.26.5"))
+			})
+		})
+
 		Context("no changed files at all", func() {
 			BeforeEach(func() {
 				ops.ChangedFilesReturns([]string{}, nil)

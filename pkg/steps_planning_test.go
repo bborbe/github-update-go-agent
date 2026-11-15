@@ -759,6 +759,62 @@ jobs:
 		})
 	})
 
+	// The reported defect: with a stale image the run resolved its own
+	// toolchain as the target, concluded there was nothing to bump and closed
+	// the task `completed` — indistinguishable from a repo that was current,
+	// and with no PR to clear the watcher's emission claim.
+	Describe("no_update_needed on a target the image cannot reach", func() {
+		setupUnreachableFixture := func(toolchain string) {
+			ops.CloneAtRefStub = func(ctx context.Context, url, ref, workdir string) error {
+				if err := os.MkdirAll(workdir, 0o755); err != nil {
+					return err
+				}
+				if err := os.WriteFile(
+					filepath.Join(workdir, "Makefile"), []byte(fixtureMakefileEmpty), 0o644,
+				); err != nil {
+					return err
+				}
+				return os.WriteFile(
+					filepath.Join(workdir, "go.mod"),
+					[]byte("module example.com/x\n\ngo 1.27.3\n"), 0o644)
+			}
+			server := releaseIndexServer(200, releaseIndexBody)
+			DeferCleanup(server.Close)
+			DeferCleanup(pkg.SetGoReleaseIndexForTest(server.URL))
+			DeferCleanup(pkg.SetToolchainVersionForTest(toolchain))
+			runner.RunReturns(&claudelib.ClaudeResult{Result: `{
+				"outcome": "no_update_needed",
+				"has_work": false,
+				"dep_updates_expected": false,
+				"reason": "the go directive is already 1.27.3, equal to the image's target Go 1.27.3, so no directive bump is possible."
+			}`}, nil)
+		}
+
+		It("fails instead of completing, naming both versions on the ## Plan", func() {
+			setupUnreachableFixture("go1.27.3")
+
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusFailed))
+			Expect(result.NextPhase).To(Equal("human_review"))
+
+			plan, perr := agentlib.ExtractSection[pkg.PlanOutput](ctx, md, "## Plan")
+			Expect(perr).To(BeNil())
+			Expect(plan.Outcome).To(Equal(pkg.PlanOutcomeFailed))
+			Expect(plan.Reason).To(ContainSubstring("1.27.3"))
+			Expect(plan.Reason).To(ContainSubstring("1.27.4"))
+		})
+
+		It("still completes when the image toolchain can reach the target", func() {
+			setupUnreachableFixture("go1.27.4")
+
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusDone))
+			Expect(result.NextPhase).To(Equal("done"))
+		})
+	})
+
 	Describe("unparseable claude output", func() {
 		BeforeEach(func() {
 			setupFixture(fixtureMakefile)

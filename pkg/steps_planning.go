@@ -168,7 +168,12 @@ func (s *planningStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentli
 		return failResult, nil
 	}
 
-	plan, table, failResult := s.runInspection(ctx, md, workdir, updateScope)
+	// Resolve the bump target once: the prompt, the close guard and the failure
+	// reason must all quote the same version, and resolveTargetGo hits the
+	// release index.
+	targetGo := resolveTargetGo(ctx, workdir)
+
+	plan, table, failResult := s.runInspection(ctx, md, workdir, updateScope, targetGo)
 	if failResult != nil {
 		return failResult, nil
 	}
@@ -200,6 +205,14 @@ func (s *planningStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentli
 	}
 
 	if s.shouldClose(plan, updateScope, repo) {
+		// A close is only trustworthy when the repo actually meets the target.
+		// When the image's own toolchain is below the target the repo still
+		// needs, "nothing to do" is this run's inability to do the work, not a
+		// repo that is current — and recording it as `completed` strands the
+		// repo until the watcher's emission claim expires.
+		if current, toolchain, unreachable := targetUnreachable(workdir, targetGo); unreachable {
+			return failUnreachableTarget(ctx, md, current, toolchain, targetGo), nil
+		}
 		return &agentlib.Result{
 			Status:    agentlib.AgentStatusDone,
 			NextPhase: domain.TaskPhaseDone.String(),
@@ -450,11 +463,15 @@ func parseOwnerRepo(s string) (owner, name string, ok bool) {
 // advisory IDs, runs the Claude sub-call, and validates every plan vuln ID
 // verbatim against the table. Returns (plan, table, nil) on success or
 // (nil, nil, failResult) on runner/parse/validation error.
+//
+// targetGo is the already-resolved bump target; the caller resolves it once so
+// the prompt, the close guard and any failure reason quote the same version.
 func (s *planningStep) runInspection(
 	ctx context.Context,
 	md *agentlib.Markdown,
 	workdir string,
 	updateScope UpdateScope,
+	targetGo string,
 ) (*PlanOutput, ScannerTable, *agentlib.Result) {
 	targets, err := detectGateTargets(ctx, workdir)
 	if err != nil {
@@ -493,7 +510,7 @@ func (s *planningStep) runInspection(
 	}
 	prompt := prompts.PlanningPrompt() +
 		"\n\n## Workdir\n\n" + workdir +
-		"\n\n## Target Go\n\n" + resolveTargetGo(ctx, workdir) +
+		"\n\n## Target Go\n\n" + targetGo +
 		"\n\n" + updateScopeSection(updateScope) +
 		"\n\n## Scanner Findings\n\nThe findings below were captured by Go from the repo's own gate targets and, when the task carries one, from the validated external advisory in the task frontmatter — together they are the ONLY source of advisory IDs. Every vuln ID you report MUST appear in this table verbatim.\n\n" + renderScannerTable(table) +
 		"\n\n## Task\n\n" + taskContent
@@ -979,12 +996,52 @@ func sanitizePathComponent(s string) string {
 	return pathComponentRegexp.ReplaceAllString(s, "-")
 }
 
+// toolchainVersion is the Go version this image was built with. It is a package
+// var rather than a direct runtime.Version() call so a spec can pin it: the
+// defect the unreachable-target guard exists for only appears when the image's
+// toolchain sits below the bump target, which is unreproducible on a host whose
+// own Go is already current.
+var toolchainVersion = runtime.Version()
+
 // targetGoVersion returns the toolchain baked into this image, without the
-// "go" prefix. It is the bump target only for a repo whose CI does not pin
-// its toolchain from a file; otherwise resolveTargetGo takes the target from
-// the Go release index.
+// "go" prefix. It is the bump target only for a repo that carries neither a CI
+// version file nor a go.mod directive; otherwise resolveTargetGo derives the
+// target from the repo and the Go release index.
 func targetGoVersion() string {
-	return strings.TrimPrefix(runtime.Version(), "go")
+	return strings.TrimPrefix(toolchainVersion, "go")
+}
+
+// failUnreachableTarget ends a run that concluded it had no work while the
+// image's own toolchain cannot reach the resolved target.
+//
+// A no-work verdict is trustworthy only when the repo already meets the target.
+// When it does not, the run failed to do the work rather than finding nothing
+// to do, and recording that as `completed` is what stranded repos behind the
+// watcher's emission claim: nothing downstream can tell the two apart, and no
+// PR exists to clear the claim. It ends Failed/human_review with both versions
+// named on the ## Plan, so the task page reads why.
+func failUnreachableTarget(
+	ctx context.Context,
+	md *agentlib.Markdown,
+	current, toolchain, target string,
+) *agentlib.Result {
+	reason := "target_unreachable: repo go directive " + current +
+		" is below the resolved target " + target +
+		", and this image's toolchain " + toolchain +
+		" cannot perform the bump — rebuild the agent image on go" + target + " or newer"
+	glog.Warningf("target go: %s", reason)
+	plan := &PlanOutput{
+		Outcome: PlanOutcomeFailed,
+		Reason:  reason,
+	}
+	if err := writePlanSection(ctx, md, plan); err != nil {
+		glog.Warningf("planning: write target-unreachable plan failed: %v", err)
+	}
+	return &agentlib.Result{
+		Status:    agentlib.AgentStatusFailed,
+		NextPhase: domain.TaskPhaseHumanReview.String(),
+		Message:   reason,
+	}
 }
 
 // parseJSONResponse and its supporting jsonFenceRegexp/lastJSONBlock live in

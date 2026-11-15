@@ -250,9 +250,28 @@ jobs:
 			Expect(target).NotTo(Equal(updatepkg.TargetGoVersion()))
 		})
 
-		It("falls back to the image toolchain when no setup-go step exists", func() {
+		It("derives the target from the repo's own go.mod when no setup-go step exists", func() {
+			// The defect this covers: with no CI version file the old code
+			// returned the image toolchain, so a repo one patch behind reported
+			// "already current" whenever the image was stale. The seam is pinned
+			// to the stale value so the spec reproduces that on any host Go.
+			restoreToolchain := updatepkg.SetToolchainVersionForTest("go1.27.3")
+			defer restoreToolchain()
+			server := releaseIndexServer(http.StatusOK, releaseIndexBody)
+			defer server.Close()
+			restore := updatepkg.SetGoReleaseIndexForTest(server.URL)
+			defer restore()
+
 			workdir := GinkgoT().TempDir()
-			writeFixture(workdir, "go.mod", "module example.com/x\n\ngo 1.28.1\n")
+			writeFixture(workdir, "go.mod", "module example.com/x\n\ngo 1.27.3\n")
+
+			target := updatepkg.ResolveTargetGo(ctx, workdir)
+			Expect(target).To(Equal("1.27.4"))
+			Expect(target).NotTo(Equal(updatepkg.TargetGoVersion()))
+		})
+
+		It("falls back to the image toolchain only when the repo has no go.mod either", func() {
+			workdir := GinkgoT().TempDir()
 
 			Expect(updatepkg.ResolveTargetGo(ctx, workdir)).To(Equal(updatepkg.TargetGoVersion()))
 		})
@@ -285,6 +304,51 @@ jobs:
 			writeFixture(workdir, "go.mod", "module example.com/x\n\ngo 1.28.3\n")
 
 			Expect(updatepkg.ResolveTargetGo(ctx, workdir)).To(Equal("1.28.3"))
+		})
+	})
+
+	Describe("TargetUnreachable", func() {
+		It("fires when the repo and the image toolchain both sit below the target", func() {
+			restore := updatepkg.SetToolchainVersionForTest("go1.27.3")
+			defer restore()
+
+			workdir := GinkgoT().TempDir()
+			writeFixture(workdir, "go.mod", "module example.com/x\n\ngo 1.27.3\n")
+
+			current, toolchain, unreachable := updatepkg.TargetUnreachable(workdir, "1.27.4")
+			Expect(unreachable).To(BeTrue())
+			Expect(current).To(Equal("1.27.3"))
+			Expect(toolchain).To(Equal("1.27.3"))
+		})
+
+		It("does not fire when the repo already meets the target on an old image", func() {
+			restore := updatepkg.SetToolchainVersionForTest("go1.27.3")
+			defer restore()
+
+			workdir := GinkgoT().TempDir()
+			writeFixture(workdir, "go.mod", "module example.com/x\n\ngo 1.27.4\n")
+
+			_, _, unreachable := updatepkg.TargetUnreachable(workdir, "1.27.4")
+			Expect(unreachable).To(BeFalse())
+		})
+
+		It("does not fire when the image toolchain can reach the target", func() {
+			restore := updatepkg.SetToolchainVersionForTest("go1.27.4")
+			defer restore()
+
+			workdir := GinkgoT().TempDir()
+			writeFixture(workdir, "go.mod", "module example.com/x\n\ngo 1.27.3\n")
+
+			_, _, unreachable := updatepkg.TargetUnreachable(workdir, "1.27.4")
+			Expect(unreachable).To(BeFalse())
+		})
+
+		It("does not fire without a go directive to compare against", func() {
+			restore := updatepkg.SetToolchainVersionForTest("go1.27.3")
+			defer restore()
+
+			_, _, unreachable := updatepkg.TargetUnreachable(GinkgoT().TempDir(), "1.27.4")
+			Expect(unreachable).To(BeFalse())
 		})
 	})
 })
