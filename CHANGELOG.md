@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.24.0
 
 - feat: resolve each repo's real default branch instead of assuming `master` — `ResolveDefaultBranch` now returns the branch name alongside the tip SHA and accepts any default branch (not only `refs/heads/master`), the PR opens against that branch, and the CHANGELOG / workflow-regeneration / base-`go.mod` comparisons read `origin/<default>`; adds a repo-targeting `--dry-run` (`run-task --dry-run --repo owner/name`) that resolves the default branch and exits before any clone, commit, push or PR
 
