@@ -210,8 +210,15 @@ func (s *planningStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentli
 		// needs, "nothing to do" is this run's inability to do the work, not a
 		// repo that is current — and recording it as `completed` strands the
 		// repo until the watcher's emission claim expires.
-		if current, toolchain, unreachable := targetUnreachable(workdir, targetGo); unreachable {
-			return failUnreachableTarget(ctx, md, current, toolchain, targetGo), nil
+		//
+		// The guard is scope-aware for the same reason shouldClose is: a
+		// deps-only task has the go-directive bump out of scope by definition,
+		// so a repo behind on its directive is not a failure there — it is work
+		// this task was never asked to do.
+		if !updateScope.IsDepsOnly() {
+			if current, toolchain, unreachable := targetUnreachable(workdir, targetGo); unreachable {
+				return failUnreachableTarget(ctx, md, current, toolchain, targetGo), nil
+			}
 		}
 		return &agentlib.Result{
 			Status:    agentlib.AgentStatusDone,

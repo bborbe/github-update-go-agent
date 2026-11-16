@@ -223,10 +223,20 @@ func repoGoDirective(workdir string) (string, bool) {
 	return goDirective(filepath.Join(workdir, "go.mod"))
 }
 
+// bareVersion drops a leading "v" so a version can be compared against the
+// toolchain. `PlanOutput.GoBump.To` is written by ensureGoBump through
+// normalizeVersion, which prefixes "v", while every other version here (the
+// toolchain, a go directive, a release-index entry) is bare — so comparing the
+// two raw forms builds "vv1.27.4", which semver rejects and orders below any
+// valid version. That silently disables the guard instead of failing.
+func bareVersion(version string) string {
+	return strings.TrimPrefix(version, "v")
+}
+
 // toolchainBelowTarget reports whether the toolchain baked into this image is
 // older than target, and so cannot perform a bump to it.
 func toolchainBelowTarget(target string) bool {
-	return semver.Compare("v"+targetGoVersion(), "v"+target) < 0
+	return semver.Compare("v"+targetGoVersion(), "v"+bareVersion(target)) < 0
 }
 
 // targetUnreachable reports whether a no-work verdict is really a failure: the
@@ -246,7 +256,7 @@ func targetUnreachable(workdir, target string) (current, toolchain string, unrea
 	if !ok {
 		return "", toolchain, false
 	}
-	if semver.Compare("v"+directive, "v"+target) >= 0 {
+	if semver.Compare("v"+directive, "v"+bareVersion(target)) >= 0 {
 		return directive, toolchain, false
 	}
 	return directive, toolchain, true

@@ -350,5 +350,22 @@ jobs:
 			_, _, unreachable := updatepkg.TargetUnreachable(GinkgoT().TempDir(), "1.27.4")
 			Expect(unreachable).To(BeFalse())
 		})
+
+		It("fires for a v-prefixed target, the form ensureGoBump writes", func() {
+			// PlanOutput.GoBump.To is written through normalizeVersion, which
+			// prefixes "v". Comparing that raw against the bare toolchain builds
+			// "vv1.27.4", which semver rejects and orders below every valid
+			// version — the guard would silently never fire.
+			restore := updatepkg.SetToolchainVersionForTest("go1.27.3")
+			defer restore()
+
+			workdir := GinkgoT().TempDir()
+			writeFixture(workdir, "go.mod", "module example.com/x\n\ngo 1.27.3\n")
+
+			current, toolchain, unreachable := updatepkg.TargetUnreachable(workdir, "v1.27.4")
+			Expect(unreachable).To(BeTrue())
+			Expect(current).To(Equal("1.27.3"))
+			Expect(toolchain).To(Equal("1.27.3"))
+		})
 	})
 })

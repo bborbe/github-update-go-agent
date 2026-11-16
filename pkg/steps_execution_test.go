@@ -9,6 +9,7 @@ import (
 	stderrors "errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	agentlib "github.com/bborbe/agent"
@@ -678,6 +679,26 @@ body
 				Expect(plan.Outcome).To(Equal(pkg.PlanOutcomeFailed))
 				Expect(plan.Reason).To(ContainSubstring("1.26.4"))
 				Expect(plan.Reason).To(ContainSubstring("1.26.5"))
+			})
+		})
+
+		Context("planned go bump carries the v prefix ensureGoBump writes", func() {
+			BeforeEach(func() {
+				ops.ChangedFilesReturns([]string{"CHANGELOG.md"}, nil)
+				DeferCleanup(pkg.SetToolchainVersionForTest("go1.26.4"))
+				var err error
+				md, err = agentlib.ParseMarkdown(ctx, uniqueTaskMD(strings.Replace(
+					executionTaskMD, `"to": "1.26.5"`, `"to": "v1.26.5"`, 1)))
+				Expect(err).To(BeNil())
+			})
+
+			It("still fails instead of completing", func() {
+				result, err := step.Run(ctx, md)
+				Expect(err).To(BeNil())
+				Expect(result.Status).To(Equal(agentlib.AgentStatusFailed))
+				Expect(result.NextPhase).To(Equal("human_review"))
+				Expect(ops.CommitCallCount()).To(Equal(0))
+				Expect(gh.CreatePRCallCount()).To(Equal(0))
 			})
 		})
 

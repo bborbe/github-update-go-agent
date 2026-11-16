@@ -813,6 +813,23 @@ jobs:
 			Expect(result.Status).To(Equal(agentlib.AgentStatusDone))
 			Expect(result.NextPhase).To(Equal("done"))
 		})
+
+		It("still completes for a deps-only task, where the go bump is out of scope", func() {
+			// update_scope=deps makes the directive bump out of scope by
+			// definition, so a repo behind on its directive is work this task was
+			// never asked to do — not a failure. The guard must follow shouldClose's
+			// own scope awareness, or every deps-only run on a lagging image fails.
+			setupUnreachableFixture("go1.27.3")
+			step = pkg.NewPlanningStep(
+				runner, ops, pkg.NewOSExecGateRunner(), "tok", scope, maintainerConfig,
+				pkg.UpdateScopeDeps,
+			)
+
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusDone))
+			Expect(result.NextPhase).To(Equal("done"))
+		})
 	})
 
 	Describe("unparseable claude output", func() {
