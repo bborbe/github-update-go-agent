@@ -1,6 +1,6 @@
 module github.com/bborbe/github-update-go-agent
 
-go 1.27.4
+go 1.27.3
 
 tool (
 	github.com/maxbrunsfeld/counterfeiter/v6
