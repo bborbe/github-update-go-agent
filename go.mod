@@ -2,9 +2,7 @@ module github.com/bborbe/github-update-go-agent
 
 go 1.27.3
 
-tool (
-	github.com/maxbrunsfeld/counterfeiter/v6
-)
+tool github.com/maxbrunsfeld/counterfeiter/v6
 
 require (
 	github.com/bborbe/agent v0.141.0
@@ -15,7 +13,7 @@ require (
 	github.com/bborbe/maintainer v0.51.2
 	github.com/bborbe/sentry v1.10.7
 	github.com/bborbe/service v1.11.3
-	github.com/bborbe/time v1.27.28
+	github.com/bborbe/time v1.27.27
 	github.com/bborbe/vault-cli v0.192.1
 	github.com/golang/glog v1.2.5
 	github.com/google/uuid v1.6.0
@@ -36,7 +34,7 @@ require (
 	github.com/bborbe/kv v1.21.29 // indirect
 	github.com/bborbe/math v1.4.19 // indirect
 	github.com/bborbe/metrics v0.6.11 // indirect
-	github.com/bborbe/parse v1.12.7 // indirect
+	github.com/bborbe/parse v1.12.6 // indirect
 	github.com/bborbe/run v1.11.11 // indirect
 	github.com/bborbe/strimzi v1.8.24 // indirect
 	github.com/bborbe/validation v1.5.9 // indirect
@@ -110,6 +108,4 @@ require (
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
 
-exclude (
-	cloud.google.com/go v0.26.0
-)
+exclude cloud.google.com/go v0.26.0

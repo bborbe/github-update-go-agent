@@ -34,6 +34,8 @@ github.com/bborbe/memorykv v1.6.15 h1:7InMJsb4vXCuNt3nGz1GtTZwRlktIorKln4/ES8tJv
 github.com/bborbe/memorykv v1.6.15/go.mod h1:X5TlSq6wpw5Dio8W054IevUC+fNXDmtYGGct7FRNML8=
 github.com/bborbe/metrics v0.6.11 h1:HnBSHZqY2cCij2Jdfq6v1466ob513kSz4X8YKnAU2xM=
 github.com/bborbe/metrics v0.6.11/go.mod h1:KgULC7F9Zs9+U67f/bX/fm31r0Bfmu/pjH2QGJ6xZaU=
+github.com/bborbe/parse v1.12.6 h1:nRq8exd8XIxFzPcMSQmWr73I2tkT/D4axXGDcC6MhG0=
+github.com/bborbe/parse v1.12.6/go.mod h1:d+oIgs5hwL+h1YZZx0gofR/adFm2LTI5jUSYy7aO+t0=
 github.com/bborbe/parse v1.12.7 h1:SUcpW/Q12ZpRWieaDHanfGtN3j3ZecXqSmu64afmfgU=
 github.com/bborbe/parse v1.12.7/go.mod h1:GGz16cnjkbpBJLkpDZ8rAtgK7HtAkaCphshMtuQZ+7k=
 github.com/bborbe/run v1.11.11 h1:oJyN57KMZQja/duxJRXUcSCQSVTh/b9FGY2S4ek1OZk=
@@ -44,6 +46,8 @@ github.com/bborbe/service v1.11.3 h1:/tKYRSMTCsUL8OGi9Lf57s6yKoE+wmc0KTBouO5uqs8
 github.com/bborbe/service v1.11.3/go.mod h1:CTJL5cZikTNKBvPV6p0zELew4ysynx23Apfyr4efBKs=
 github.com/bborbe/strimzi v1.8.24 h1:lW/Y+hjjsHqRMZU4C+9VEz/SMzd1VBYlwkojeneI0Rs=
 github.com/bborbe/strimzi v1.8.24/go.mod h1:qPFM5Xyg5UfkHk1LvmwBqI7qNqOy78Nmf72tNxc9Rhw=
+github.com/bborbe/time v1.27.27 h1:7XS2aW7HlQ1SJQdE2vBXeJgP3us5Ep0lzvE48YoqACk=
+github.com/bborbe/time v1.27.27/go.mod h1:HQS6siuzki6Co5pgdQtdZvY7qopmQ5gahZnewOObcpo=
 github.com/bborbe/time v1.27.28 h1:Gdi1THNCbD2zMvuWYP5PIZy+winDJPFkiQ2mSsEKv6I=
 github.com/bborbe/time v1.27.28/go.mod h1:BApyuvsiTDiBDIzgbNir1Ze7iL5XdfxOxfxHa+zVG8E=
 github.com/bborbe/validation v1.5.9 h1:p6WOxdwIbvs9Lqhkn1QIvAUI1LAyBuc5WqdFTxKe8xE=
