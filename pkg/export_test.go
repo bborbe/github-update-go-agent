@@ -145,7 +145,23 @@ var (
 	GoDirective     = goDirective
 	GoMinorLine     = goMinorLine
 	LatestGoPatch   = latestGoPatch
+	// TargetUnreachable exposes the no-work guard's predicate so pkg_test can
+	// assert it fires only for a repo that is genuinely behind, never for one
+	// that is already current on an old image.
+	TargetUnreachable = targetUnreachable
+	RepoGoDirective   = repoGoDirective
 )
+
+// SetToolchainVersionForTest pins the image-toolchain seam to version (e.g.
+// "go1.27.3") and returns a func that restores the previous value. The
+// unreachable-target defect only reproduces when the toolchain sits below the
+// bump target, so a spec that relied on the host's real Go would pass or fail
+// by machine.
+func SetToolchainVersionForTest(version string) func() {
+	previous := toolchainVersion
+	toolchainVersion = version
+	return func() { toolchainVersion = previous }
+}
 
 // SetGoReleaseIndexForTest points the release-index lookup at url and returns
 // a func that restores the previous value.

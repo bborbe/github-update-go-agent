@@ -829,7 +829,7 @@ func (s *executionStep) commitPushAndOpenPR(
 		return s.fail(ctx, md, result, git.ErrorCategoryUnknown, err)
 	}
 	if isNoEffectiveChange(changed) {
-		return s.noEffectiveChange(ctx, md, changed)
+		return s.noEffectiveChange(ctx, md, plan, changed)
 	}
 	changed, err = s.filterWorkflowRegen(ctx, workdir, defaultBranch, changed)
 	if err != nil {
@@ -916,11 +916,27 @@ func (s *executionStep) commitPushAndOpenPR(
 // exist). Nothing is committed, pushed, or opened as a PR — the workdir
 // (and any CHANGELOG-only edit in it) is simply discarded by the caller's
 // deferred cleanup.
+//
+// A no-change verdict is only a success when this image could have made the
+// change: when the plan asked for a go bump above the toolchain baked into this
+// image, the empty diff is the run's inability, not the repo's currency, and it
+// ends Failed/human_review with both versions named (the same guard planning
+// applies to its own no-work terminal).
 func (s *executionStep) noEffectiveChange(
 	ctx context.Context,
 	md *agentlib.Markdown,
+	plan *PlanOutput,
 	changed []string,
 ) (*agentlib.Result, error) {
+	if plan != nil && plan.GoBump != nil && toolchainBelowTarget(plan.GoBump.To) {
+		glog.Warningf(
+			"execution: no effective change but image toolchain %s is below the planned go bump %s — failing instead of completing",
+			targetGoVersion(), plan.GoBump.To,
+		)
+		return failUnreachableTarget(
+			ctx, md, plan.GoBump.From, targetGoVersion(), plan.GoBump.To,
+		), nil
+	}
 	glog.V(2).Infof(
 		"execution: no effective change after claude sub-call (changed=%v) — discarding workdir",
 		changed,
