@@ -205,25 +205,7 @@ func (s *planningStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentli
 	}
 
 	if s.shouldClose(plan, updateScope, repo) {
-		// A close is only trustworthy when the repo actually meets the target.
-		// When the image's own toolchain is below the target the repo still
-		// needs, "nothing to do" is this run's inability to do the work, not a
-		// repo that is current — and recording it as `completed` strands the
-		// repo until the watcher's emission claim expires.
-		//
-		// The guard is scope-aware for the same reason shouldClose is: a
-		// deps-only task has the go-directive bump out of scope by definition,
-		// so a repo behind on its directive is not a failure there — it is work
-		// this task was never asked to do.
-		if !updateScope.IsDepsOnly() {
-			if current, toolchain, unreachable := targetUnreachable(workdir, targetGo); unreachable {
-				return failUnreachableTarget(ctx, md, current, toolchain, targetGo), nil
-			}
-		}
-		return &agentlib.Result{
-			Status:    agentlib.AgentStatusDone,
-			NextPhase: domain.TaskPhaseDone.String(),
-		}, nil
+		return s.closeOrFailUnreachable(ctx, md, workdir, targetGo, updateScope), nil
 	}
 
 	glog.V(2).Infof(
@@ -234,6 +216,35 @@ func (s *planningStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentli
 		Status:    agentlib.AgentStatusDone,
 		NextPhase: domain.TaskPhaseExecution.String(),
 	}, nil
+}
+
+// closeOrFailUnreachable records a no-work close, unless the image cannot reach
+// a target the repo still needs.
+//
+// A close is only trustworthy when the repo actually meets the target. When the
+// image's own toolchain is below the target the repo still needs, "nothing to
+// do" is this run's inability to do the work, not a repo that is current — and
+// recording it as `completed` strands the repo until the watcher's emission
+// claim expires.
+//
+// The guard is scope-aware for the same reason shouldClose is: a deps-only task
+// has the go-directive bump out of scope by definition, so a repo behind on its
+// directive is not a failure there — it is work this task was never asked to do.
+func (s *planningStep) closeOrFailUnreachable(
+	ctx context.Context,
+	md *agentlib.Markdown,
+	workdir, targetGo string,
+	updateScope UpdateScope,
+) *agentlib.Result {
+	if !updateScope.IsDepsOnly() {
+		if current, toolchain, unreachable := targetUnreachable(workdir, targetGo); unreachable {
+			return failUnreachableTarget(ctx, md, current, toolchain, targetGo)
+		}
+	}
+	return &agentlib.Result{
+		Status:    agentlib.AgentStatusDone,
+		NextPhase: domain.TaskPhaseDone.String(),
+	}
 }
 
 // setupAndCleanupWorkdir creates the ephemeral clone dir and registers its
