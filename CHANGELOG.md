@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.25.0
 
 - fix: stop resolving the bump target to the image's own toolchain, and stop recording a run that cannot reach the target as `completed` — `resolveTargetGo` now falls back to the repo's own `go.mod` directive (latest patch of its minor line, from the release index) instead of `runtime.Version()`, so a stale image can no longer declare a one-patch-behind repo "already current"; both no-work terminals now end `Failed`/`human_review` with a `target_unreachable` reason naming the repo directive, the image toolchain and the resolved target when the toolchain sits below a target the repo still needs, and the toolchain value moved behind a `toolchainVersion` seam so specs can pin it
 
