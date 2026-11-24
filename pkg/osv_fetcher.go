@@ -29,10 +29,10 @@ const osvRequestTimeout = 10 * time.Second
 // misconfigured upstream without rejecting a legitimate index.
 const maxOSVBodyBytes = 64 << 20 // 64 MiB
 
-//counterfeiter:generate -o ../mocks/osv_fetcher.go --fake-name OSVFetcher . OSVFetcher
-
 // OSVFetcher fetches one advisory record by ID and the Go vulnerability index.
 // Implementations MUST be safe for concurrent use.
+//
+//counterfeiter:generate -o ../mocks/osv_fetcher.go --fake-name OSVFetcher . OSVFetcher
 type OSVFetcher interface {
 	// FetchVuln returns the advisory record, or ErrAdvisoryNotFound on HTTP 404.
 	FetchVuln(ctx context.Context, id string) (*OSVVulnerability, error)

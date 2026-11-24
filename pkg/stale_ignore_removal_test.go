@@ -108,10 +108,12 @@ var _ = Describe("Stale ignore removal", func() {
 		makefile := readFile(dir, "Makefile")
 		Expect(makefile).NotTo(ContainSubstring("CVE-2026-33817"))
 		Expect(makefile).To(ContainSubstring("GO-2026-9999"))
+		// The continuation survives with a single space before the backslash.
+		Expect(makefile).To(Equal("VULNCHECK_IGNORE ?= \\\n\tGO-2026-9999\n"))
 
 		precommit := readFile(dir, "Makefile.precommit")
 		Expect(precommit).NotTo(ContainSubstring("CVE-2026-33817"))
-		Expect(precommit).To(ContainSubstring("GO-2026-9999"))
+		Expect(precommit).To(Equal("VULNCHECK_IGNORE ?= GO-2026-9999\n"))
 
 		// Negative evidence: the legitimate ID is never removed.
 		Expect(diff).NotTo(ContainSubstring("-GO-2026-9999"))
@@ -187,9 +189,8 @@ var _ = Describe("Stale ignore removal", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(removed).To(Equal([]string{"CVE-2026-33817"}))
 		makefile := readFile(dir, "Makefile")
-		Expect(makefile).To(ContainSubstring("VULNCHECK_IGNORE ?= GO-2026-9999"))
+		Expect(makefile).To(Equal("VULNCHECK_IGNORE ?= GO-2026-9999\n"))
 		Expect(makefile).NotTo(ContainSubstring("CVE-2026-33817"))
-		Expect(makefile).NotTo(ContainSubstring("\\"))
 	})
 })
 

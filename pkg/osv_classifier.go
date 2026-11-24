@@ -22,12 +22,12 @@ import (
 // unresolved and stay in place; planning must never be aborted by OSV.
 const classifyBudget = 60 * time.Second
 
-//counterfeiter:generate -o ../mocks/ignore_classifier.go --fake-name IgnoreClassifier . IgnoreClassifier
-
 // IgnoreClassifier classifies suppressed advisory IDs against OSV and a
 // checked-out repository's module graph. It never returns an error: any
 // transport, status, parse or graph failure becomes an unresolved verdict so
 // planning is never aborted and no suppression is ever removed on a failure.
+//
+//counterfeiter:generate -o ../mocks/ignore_classifier.go --fake-name IgnoreClassifier . IgnoreClassifier
 type IgnoreClassifier interface {
 	Classify(ctx context.Context, workdir string, ids []string) []IgnoreClassification
 }

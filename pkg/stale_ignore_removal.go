@@ -401,6 +401,9 @@ func filterTokens(tokens []string, stale, removed map[string]bool) ([]string, bo
 	kept := make([]string, 0, len(tokens))
 	for _, token := range tokens {
 		token = strings.TrimSuffix(token, "\\")
+		if token == "" {
+			continue
+		}
 		if stale[token] {
 			removed[token] = true
 			continue
