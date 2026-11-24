@@ -86,6 +86,11 @@ var (
 	PlanningRunnerBuildCmd = func(r *planningRunner, ctx context.Context, prompt string) (*exec.Cmd, error) {
 		return r.buildCommand(ctx, prompt)
 	}
+	// RecheckStale exposes execution's local re-check so pkg_test can assert
+	// that a stale verdict is dropped when the module graph moved.
+	RecheckStale = recheckStale
+	// NewOSVHTTPFetcherForTest points the OSV fetcher at an httptest server.
+	NewOSVHTTPFetcherForTest = newOSVHTTPFetcherWithBase
 )
 
 // GhSubprocessEnvForTest exposes the gh subprocess env allowlist so pkg_test
