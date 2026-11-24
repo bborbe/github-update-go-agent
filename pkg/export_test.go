@@ -86,6 +86,19 @@ var (
 	PlanningRunnerBuildCmd = func(r *planningRunner, ctx context.Context, prompt string) (*exec.Cmd, error) {
 		return r.buildCommand(ctx, prompt)
 	}
+	// RecheckStale exposes execution's local re-check so pkg_test can assert
+	// that a stale verdict is dropped when the module graph moved.
+	RecheckStale = recheckStale
+	// RemoveStaleIgnores exposes execution's stale-ignore removal so pkg_test
+	// can drive it against a seeded repository and assert the produced diff.
+	RemoveStaleIgnores = removeStaleIgnores
+	// PlanHasWorkForScope exposes the plan's work predicate so pkg_test can
+	// assert that a stale-ignore-only plan is work under every scope.
+	PlanHasWorkForScope = func(p *PlanOutput, scope UpdateScope) bool {
+		return p.hasWorkForScope(scope)
+	}
+	// NewOSVHTTPFetcherForTest points the OSV fetcher at an httptest server.
+	NewOSVHTTPFetcherForTest = newOSVHTTPFetcherWithBase
 )
 
 // GhSubprocessEnvForTest exposes the gh subprocess env allowlist so pkg_test
