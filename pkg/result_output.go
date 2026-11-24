@@ -37,6 +37,10 @@ type ResultOutput struct {
 	// subset of the plan's fix-action vulns.
 	VulnsFixed []string `json:"vulns_fixed,omitempty"`
 
+	// RemovedIgnores lists the stale advisory IDs actually deleted from the
+	// ignore surfaces in this run (never the plan's intended list).
+	RemovedIgnores []string `json:"removed_ignores,omitempty"`
+
 	// FailedTarget names the gate target that stayed red (failure path only).
 	FailedTarget string `json:"failed_target,omitempty"`
 

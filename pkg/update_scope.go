@@ -162,8 +162,13 @@ func onlyGolangScopedVulns(vulns []PlanVuln) []PlanVuln {
 
 // hasWork returns whether any in-scope work remains for the given scope.
 // A golang-only task ignores dep work; a deps-only task ignores the
-// directive bump.
+// directive bump. Stale-ignore removal is scope-independent: a dead
+// suppression is cleanup, not an update, so it counts as work under every
+// scope.
 func (p *PlanOutput) hasWorkForScope(scope UpdateScope) bool {
+	if p.hasStaleIgnores() {
+		return true
+	}
 	switch scope {
 	case UpdateScopeGolang:
 		return p.GoBump != nil || len(onlyGolangScopedVulns(p.Vulns)) > 0
@@ -172,4 +177,15 @@ func (p *PlanOutput) hasWorkForScope(scope UpdateScope) bool {
 	default:
 		return p.GoBump != nil || p.DepUpdatesExpected || len(p.Vulns) > 0
 	}
+}
+
+// hasStaleIgnores reports whether any ignore was classified stale. Only the
+// stale outcome counts: legitimate and unresolved verdicts are never work.
+func (p *PlanOutput) hasStaleIgnores() bool {
+	for _, c := range p.IgnoreClassifications {
+		if c.Outcome == IgnoreOutcomeStale {
+			return true
+		}
+	}
+	return false
 }

@@ -40,6 +40,12 @@ type PlanOutput struct {
 	// Vulns holds every scanner finding with its fix-vs-park classification.
 	Vulns []PlanVuln `json:"vulns,omitempty"`
 
+	// IgnoreClassifications records the OSV verdict for every advisory ID in
+	// the repo's three ignore surfaces. Go writes it after parsing the model's
+	// plan and overwrites any model-emitted value, exactly as GateTargets is
+	// overwritten — a model must never be able to name an ID for removal.
+	IgnoreClassifications []IgnoreClassification `json:"ignore_classifications,omitempty"`
+
 	// Reason carries the human-readable explanation on the
 	// needs_input / no_update_needed paths.
 	Reason string `json:"reason,omitempty"`

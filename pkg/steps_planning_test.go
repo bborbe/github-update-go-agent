@@ -154,6 +154,7 @@ var _ = Describe("PlanningStep", func() {
 			scope,
 			maintainerConfig,
 			pkg.UpdateScopeBoth,
+			nil,
 		)
 		var err error
 		md, err = agentlib.ParseMarkdown(ctx, uniqueTaskMD(planningTaskMD))
@@ -235,6 +236,84 @@ var _ = Describe("PlanningStep", func() {
 				Expect(plan.GoBump.To).To(Equal("1.27.4"))
 			},
 		)
+
+		It("records the OSV classification on ## Plan and discards a model-emitted value", func() {
+			ops.CloneAtRefStub = func(_ context.Context, _, _, workdir string) error {
+				if err := os.MkdirAll(workdir, 0o755); err != nil {
+					return err
+				}
+				if err := os.WriteFile(
+					filepath.Join(workdir, "Makefile"), []byte(fixtureMakefileEmpty), 0o644,
+				); err != nil {
+					return err
+				}
+				if err := os.WriteFile(
+					filepath.Join(workdir, "go.mod"),
+					[]byte("module example.com/test\n\ngo 1.24.0\n"), 0o644,
+				); err != nil {
+					return err
+				}
+				return os.WriteFile(
+					filepath.Join(workdir, ".trivyignore"),
+					[]byte("CVE-2026-33817\nGO-2026-9999\n"), 0o644,
+				)
+			}
+			// The model emits a bogus classification; Go must discard it.
+			runner.RunReturns(&claudelib.ClaudeResult{Result: `{
+				"outcome": "ready",
+				"has_work": true,
+				"go_bump": {"from": "1.24.0", "to": "1.27.4"},
+				"dep_updates_expected": false,
+				"vulns": [],
+				"ignore_classifications": [
+					{"id": "GO-9999-0000", "outcome": "stale", "reason": "model"}
+				]
+			}`}, nil)
+
+			classifier := &mocks.IgnoreClassifier{}
+			classifier.ClassifyStub = func(
+				_ context.Context, _ string, ids []string,
+			) []pkg.IgnoreClassification {
+				out := make([]pkg.IgnoreClassification, 0, len(ids))
+				for _, id := range ids {
+					if id == "CVE-2026-33817" {
+						out = append(out, pkg.IgnoreClassification{
+							ID: id, Outcome: pkg.IgnoreOutcomeStale,
+							Reason: pkg.IgnoreReasonWithdrawn,
+						})
+						continue
+					}
+					out = append(out, pkg.IgnoreClassification{
+						ID: id, Outcome: pkg.IgnoreOutcomeLegitimate,
+						Reason: pkg.IgnoreReasonVersionAffected,
+					})
+				}
+				return out
+			}
+			step = pkg.NewPlanningStep(
+				runner, ops, pkg.NewOSExecGateRunner(), "tok", scope,
+				maintainerConfig, pkg.UpdateScopeBoth, classifier,
+			)
+
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.NextPhase).To(Equal("execution"))
+
+			plan, err := agentlib.ExtractSection[pkg.PlanOutput](ctx, md, "## Plan")
+			Expect(err).To(BeNil())
+			Expect(plan.IgnoreClassifications).To(HaveLen(2))
+			Expect(plan.IgnoreClassifications).To(ContainElement(pkg.IgnoreClassification{
+				ID: "CVE-2026-33817", Outcome: pkg.IgnoreOutcomeStale,
+				Reason: pkg.IgnoreReasonWithdrawn,
+			}))
+			Expect(plan.IgnoreClassifications).To(ContainElement(pkg.IgnoreClassification{
+				ID: "GO-2026-9999", Outcome: pkg.IgnoreOutcomeLegitimate,
+				Reason: pkg.IgnoreReasonVersionAffected,
+			}))
+			for _, c := range plan.IgnoreClassifications {
+				Expect(c.ID).NotTo(Equal("GO-9999-0000"))
+			}
+		})
 
 		It("skips with auto_update_disabled when goUpdate.autoUpdate=false", func() {
 			maintainerConfig.FetchReturns([]byte("goUpdate:\n  autoUpdate: false\n"), nil)
@@ -822,7 +901,7 @@ jobs:
 			setupUnreachableFixture("go1.27.3")
 			step = pkg.NewPlanningStep(
 				runner, ops, pkg.NewOSExecGateRunner(), "tok", scope, maintainerConfig,
-				pkg.UpdateScopeDeps,
+				pkg.UpdateScopeDeps, nil,
 			)
 
 			result, err := step.Run(ctx, md)

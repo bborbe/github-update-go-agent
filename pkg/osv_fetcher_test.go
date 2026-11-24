@@ -86,17 +86,23 @@ var _ = Describe("OSV HTTP fetcher", func() {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			Expect(r.URL.Path).To(Equal("/index/vulns.json"))
 			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(pkg.GoVulnIndex{
-				"example.com/dep": {{ID: "GO-2026-4923", Modified: "2026-01-01T00:00:00Z"}},
-			})
+			// The endpoint serves a JSON ARRAY of {id, modified, aliases}, not a
+			// module-keyed object. Encoding the Go type instead of a literal
+			// would pass even when the type is wrong — the exact defect this
+			// assertion exists to catch.
+			_, _ = w.Write([]byte(
+				`[{"id":"GO-2026-4923","modified":"2026-04-08T15:30:16Z",` +
+					`"aliases":["CVE-2026-33817","GHSA-6jwv-w5xf-7j27"]}]`,
+			))
 		}))
 		defer server.Close()
 
 		index, err := osvNewFetcher(server).FetchGoIndex(ctx)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(index).NotTo(BeNil())
-		Expect((*index)["example.com/dep"]).To(HaveLen(1))
-		Expect((*index)["example.com/dep"][0].ID).To(Equal("GO-2026-4923"))
+		Expect(*index).To(HaveLen(1))
+		Expect((*index)[0].ID).To(Equal("GO-2026-4923"))
+		Expect((*index)[0].Aliases).To(ContainElement("CVE-2026-33817"))
 	})
 
 	It("fails when a request exceeds the per-request timeout", func() {

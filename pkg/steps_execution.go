@@ -192,13 +192,11 @@ func (s *executionStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentl
 			errors.Wrap(ctx, err, "invalid update_scope"))
 	}
 	glog.V(2).Infof("execution: update_scope=%s repo=%s", updateScope, repo)
-
 	plan, err := s.validatePlan(ctx, md, updateScope)
 	if err != nil {
 		return s.fail(ctx, md, &ResultOutput{}, git.ErrorCategoryUnknown, err)
 	}
 	branch := branchPrefix + ref[:7]
-
 	if adopt := s.adoptExistingPR(ctx, md, repo, branch); adopt != nil {
 		return adopt, nil
 	}
@@ -250,14 +248,61 @@ func (s *executionStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentl
 		)
 	}
 
-	if failResult, err := s.gatesWithRepair(ctx, md, workdir, plan, result, report); failResult !=
-		nil || err != nil {
+	removedIgnores, failResult, err := s.removeIgnoresAndRunGates(
+		ctx, md, workdir, plan, result, report,
+	)
+	if failResult != nil || err != nil {
 		return failResult, err
 	}
 
 	return s.commitPushAndOpenPR(
-		ctx, md, workdir, branch, defaultBranch, plan, report, result,
+		ctx, md, workdir, branch, defaultBranch, plan, report, result, removedIgnores,
 	)
+}
+
+// removeIgnoresAndRunGates removes the plan's stale ignore IDs and then runs
+// the gate targets (with the single bounded repair) on the cleaned tree. The
+// order is the point: the gates must judge the repository as it will ship.
+func (s *executionStep) removeIgnoresAndRunGates(
+	ctx context.Context,
+	md *agentlib.Markdown,
+	workdir string,
+	plan *PlanOutput,
+	result *ResultOutput,
+	report *executionReport,
+) ([]string, *agentlib.Result, error) {
+	removed, failResult, err := s.applyStaleIgnoreRemoval(ctx, md, workdir, plan, result)
+	if failResult != nil || err != nil {
+		return nil, failResult, err
+	}
+	if failResult, err := s.gatesWithRepair(
+		ctx, md, workdir, plan, result, report,
+	); failResult != nil || err != nil {
+		return nil, failResult, err
+	}
+	return removed, nil, nil
+}
+
+// applyStaleIgnoreRemoval removes the plan's stale ignore IDs from the three
+// ignore surfaces and records the IDs actually deleted. A surface read/write
+// failure fails the run; an empty plan changes no file.
+func (s *executionStep) applyStaleIgnoreRemoval(
+	ctx context.Context,
+	md *agentlib.Markdown,
+	workdir string,
+	plan *PlanOutput,
+	result *ResultOutput,
+) ([]string, *agentlib.Result, error) {
+	removed, err := removeStaleIgnores(ctx, workdir, plan.IgnoreClassifications)
+	if err != nil {
+		failResult, failErr := s.fail(ctx, md, result, git.ErrorCategoryUnknown, err)
+		return nil, failResult, failErr
+	}
+	if len(removed) > 0 {
+		glog.V(2).Infof("execution: removed stale ignore IDs: %v", removed)
+		result.RemovedIgnores = removed
+	}
+	return removed, nil, nil
 }
 
 // resolveDefaultBranch resolves the remote's default branch and the SHA at its
@@ -324,6 +369,13 @@ func (s *executionStep) salvageAfterClaudeFailure(
 	// The model produced no parseable report, so PR body metadata (deps
 	// counted, vulns fixed) is empty rather than guessed at.
 	report := &executionReport{}
+	// Remove the plan's stale ignores even on the salvage path: the removal is
+	// independent of the Claude sub-call, and the gate run that decides the
+	// salvage must judge the cleaned repository.
+	removedIgnores, failResult, err := s.applyStaleIgnoreRemoval(ctx, md, workdir, plan, result)
+	if failResult != nil || err != nil {
+		return failResult, err
+	}
 	if failResult, err := s.rerunGates(ctx, md, workdir, plan, result, report); err != nil {
 		return failResult, err
 	} else if failResult != nil {
@@ -338,7 +390,7 @@ func (s *executionStep) salvageAfterClaudeFailure(
 			"request (branch=%s, target=%s)", branch, s.prTarget,
 	)
 	return s.commitPushAndOpenPR(
-		ctx, md, workdir, branch, defaultBranch, plan, report, result,
+		ctx, md, workdir, branch, defaultBranch, plan, report, result, removedIgnores,
 	)
 }
 
@@ -464,7 +516,7 @@ func (s *executionStep) openPRFromPushedBranch(
 
 	prURL, err := s.gh.CreatePR(
 		ctx, workdir, defaultBranch, branch, prTitle,
-		buildPRBody(plan, &executionReport{}, nil),
+		buildPRBody(plan, &executionReport{}, nil, nil),
 		s.prTarget,
 		s.autoMergeLabel,
 	)
@@ -823,6 +875,7 @@ func (s *executionStep) commitPushAndOpenPR(
 	plan *PlanOutput,
 	report *executionReport,
 	result *ResultOutput,
+	removedIgnores []string,
 ) (*agentlib.Result, error) {
 	changed, err := s.ops.ChangedFiles(ctx, workdir)
 	if err != nil {
@@ -882,7 +935,7 @@ func (s *executionStep) commitPushAndOpenPR(
 	vulnsFixed := intersectFixVulns(plan, report)
 	prURL, err := s.gh.CreatePR(
 		ctx, workdir, defaultBranch, branch, prTitle,
-		buildPRBody(plan, report, vulnsFixed),
+		buildPRBody(plan, report, vulnsFixed, removedIgnores),
 		s.prTarget,
 		s.autoMergeLabel,
 	)
@@ -931,7 +984,8 @@ func (s *executionStep) noEffectiveChange(
 	if plan != nil && plan.GoBump != nil && toolchainBelowTarget(plan.GoBump.To) {
 		glog.Warningf(
 			"execution: no effective change but image toolchain %s is below the planned go bump %s — failing instead of completing",
-			targetGoVersion(), plan.GoBump.To,
+			targetGoVersion(),
+			plan.GoBump.To,
 		)
 		return failUnreachableTarget(
 			ctx, md, plan.GoBump.From, targetGoVersion(), plan.GoBump.To,
@@ -1164,7 +1218,11 @@ func intersectFixVulns(plan *PlanOutput, report *executionReport) []string {
 // buildPRBody assembles the informative draft-PR body: what changed, the
 // green gate evidence, and the release-agent handoff note. No secrets, no
 // attribution.
-func buildPRBody(plan *PlanOutput, report *executionReport, vulnsFixed []string) string {
+func buildPRBody(
+	plan *PlanOutput,
+	report *executionReport,
+	vulnsFixed, removedIgnores []string,
+) string {
 	var b strings.Builder
 	b.WriteString("Automated Go toolchain + dependency update.\n\n")
 	if plan.GoBump != nil {
@@ -1175,6 +1233,9 @@ func buildPRBody(plan *PlanOutput, report *executionReport, vulnsFixed []string)
 	}
 	if len(vulnsFixed) > 0 {
 		fmt.Fprintf(&b, "- vulnerabilities fixed: %s\n", strings.Join(vulnsFixed, ", "))
+	}
+	if len(removedIgnores) > 0 {
+		fmt.Fprintf(&b, "- stale ignores removed: %s\n", strings.Join(removedIgnores, ", "))
 	}
 	fmt.Fprintf(&b, "- gate green: %s (exit 0)\n", strings.Join(plan.GateTargets, ", "))
 	if report.Notes != "" {

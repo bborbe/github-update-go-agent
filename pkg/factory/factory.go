@@ -347,6 +347,7 @@ func CreateAgent(
 		updatepkg.NewGhInstallationScope(ghToken),
 		maintainerconfig.NewHTTPFetcher(ghToken),
 		updateScope,
+		updatepkg.NewOSVIgnoreClassifier(updatepkg.NewOSVHTTPFetcher()),
 	)
 	executionRunner := CreateClaudeRunner(
 		claudeConfigDir,

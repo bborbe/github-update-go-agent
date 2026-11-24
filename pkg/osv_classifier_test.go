@@ -102,7 +102,7 @@ var _ = Describe("OSV ignore classifier", func() {
 			Withdrawn: "2026-01-01T00:00:00Z",
 		}
 		index := &pkg.GoVulnIndex{
-			"example.com/dep": {{ID: "GO-2026-4923"}},
+			{ID: "GO-2026-4923", Aliases: []string{"CVE-2026-33817"}},
 		}
 		classifier := pkg.NewOSVIgnoreClassifier(osvFetcher(
 			map[string]*pkg.OSVVulnerability{"GO-2026-4923": record}, index,
@@ -111,6 +111,36 @@ var _ = Describe("OSV ignore classifier", func() {
 		osvExpectVerdict(
 			classifier, ctx, workdir,
 			"CVE-2026-33817", pkg.IgnoreOutcomeStale, pkg.IgnoreReasonWithdrawn,
+		)
+	})
+
+	// The measured regression: CVE-2026-33817 was the alias of the withdrawn
+	// GO-2026-4923, and its package (go.etcd.io/bbolt) had already left go.mod.
+	// Alias resolution must not depend on the module graph, or the entry is
+	// recorded not-found and the stale suppression survives.
+	It("resolves a merged alias whose package is absent from go.mod", func() {
+		workdir := osvWorkdir(
+			"module example.com/test\n\ngo 1.24.0\n\nrequire example.com/other v1.0.0\n",
+		)
+		record := &pkg.OSVVulnerability{
+			ID:        "GO-2026-4923",
+			Aliases:   []string{"CVE-2026-33817", "GHSA-6jwv-w5xf-7j27"},
+			Withdrawn: "2026-04-08T13:33:56Z",
+		}
+		index := &pkg.GoVulnIndex{
+			{ID: "GO-2026-4923", Aliases: []string{"CVE-2026-33817", "GHSA-6jwv-w5xf-7j27"}},
+		}
+		classifier := pkg.NewOSVIgnoreClassifier(osvFetcher(
+			map[string]*pkg.OSVVulnerability{"GO-2026-4923": record}, index,
+		))
+
+		osvExpectVerdict(
+			classifier, ctx, workdir,
+			"CVE-2026-33817", pkg.IgnoreOutcomeStale, pkg.IgnoreReasonWithdrawn,
+		)
+		osvExpectVerdict(
+			classifier, ctx, workdir,
+			"GHSA-6jwv-w5xf-7j27", pkg.IgnoreOutcomeStale, pkg.IgnoreReasonWithdrawn,
 		)
 	})
 

@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strings"
 
 	agentlib "github.com/bborbe/agent"
@@ -47,8 +48,9 @@ var requiredFrontmatterFields = []string{
 
 // suppressionSurfacesHint names the three fleet-convention ignore surfaces an
 // operator-approved suppression would touch (design § Suppression surfaces).
-// The agent READS these (the gate already respects them) but NEVER writes
-// them — parking is the only agent-side move on an unfixable finding.
+// The agent READS these and only ever REMOVES an entry the OSV classifier has
+// proven stale; it never adds a suppression — parking is the only agent-side
+// move on an unfixable finding.
 const suppressionSurfacesHint = "an operator-approved suppression would touch: " +
 	"Makefile.precommit (VULNCHECK_IGNORE, may live in Makefile), " +
 	".osv-scanner.toml ([[IgnoredVulns]] id + reason), " +
@@ -69,6 +71,7 @@ type planningStep struct {
 	scope            InstallationScope
 	maintainerConfig maintainerconfig.Fetcher
 	defaultScope     UpdateScope
+	classifier       IgnoreClassifier
 }
 
 // NewPlanningStep wires the planning step with its Claude runner (inspection
@@ -87,6 +90,7 @@ func NewPlanningStep(
 	scope InstallationScope,
 	maintainerConfig maintainerconfig.Fetcher,
 	defaultScope UpdateScope,
+	classifier IgnoreClassifier,
 ) agentlib.Step {
 	return &planningStep{
 		runner:           runner,
@@ -96,6 +100,7 @@ func NewPlanningStep(
 		scope:            scope,
 		maintainerConfig: maintainerConfig,
 		defaultScope:     defaultScope,
+		classifier:       classifier,
 	}
 }
 
@@ -543,6 +548,11 @@ func (s *planningStep) runInspection(
 		return nil, nil, failed("parse planning output: " + err.Error())
 	}
 	plan.GateTargets = targets
+	// Classify every operator-approved ignore against OSV. Go writes this field
+	// after parsing the model's plan, so a model-emitted value is discarded
+	// (the same rule as GateTargets): a hallucinated ID must never reach the
+	// removal step.
+	plan.IgnoreClassifications = classifyIgnoredIDs(ctx, s.classifier, workdir, suppressed)
 	// Drop operator-approved no-fix suppressions from the plan's vulns the
 	// same way they were dropped from the table. The model may still echo a
 	// suppressed ID (it appears in the task body's prior ## Failure text even
@@ -632,6 +642,26 @@ func gateFailureMessage(target string, exitCode int, repo, output string) string
 			"agent image provides) and push — the next HEAD re-triggers. Output tail:\n%s",
 		target, exitCode, repo, truncateTail(output, gateTailMaxBytes),
 	)
+}
+
+// classifyIgnoredIDs classifies the suppressed IDs in a deterministic order.
+// A nil classifier (a unit test that does not exercise classification) yields
+// no classifications, which preserves the pre-change planning behaviour.
+func classifyIgnoredIDs(
+	ctx context.Context,
+	classifier IgnoreClassifier,
+	workdir string,
+	suppressed map[string]bool,
+) []IgnoreClassification {
+	if classifier == nil || len(suppressed) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(suppressed))
+	for id := range suppressed {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return classifier.Classify(ctx, workdir, ids)
 }
 
 // filterSuppressedVulns returns a copy of vulns without entries whose ID is in

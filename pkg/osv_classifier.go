@@ -130,33 +130,30 @@ func (c *classifyCall) fetchRecord(id string) (*OSVVulnerability, error) {
 	return record, nil
 }
 
-// resolveAlias finds the record a 404'd ID was merged into by scanning the
-// advisories of the repository's own modules in the Go index. Returns nil when
-// the index cannot be fetched or no candidate carries the queried ID as an
-// alias; the caller then records not-found and keeps the suppression.
+// resolveAlias finds the record a 404'd ID was merged into by scanning the Go
+// index for an advisory that lists the queried ID among its aliases. The scan
+// is independent of the repository's module graph on purpose: an advisory for
+// a package that has left go.mod must still resolve, so the withdrawn verdict
+// wins over a package-absent guess. Returns nil when the index cannot be
+// fetched or no entry carries the queried ID as an alias; the caller then
+// records not-found and keeps the suppression.
 func (c *classifyCall) resolveAlias(queriedID string) *OSVVulnerability {
 	index := c.loadIndex()
 	if index == nil {
 		return nil
 	}
-	seen := make(map[string]bool)
-	for module := range c.versions {
-		for _, entry := range (*index)[module] {
-			if entry.ID == "" || seen[entry.ID] {
-				continue
-			}
-			seen[entry.ID] = true
-			if c.ctx.Err() != nil {
-				return nil
-			}
-			record, err := c.fetchRecord(entry.ID)
-			if err != nil || record == nil {
-				continue
-			}
-			if slices.Contains(record.Aliases, queriedID) {
-				return record
-			}
+	for _, entry := range *index {
+		if entry.ID == "" || !slices.Contains(entry.Aliases, queriedID) {
+			continue
 		}
+		if c.ctx.Err() != nil {
+			return nil
+		}
+		record, err := c.fetchRecord(entry.ID)
+		if err != nil || record == nil {
+			continue
+		}
+		return record
 	}
 	return nil
 }

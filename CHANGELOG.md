@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 - feat: classify operator-approved vulnerability ignores against OSV and the repository's `go.mod` — adds an injectable OSV fetcher (10-second per-request timeout, 60-second classification budget, 404 alias resolution through the Go vulnerability index) and a three-outcome verdict (`stale`, `legitimate`, `unresolved`) covering withdrawn records, package absence, version-affected ranges, local-path `replace` and `exclude` unresolvability, and stdlib directives, with every transport, parse or graph failure recorded as `unresolved` so no suppression is ever removed on a failure
+- feat: remove OSV-proven-stale ignores from every surface in the update PR — planning records each ignore's verdict on `## Plan` (Go overwrites any model-emitted value), execution deletes each `stale` entry from `VULNCHECK_IGNORE` (Makefile / Makefile.precommit), `.trivyignore` and `.osv-scanner.toml` before the gate run and lists the actually-removed IDs in the PR body, stale-ignore removal counts as work under every update scope, and alias resolution reads `vuln.go.dev/index/vulns.json` as the flat advisory list it actually serves, so a merged CVE/GHSA alias resolves to its `GO-*` record even when the package has already left `go.mod`
 
 ## v0.25.0
 

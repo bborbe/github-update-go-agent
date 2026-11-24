@@ -37,14 +37,18 @@ type OSVEvent struct {
 	LastAffected string `json:"last_affected,omitempty"`
 }
 
-// GoVulnIndex is https://vuln.go.dev/index/vulns.json: module path -> the
-// advisories that affect it.
-type GoVulnIndex map[string][]GoVulnIndexEntry
+// GoVulnIndex is https://vuln.go.dev/index/vulns.json: the flat list of Go
+// advisories, each carrying its ID and its alias set. The endpoint serves a
+// JSON array, not a module-keyed object — the module-keyed shape is
+// index/modules.json and is deliberately not used, because alias resolution
+// must work for an advisory whose package has already left the module graph.
+type GoVulnIndex []GoVulnIndexEntry
 
-// GoVulnIndexEntry is one advisory listed for a module in the Go index.
+// GoVulnIndexEntry is one advisory listed in the Go index.
 type GoVulnIndexEntry struct {
-	ID       string `json:"id"`
-	Modified string `json:"modified,omitempty"`
+	ID       string   `json:"id"`
+	Modified string   `json:"modified,omitempty"`
+	Aliases  []string `json:"aliases,omitempty"`
 }
 
 // IgnoreClassification is the verdict for one suppressed advisory ID.
