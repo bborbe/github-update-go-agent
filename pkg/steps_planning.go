@@ -56,7 +56,8 @@ const suppressionSurfacesHint = "an operator-approved suppression would touch: "
 	".osv-scanner.toml ([[IgnoredVulns]] id + reason), " +
 	".trivyignore (one id per line + # reason) — " +
 	"see [[Exclude a No-Fix Vulnerability Across the Fleet]] (add-vuln-ignore.sh), " +
-	"then re-delegate"
+	"then re-delegate. The agent only ever removes a stale ignore (withdrawn, " +
+	"package absent, or version no longer affected) — it never adds one"
 
 // planningStep implements agentlib.Step for the planning phase: resolve the
 // current default-branch HEAD at run start, clone at it, detect + run the
