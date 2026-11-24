@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- chore: remove stale vulnerability ignore IDs that no longer apply (govulncheck, trivy)
+
 ## v0.26.0
 
 - feat: classify operator-approved vulnerability ignores against OSV and the repository's `go.mod` — adds an injectable OSV fetcher (10-second per-request timeout, 60-second classification budget, 404 alias resolution through the Go vulnerability index) and a three-outcome verdict (`stale`, `legitimate`, `unresolved`) covering withdrawn records, package absence, version-affected ranges, local-path `replace` and `exclude` unresolvability, and stdlib directives, with every transport, parse or graph failure recorded as `unresolved` so no suppression is ever removed on a failure
