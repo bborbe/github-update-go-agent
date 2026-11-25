@@ -42,7 +42,23 @@ const (
 	// bulkSkippedAdvisoryDetail marks an advisory-driven task, where the
 	// targeted `go get <pkg>@<fixed_version>` is the whole bump.
 	bulkSkippedAdvisoryDetail = "skipped: advisory-driven task"
+	// bulkSkippedVulnDetail marks a vuln-scoped task (frontmatter `vulns`),
+	// where the targeted bumps behind the listed advisories are the whole
+	// change and a sweep would carry unrelated bumps.
+	bulkSkippedVulnDetail = "skipped: vuln-scoped task"
 )
+
+// bulkMode records why the deterministic sweep did or did not run, and the
+// task's listed advisory IDs when it is vuln-scoped. It is the input to the
+// prompt section: advisoryDriven wins over vulnIDs (a task carrying both runs
+// the advisory path).
+type bulkMode struct {
+	advisoryDriven bool
+	vulnIDs        []string
+}
+
+// vulnScoped reports whether the task carries a non-empty `vulns` list.
+func (m bulkMode) vulnScoped() bool { return len(m.vulnIDs) > 0 }
 
 // claudeExecutionTimeout bounds the execution Claude sub-call. Without it the
 // sub-call is bounded only by the Job's activeDeadlineSeconds (1800s), which
@@ -234,14 +250,14 @@ func (s *executionStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentl
 		return s.fail(ctx, md, result, git.ClassifyError(err), err)
 	}
 
-	bulkResult, advisoryDriven, bulkFailResult, bulkFailErr := s.runBulkUpdate(
+	bulkResult, mode, bulkFailResult, bulkFailErr := s.runBulkUpdate(
 		ctx, md, workdir, updateScope, result,
 	)
 	if bulkFailResult != nil || bulkFailErr != nil {
 		return bulkFailResult, bulkFailErr
 	}
 
-	report, claudeErr := s.runUpdate(ctx, workdir, plan, bulkResult, updateScope, advisoryDriven)
+	report, claudeErr := s.runUpdate(ctx, workdir, plan, bulkResult, updateScope, mode)
 	if claudeErr != nil {
 		return s.salvageAfterClaudeFailure(
 			ctx, md, workdir, branch, defaultBranch, plan, result, claudeErr,
@@ -603,14 +619,14 @@ func (s *executionStep) extractFrontmatter(
 // entirely, and an advisory-driven task, where the sweep would overshoot the
 // advisory's fixed_version. In both the update is skipped by design, not
 // failed, and the model must not run it either.
-func bulkUpdateSection(bulk BulkUpdateResult, scope UpdateScope, advisoryDriven bool) string {
+func bulkUpdateSection(bulk BulkUpdateResult, scope UpdateScope, mode bulkMode) string {
 	if scope.IsGolangOnly() {
 		return "## Bulk update — SKIPPED\n\n" +
 			"The update_scope is `golang`, so the deterministic bulk dependency " +
 			"update (`go get -u ./...` + `go mod tidy`) was deliberately NOT run. " +
 			"Do NOT run it and do not update module dependencies in this phase."
 	}
-	if advisoryDriven {
+	if mode.advisoryDriven {
 		return "## Bulk update — SKIPPED\n\n" +
 			"This task carries an `advisory` block, so the deterministic bulk " +
 			"dependency update (`go get -u ./...` + `go mod tidy`) was deliberately " +
@@ -620,6 +636,20 @@ func bulkUpdateSection(bulk BulkUpdateResult, scope UpdateScope, advisoryDriven 
 			"`go get -u ./...`, do NOT run `go mod tidy -u`, and do not update any " +
 			"module the plan's `vulns` list does not name. Keep the go.mod diff " +
 			"readable as \"this advisory is fixed\"."
+	}
+	if mode.vulnScoped() {
+		return "## Bulk update — SKIPPED\n\n" +
+			"This is a vuln-scoped task: its `vulns` list names " +
+			strings.Join(mode.vulnIDs, ", ") + ". The deterministic bulk dependency " +
+			"update (`go get -u ./...` + `go mod tidy`) was deliberately NOT run: " +
+			"sweeping every module to @latest is a superset of every listed " +
+			"`fixed_version`, so it would carry unrelated bumps and destroy the " +
+			"\"these advisories are fixed\" reading of the diff. The targeted " +
+			"`go get <pkg>@<fixed>` bumps in update-sequence step 4 are the WHOLE " +
+			"change — never widen: do NOT run `go get -u ./...`, do NOT run " +
+			"`go mod tidy -u`, and do not update any module outside the plan's " +
+			"fix-action findings. If a targeted bump does not clear a finding, stop " +
+			"and report the red gate target; never fall back to a full update."
 	}
 	if bulk.Ran {
 		return "## Bulk update — ALREADY DONE\n\n" +
@@ -660,26 +690,38 @@ func (s *executionStep) runBulkUpdate(
 	workdir string,
 	updateScope UpdateScope,
 	result *ResultOutput,
-) (BulkUpdateResult, bool, *agentlib.Result, error) {
+) (BulkUpdateResult, bulkMode, *agentlib.Result, error) {
 	advisory, err := parseAdvisoryBlock(ctx, md)
 	if err != nil {
 		failResult, failErr := s.fail(ctx, md, result, git.ErrorCategoryUnknown,
 			errors.Wrap(ctx, err, "invalid advisory block at execution"))
-		return BulkUpdateResult{}, false, failResult, failErr
+		return BulkUpdateResult{}, bulkMode{}, failResult, failErr
 	}
-	advisoryDriven := advisory != nil
-	if advisoryDriven {
-		return BulkUpdateResult{FailDetail: bulkSkippedAdvisoryDetail}, true, nil, nil
+	if advisory != nil {
+		return BulkUpdateResult{FailDetail: bulkSkippedAdvisoryDetail},
+			bulkMode{advisoryDriven: true}, nil, nil
+	}
+	// A malformed `vulns` list is never treated as absent: absent means the
+	// full sweep, which is the behaviour a vuln task exists to remove.
+	vulnIDs, err := parseVulnsList(ctx, md)
+	if err != nil {
+		failResult, failErr := s.fail(ctx, md, result, git.ErrorCategoryUnknown,
+			errors.Wrap(ctx, err, "invalid vulns frontmatter at execution"))
+		return BulkUpdateResult{}, bulkMode{}, failResult, failErr
+	}
+	if len(vulnIDs) > 0 {
+		return BulkUpdateResult{FailDetail: bulkSkippedVulnDetail},
+			bulkMode{vulnIDs: vulnIDs}, nil, nil
 	}
 	if updateScope.IsGolangOnly() {
-		return BulkUpdateResult{FailDetail: bulkSkippedGolangDetail}, false, nil, nil
+		return BulkUpdateResult{FailDetail: bulkSkippedGolangDetail}, bulkMode{}, nil, nil
 	}
 	bulkResult, bulkErr := s.bulk.Run(ctx, workdir)
 	if bulkErr != nil {
 		failResult, failErr := s.fail(ctx, md, result, git.ErrorCategoryUnknown, bulkErr)
-		return BulkUpdateResult{}, false, failResult, failErr
+		return BulkUpdateResult{}, bulkMode{}, failResult, failErr
 	}
-	return bulkResult, false, nil, nil
+	return bulkResult, bulkMode{}, nil, nil
 }
 
 // runUpdate issues the workdir-scoped Claude sub-call (targeted vuln fixes +
@@ -692,7 +734,7 @@ func (s *executionStep) runUpdate(
 	plan *PlanOutput,
 	bulk BulkUpdateResult,
 	updateScope UpdateScope,
-	advisoryDriven bool,
+	mode bulkMode,
 ) (*executionReport, error) {
 	planJSON, err := agentlib.MarshalSectionTyped(ctx, "## Plan", *plan)
 	if err != nil {
@@ -702,7 +744,7 @@ func (s *executionStep) runUpdate(
 		"\n\n## Workdir\n\n" + workdir +
 		"\n\n## Target Go\n\n" + resolveTargetGo(ctx, workdir) +
 		"\n\n" + updateScopeSection(updateScope) +
-		"\n\n" + bulkUpdateSection(bulk, updateScope, advisoryDriven) +
+		"\n\n" + bulkUpdateSection(bulk, updateScope, mode) +
 		"\n\n" + planJSON.Heading + "\n\n" + planJSON.Body
 	runCtx, cancel := context.WithTimeout(ctx, claudeExecutionTimeout)
 	defer cancel()

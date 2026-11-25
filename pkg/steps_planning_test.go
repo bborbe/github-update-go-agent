@@ -701,6 +701,113 @@ jobs:
 		})
 	})
 
+	Describe("vuln-scoped planning", func() {
+		// vulnTaskMD renders the planning fixture with a `vulns` block spliced
+		// into its frontmatter.
+		vulnTaskMD := func(vulnsBlock string) string {
+			return uniqueTaskMD("---\n" +
+				"assignee: github-update-go-agent\n" +
+				"repo: bborbe/demo\n" +
+				"clone_url: git@github.com:bborbe/demo.git\n" +
+				"ref: 6d1f27fabcdef12345678901234567890abcdef1\n" +
+				vulnsBlock +
+				"---\n\nbody\n")
+		}
+
+		markerFor := func(md *agentlib.Markdown) string {
+			id, _ := md.Frontmatter.String("task_identifier")
+			return filepath.Join(os.TempDir(), "github-update-go-"+id, "gate-ran-marker")
+		}
+
+		// fixtureMakefileMarker's every gate target touches the marker, so an
+		// absent marker proves no gate target ran.
+		const fixtureMakefileMarker = ".PHONY: check vulncheck\n" +
+			"check:\n" +
+			"\t@touch gate-ran-marker\n" +
+			"vulncheck:\n" +
+			"\t@touch gate-ran-marker\n"
+
+		DescribeTable("a malformed vulns list escalates needs_input before any gate target",
+			func(vulnsBlock, wantRaw string) {
+				setupFixture(fixtureMakefileMarker)
+				md, err := agentlib.ParseMarkdown(ctx, vulnTaskMD(vulnsBlock))
+				Expect(err).To(BeNil())
+				result, err := step.Run(ctx, md)
+				Expect(err).To(BeNil())
+				Expect(result.Status).To(Equal(agentlib.AgentStatusNeedsInput))
+				Expect(result.Message).To(ContainSubstring("vulns"))
+				Expect(result.Message).To(ContainSubstring(wantRaw))
+				Expect(runner.RunCallCount()).To(Equal(0))
+				_, statErr := os.Stat(markerFor(md))
+				Expect(os.IsNotExist(statErr)).To(BeTrue())
+			},
+			Entry("a scalar instead of a list", "vulns: GO-2021-0113\n", "GO-2021-0113"),
+			Entry("a non-string element", "vulns:\n  - 123\n", "123"),
+			Entry("an element outside the ID shapes", "vulns:\n  - NOT-AN-ID\n", "NOT-AN-ID"),
+		)
+
+		DescribeTable("filters stale non-vulnerable dep work out of has_work",
+			func(planJSON, wantOutcome string, wantHasWork bool, wantNextPhase string) {
+				setupFixture(fixtureMakefile)
+				md, err := agentlib.ParseMarkdown(
+					ctx, vulnTaskMD("vulns:\n  - GO-2026-1234\n"),
+				)
+				Expect(err).To(BeNil())
+				runner.RunReturns(&claudelib.ClaudeResult{Result: planJSON}, nil)
+				result, err := step.Run(ctx, md)
+				Expect(err).To(BeNil())
+				Expect(result.Status).To(Equal(agentlib.AgentStatusDone))
+				Expect(result.NextPhase).To(Equal(wantNextPhase))
+				plan, err := agentlib.ExtractSection[pkg.PlanOutput](ctx, md, "## Plan")
+				Expect(err).To(BeNil())
+				Expect(plan.Outcome).To(Equal(wantOutcome))
+				Expect(plan.HasWork).To(Equal(wantHasWork))
+			},
+			Entry(
+				"no fix-action finding and no go bump → no_update_needed",
+				`{"outcome":"ready","has_work":true,"dep_updates_expected":true,"gate_targets":["check"],"vulns":[]}`,
+				pkg.PlanOutcomeNoUpdateNeeded,
+				false,
+				"done",
+			),
+			Entry(
+				"one fix-action finding → ready",
+				`{"outcome":"ready","has_work":true,"dep_updates_expected":true,"gate_targets":["check"],"vulns":[{"id":"GO-2026-1234","package":"golang.org/x/text","fixed_version":"1.26.6","scanner":"osv","action":"fix","reason":"patched"}]}`,
+				pkg.PlanOutcomeReady,
+				true,
+				"execution",
+			),
+			Entry(
+				"a go_bump alone → ready",
+				`{"outcome":"ready","has_work":true,"go_bump":{"from":"1.26.3","to":"1.26.5"},"dep_updates_expected":true,"gate_targets":["check"],"vulns":[]}`,
+				pkg.PlanOutcomeReady,
+				true,
+				"execution",
+			),
+		)
+
+		It("tells the model the vulns are the whole scope", func() {
+			setupFixture(fixtureMakefile)
+			md, err := agentlib.ParseMarkdown(ctx, vulnTaskMD("vulns:\n  - GO-2026-1234\n"))
+			Expect(err).To(BeNil())
+			runner.RunReturns(&claudelib.ClaudeResult{Result: `{
+				"outcome": "ready",
+				"has_work": true,
+				"go_bump": {"from": "1.26.3", "to": "1.26.5"},
+				"gate_targets": ["check"],
+				"vulns": []
+			}`}, nil)
+			_, err = step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			_, prompt := runner.RunArgsForCall(0)
+			Expect(prompt).To(ContainSubstring("## Vuln Scope"))
+			Expect(prompt).To(ContainSubstring("GO-2026-1234"))
+			Expect(
+				prompt,
+			).To(ContainSubstring("dep_updates_expected` must NOT contribute to has_work"))
+		})
+	})
+
 	Describe("park path (design D4)", func() {
 		BeforeEach(func() {
 			setupFixture(fixtureMakefileNoFix)

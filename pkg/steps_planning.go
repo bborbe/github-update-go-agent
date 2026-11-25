@@ -164,6 +164,14 @@ func (s *planningStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentli
 		return failResult, nil
 	}
 
+	// Parse the optional `vulns` list before any gate target runs: a malformed
+	// list must fail closed (needs_input) rather than degrade to the full
+	// sweep, which is exactly what an absent list means.
+	vulnIDs, failResult := s.resolveVulnScope(ctx, md)
+	if failResult != nil {
+		return failResult, nil
+	}
+
 	workdir := s.setupAndCleanupWorkdir(md, repo)
 
 	if failResult := s.resolveAndClone(ctx, md, repo, cloneURL, ref, workdir); failResult != nil {
@@ -179,7 +187,7 @@ func (s *planningStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentli
 	// release index.
 	targetGo := resolveTargetGo(ctx, workdir)
 
-	plan, table, failResult := s.runInspection(ctx, md, workdir, updateScope, targetGo)
+	plan, table, failResult := s.runInspection(ctx, md, workdir, updateScope, targetGo, vulnIDs)
 	if failResult != nil {
 		return failResult, nil
 	}
@@ -187,6 +195,10 @@ func (s *planningStep) Run(ctx context.Context, md *agentlib.Markdown) (*agentli
 	// stale deps (or a deps-only task with a stale directive) is not
 	// classified ready.
 	plan.appliesScope(updateScope)
+	// A vuln-scoped task's scope is its `vulns` list: stale non-vulnerable
+	// dependencies are not work, so a plan with no fix-action finding and no
+	// go bump closes as no_update_needed.
+	plan.appliesVulnScope(len(vulnIDs) > 0, updateScope)
 
 	if res, err := parkResult(ctx, md, plan, table); err != nil || res != nil {
 		return res, err
@@ -496,6 +508,7 @@ func (s *planningStep) runInspection(
 	workdir string,
 	updateScope UpdateScope,
 	targetGo string,
+	vulnIDs []string,
 ) (*PlanOutput, ScannerTable, *agentlib.Result) {
 	targets, err := detectGateTargets(ctx, workdir)
 	if err != nil {
@@ -536,6 +549,7 @@ func (s *planningStep) runInspection(
 		"\n\n## Workdir\n\n" + workdir +
 		"\n\n## Target Go\n\n" + targetGo +
 		"\n\n" + updateScopeSection(updateScope) +
+		vulnScopePromptSuffix(vulnIDs) +
 		"\n\n## Scanner Findings\n\nThe findings below were captured by Go from the repo's own gate targets and, when the task carries one, from the validated external advisory in the task frontmatter — together they are the ONLY source of advisory IDs. Every vuln ID you report MUST appear in this table verbatim.\n\n" + renderScannerTable(table) +
 		"\n\n## Task\n\n" + taskContent
 	runResult, err := s.runner.Run(ctx, prompt)
@@ -1005,6 +1019,36 @@ func (s *planningStep) resolveScope(
 	}
 	glog.V(2).Infof("planning: update_scope=%s", scope)
 	return scope, nil
+}
+
+// resolveVulnScope parses the task's optional `vulns` list and returns a
+// needs_input Result when it is malformed. A malformed list is never treated
+// as absent: "absent" selects the full sweep, which is the behaviour a vuln
+// task exists to remove.
+func (s *planningStep) resolveVulnScope(
+	ctx context.Context,
+	md *agentlib.Markdown,
+) ([]string, *agentlib.Result) {
+	vulnIDs, err := parseVulnsList(ctx, md)
+	if err != nil {
+		glog.V(2).Infof("planning: invalid vulns frontmatter — escalating: %v", err)
+		return nil, needsInput(err.Error())
+	}
+	if len(vulnIDs) > 0 {
+		glog.V(2).Infof("planning: vuln-scoped task vulns=%v", vulnIDs)
+	}
+	return vulnIDs, nil
+}
+
+// vulnScopePromptSuffix renders the optional `## Vuln Scope` prompt section,
+// prefixed with its own blank-line separator, or "" for a non-vuln task so
+// the prompt is unchanged.
+func vulnScopePromptSuffix(vulnIDs []string) string {
+	section := vulnScopeSection(vulnIDs)
+	if section == "" {
+		return ""
+	}
+	return "\n\n" + section
 }
 
 // readRequired pulls the required frontmatter fields. Returns the first

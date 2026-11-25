@@ -146,6 +146,31 @@ func (p *PlanOutput) appliesScope(scope UpdateScope) {
 	}
 }
 
+// appliesVulnScope narrows a vuln-scoped plan before it is classified: the
+// task's `vulns` list is the whole scope, so stale non-vulnerable dependencies
+// no longer count as work. A ready plan left with no in-scope work is
+// reclassified no_update_needed so the written ## Plan matches the close
+// decision. Called after appliesScope; a task without `vulns` is untouched.
+func (p *PlanOutput) appliesVulnScope(vulnScoped bool, scope UpdateScope) {
+	if !vulnScoped {
+		return
+	}
+	if p.Outcome == PlanOutcomeNeedsInput || p.Outcome == PlanOutcomeFailed {
+		return
+	}
+	p.DepUpdatesExpected = false
+	if p.hasWorkForScope(scope) {
+		p.Outcome = PlanOutcomeReady
+		p.HasWork = true
+		return
+	}
+	p.Outcome = PlanOutcomeNoUpdateNeeded
+	p.HasWork = false
+	if p.Reason == "" {
+		p.Reason = "vuln-scoped task: no fix-action finding and no go bump"
+	}
+}
+
 // onlyGolangScopedVulns keeps only the vulns a golang-only scope can act on.
 // A vuln whose fix requires a module bump is out of scope for golang-only —
 // it stays visible in the table but does not make the task "ready".

@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- feat: run a vuln-scoped task in targeted mode keyed on the task's `vulns` list — a non-empty list (written by `github-vuln-watcher`) is parsed and validated in Go before any gate target runs, skips the deterministic `go get -u ./...` sweep so the PR carries only the modules behind the listed advisories, renders a third SKIPPED prompt section naming the IDs and carrying `never widen`, keeps `advisory` precedence when both blocks are present, and fails closed on a malformed list or a red gate instead of widening to a full update; planning also stops treating stale non-vulnerable dependencies as work on a vuln-scoped task
+
 ## v0.26.1
 
 - chore: remove stale vulnerability ignore IDs that no longer apply (govulncheck, trivy)
