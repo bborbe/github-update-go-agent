@@ -471,6 +471,153 @@ body
 		)
 	})
 
+	Describe("vuln-scoped bulk gating", func() {
+		It("skips the sweep and names the listed IDs on a vuln-scoped task", func() {
+			md, err := agentlib.ParseMarkdown(
+				ctx,
+				`---
+repo: bborbe/demo
+clone_url: git@github.com:bborbe/demo.git
+ref: 6d1f27fabcdef12345678901234567890abcdef1
+vulns:
+  - GO-2021-0113
+  - CVE-2021-38561
+vuln_count: 2
+---
+
+body
+
+## Plan
+
+`+"```json"+`
+{"outcome":"ready","has_work":true,"dep_updates_expected":false,"gate_targets":["precommit"],"vulns":[{"id":"GO-2021-0113","package":"golang.org/x/text","fixed_version":"v0.3.7","action":"fix"},{"id":"CVE-2021-38561","package":"golang.org/x/text","fixed_version":"v0.3.8","action":"fix"}]}
+`+"```"+`
+`)
+			Expect(err).To(BeNil())
+			_, err = step.Run(ctx, md)
+			Expect(err).To(BeNil())
+
+			// The sweep is a superset of every listed fixed_version — it must
+			// not run on a vuln-scoped task.
+			Expect(bulk.RunCallCount()).To(Equal(0))
+
+			_, prompt := runner.RunArgsForCall(0)
+			Expect(prompt).To(ContainSubstring("## Bulk update — SKIPPED"))
+			Expect(prompt).To(ContainSubstring("vuln-scoped"))
+			Expect(prompt).To(ContainSubstring("GO-2021-0113"))
+			Expect(prompt).To(ContainSubstring("CVE-2021-38561"))
+			Expect(prompt).NotTo(ContainSubstring("## Bulk update — ALREADY DONE"))
+			Expect(prompt).NotTo(ContainSubstring("## Bulk update — DID NOT RUN"))
+		})
+
+		It("advisory priority: the advisory path wins when both blocks are present", func() {
+			md, err := agentlib.ParseMarkdown(
+				ctx,
+				`---
+repo: bborbe/demo
+clone_url: git@github.com:bborbe/demo.git
+ref: 6d1f27fabcdef12345678901234567890abcdef1
+vulns:
+  - GO-2021-0113
+advisory:
+  id: GO-2021-0113
+  package: golang.org/x/text
+  fixed_version: v0.3.7
+  source: osv
+---
+
+body
+
+## Plan
+
+`+"```json"+`
+{"outcome":"ready","has_work":true,"gate_targets":["precommit"],"vulns":[{"id":"GO-2021-0113","package":"golang.org/x/text","fixed_version":"v0.3.7","scanner":"external:osv","action":"fix"}]}
+`+"```"+`
+`)
+			Expect(err).To(BeNil())
+			_, err = step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(bulk.RunCallCount()).To(Equal(0))
+
+			_, prompt := runner.RunArgsForCall(0)
+			Expect(prompt).To(ContainSubstring("carries an `advisory` block"))
+			// The negative assertion is load-bearing: the advisory ID is in the
+			// prompt either way, so only its absence proves priority held.
+			Expect(prompt).NotTo(ContainSubstring("vuln-scoped"))
+		})
+
+		It("fails a vuln-scoped task whose malformed list is invalid", func() {
+			md, err := agentlib.ParseMarkdown(
+				ctx,
+				`---
+repo: bborbe/demo
+clone_url: git@github.com:bborbe/demo.git
+ref: 6d1f27fabcdef12345678901234567890abcdef1
+vulns: not-a-list
+---
+
+body
+
+## Plan
+
+`+"```json"+`
+{"outcome":"ready","has_work":true,"gate_targets":["precommit"]}
+`+"```"+`
+`)
+			Expect(err).To(BeNil())
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusFailed))
+			Expect(result.Message).To(ContainSubstring("vulns"))
+			Expect(bulk.RunCallCount()).To(Equal(0))
+		})
+
+		It("never widens: a red gate fails the run and opens no PR", func() {
+			gate.RunTargetReturnsOnCall(0, "", 0, nil)
+			gate.RunTargetReturnsOnCall(
+				1,
+				"trivy found CVE-X",
+				2,
+				stderrors.New("make check failed"),
+			)
+			gate.RunTargetReturnsOnCall(2, "", 0, nil)
+			gate.RunTargetReturnsOnCall(
+				3,
+				"trivy found CVE-X",
+				2,
+				stderrors.New("make check failed"),
+			)
+			md, err := agentlib.ParseMarkdown(
+				ctx,
+				`---
+repo: bborbe/demo
+clone_url: git@github.com:bborbe/demo.git
+ref: 6d1f27fabcdef12345678901234567890abcdef1
+vulns:
+  - GO-2021-0113
+---
+
+body
+
+## Plan
+
+`+"```json"+`
+{"outcome":"ready","has_work":true,"gate_targets":["precommit","check"],"vulns":[{"id":"GO-2021-0113","package":"golang.org/x/text","fixed_version":"v0.3.7","action":"fix"}]}
+`+"```"+`
+`)
+			Expect(err).To(BeNil())
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusFailed))
+			Expect(gh.CreatePRCallCount()).To(Equal(0))
+			Expect(bulk.RunCallCount()).To(Equal(0))
+
+			_, prompt := runner.RunArgsForCall(0)
+			Expect(prompt).To(ContainSubstring("never widen"))
+			Expect(prompt).NotTo(ContainSubstring("## Bulk update — ALREADY DONE"))
+		})
+	})
+
 	Describe("red gate after claude", func() {
 		BeforeEach(func() {
 			// First gate run: precommit green, check red. The repair sub-call
