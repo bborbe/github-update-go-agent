@@ -620,12 +620,6 @@ func (s *executionStep) extractFrontmatter(
 // advisory's fixed_version. In both the update is skipped by design, not
 // failed, and the model must not run it either.
 func bulkUpdateSection(bulk BulkUpdateResult, scope UpdateScope, mode bulkMode) string {
-	if scope.IsGolangOnly() {
-		return "## Bulk update — SKIPPED\n\n" +
-			"The update_scope is `golang`, so the deterministic bulk dependency " +
-			"update (`go get -u ./...` + `go mod tidy`) was deliberately NOT run. " +
-			"Do NOT run it and do not update module dependencies in this phase."
-	}
 	if mode.advisoryDriven {
 		return "## Bulk update — SKIPPED\n\n" +
 			"This task carries an `advisory` block, so the deterministic bulk " +
@@ -636,6 +630,12 @@ func bulkUpdateSection(bulk BulkUpdateResult, scope UpdateScope, mode bulkMode) 
 			"`go get -u ./...`, do NOT run `go mod tidy -u`, and do not update any " +
 			"module the plan's `vulns` list does not name. Keep the go.mod diff " +
 			"readable as \"this advisory is fixed\"."
+	}
+	if scope.IsGolangOnly() {
+		return "## Bulk update — SKIPPED\n\n" +
+			"The update_scope is `golang`, so the deterministic bulk dependency " +
+			"update (`go get -u ./...` + `go mod tidy`) was deliberately NOT run. " +
+			"Do NOT run it and do not update module dependencies in this phase."
 	}
 	if mode.vulnScoped() {
 		return "## Bulk update — SKIPPED\n\n" +
@@ -702,19 +702,20 @@ func (s *executionStep) runBulkUpdate(
 			bulkMode{advisoryDriven: true}, nil, nil
 	}
 	// A malformed `vulns` list is never treated as absent: absent means the
-	// full sweep, which is the behaviour a vuln task exists to remove.
+	// full sweep, which is the behaviour a vuln task exists to remove. Parse it
+	// before any short-circuit so a typo always fails closed.
 	vulnIDs, err := parseVulnsList(ctx, md)
 	if err != nil {
 		failResult, failErr := s.fail(ctx, md, result, git.ErrorCategoryUnknown,
 			errors.Wrap(ctx, err, "invalid vulns frontmatter at execution"))
 		return BulkUpdateResult{}, bulkMode{}, failResult, failErr
 	}
+	if updateScope.IsGolangOnly() {
+		return BulkUpdateResult{FailDetail: bulkSkippedGolangDetail}, bulkMode{}, nil, nil
+	}
 	if len(vulnIDs) > 0 {
 		return BulkUpdateResult{FailDetail: bulkSkippedVulnDetail},
 			bulkMode{vulnIDs: vulnIDs}, nil, nil
-	}
-	if updateScope.IsGolangOnly() {
-		return BulkUpdateResult{FailDetail: bulkSkippedGolangDetail}, bulkMode{}, nil, nil
 	}
 	bulkResult, bulkErr := s.bulk.Run(ctx, workdir)
 	if bulkErr != nil {

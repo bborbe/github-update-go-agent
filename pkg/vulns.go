@@ -43,6 +43,11 @@ func parseVulnsList(ctx context.Context, md *agentlib.Markdown) ([]string, error
 	}
 	ids := make([]string, 0, len(items))
 	for _, item := range items {
+		select {
+		case <-ctx.Done():
+			return nil, errors.Wrap(ctx, ctx.Err(), "parse vulns list")
+		default:
+		}
 		value, ok := item.(string)
 		if !ok {
 			return nil, invalidVulns(ctx, raw, "every element must be a string")
