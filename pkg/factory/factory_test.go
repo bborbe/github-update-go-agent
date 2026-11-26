@@ -46,6 +46,7 @@ var _ = Describe("CreateAgentProvider", func() {
 			updatepkg.UpdateScopeBoth,
 			nil, // createCmd: nil in local tests — chain emission disabled
 			"",  // humanReviewOwner: unset disables the stamp, as in the unconfigured default
+			updatepkg.FleetScanDeps{},
 		)
 	})
 
@@ -99,7 +100,7 @@ var _ = Describe("CreateAgentProvider", func() {
 		It("error message contains the sorted accepted-types list", func() {
 			Expect(
 				err.Error(),
-			).To(ContainSubstring("[build-fix github-update-go healthcheck oauth-probe]"))
+			).To(ContainSubstring("[build-fix github-fleet-scan github-update-go healthcheck oauth-probe]"))
 		})
 
 		It("Get returns the build-fix agent for task_type build-fix", func() {
