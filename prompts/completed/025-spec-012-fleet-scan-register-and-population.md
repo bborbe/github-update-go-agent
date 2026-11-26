@@ -1,8 +1,13 @@
 ---
-status: approved
+status: completed
 spec: [012-nightly-fleet-scan]
+summary: Added the github-fleet-scan task type with allowlisted population gating, GitHub read seams, clone-and-gate scanning, Fleet Scan reporting, factory registration, entry-point wiring, and full unit coverage.
+execution_id: github-update-go-agent-nightly-scan-exec-025-spec-012-fleet-scan-register-and-population
+dark-factory-version: v0.198.17
 created: "2026-11-26T08:42:49Z"
 queued: "2026-11-26T12:50:35Z"
+started: "2026-11-26T15:58:12Z"
+completed: "2026-11-26T16:10:51Z"
 ---
 
 # Fleet scan: register the task type, gate the population, scan the vuln family
