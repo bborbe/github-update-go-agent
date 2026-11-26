@@ -1,8 +1,13 @@
 ---
-status: approved
+status: completed
 spec: [012-nightly-fleet-scan]
+summary: Added frozen-identifier task building, Kafka publishing seam, idempotent re-run handling, and tests for the nightly fleet scan.
+execution_id: github-update-go-agent-nightly-scan-exec-027-spec-012-fleet-scan-task-building-and-publish
+dark-factory-version: v0.198.17
 created: "2026-11-26T08:42:49Z"
 queued: "2026-11-26T12:50:35Z"
+started: "2026-11-26T16:17:45Z"
+completed: "2026-11-26T16:25:11Z"
 ---
 
 # Fleet scan: task building, frozen identifiers, publishing and idempotency
