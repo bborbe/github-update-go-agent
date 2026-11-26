@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.28.0
 
 - feat: add the `github-fleet-scan` task type and the first half of the nightly fleet scan — a deterministic, LLM-free step enumerates the allowlisted repositories through a paginated GitHub lister, gates each on `repoallowlist` membership, `go.mod` presence/parsability and `goUpdate.autoUpdate` consent, clones each survivor, runs its gate targets, records the firing (unsuppressed) advisory IDs, and writes a `## Fleet Scan` report carrying `scanned_at` and `scanned`; rate limits fail the run naming the repo and count, per-repo clone/gate failures are skips, and the new task type is registered alongside the existing four without changing their behaviour
 - feat: add the withdrawn-only stale-ignore family to the nightly fleet scan — for each repo in the stale population, classify its already-loaded suppressed advisory IDs with the existing `IgnoreClassifier`, keep only `stale`/`withdrawn` verdicts, and record them as `stale_ids` on the per-repo `## Fleet Scan` report; a repo with no suppressions or outside the stale population never calls the classifier, and the scan never removes a suppression itself
