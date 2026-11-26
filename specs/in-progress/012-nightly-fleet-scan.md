@@ -1,6 +1,8 @@
 ---
-status: approved
+status: prompted
 approved: "2026-11-26T07:49:30Z"
+generating: "2026-11-26T09:01:12Z"
+prompted: "2026-11-26T09:01:12Z"
 branch: dark-factory/nightly-fleet-scan
 ---
 
