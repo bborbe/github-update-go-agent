@@ -1,5 +1,7 @@
 ---
-status: draft
+status: approved
+approved: "2026-11-26T07:49:30Z"
+branch: dark-factory/nightly-fleet-scan
 ---
 
 ## Summary
