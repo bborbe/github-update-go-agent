@@ -1,7 +1,8 @@
 ---
-spec: ["012-nightly-fleet-scan"]
-status: draft
+status: approved
+spec: [012-nightly-fleet-scan]
 created: "2026-11-26T08:42:49Z"
+queued: "2026-11-26T12:50:35Z"
 ---
 
 # Fleet scan: task building, frozen identifiers, publishing and idempotency
