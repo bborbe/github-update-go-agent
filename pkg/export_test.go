@@ -99,6 +99,11 @@ var (
 	}
 	// NewOSVHTTPFetcherForTest points the OSV fetcher at an httptest server.
 	NewOSVHTTPFetcherForTest = newOSVHTTPFetcherWithBase
+	// Fleet-scan seams: the population partition and the two GitHub read
+	// seams, so pkg_test can drive them against an httptest server.
+	SelectPopulations               = selectPopulations
+	NewGitHubRepoListerForTest      = newGitHubRepoListerWithBase
+	NewGitHubRepoFileFetcherForTest = newGitHubRepoFileFetcherWithBase
 )
 
 // GhSubprocessEnvForTest exposes the gh subprocess env allowlist so pkg_test
