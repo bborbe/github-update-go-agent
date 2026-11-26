@@ -99,6 +99,20 @@ var (
 	}
 	// NewOSVHTTPFetcherForTest points the OSV fetcher at an httptest server.
 	NewOSVHTTPFetcherForTest = newOSVHTTPFetcherWithBase
+	// Fleet-scan seams: the population partition and the two GitHub read
+	// seams, so pkg_test can drive them against an httptest server.
+	SelectPopulations               = selectPopulations
+	NewGitHubRepoListerForTest      = newGitHubRepoListerWithBase
+	NewGitHubRepoFileFetcherForTest = newGitHubRepoFileFetcherWithBase
+	// WithdrawnOnly / RenderStaleBody expose the withdrawn-only stale filter and
+	// the stale-task body so pkg_test can assert the filter never widens beyond
+	// the withdrawn verdict and the body names every ID.
+	WithdrawnOnly   = withdrawnOnly
+	RenderStaleBody = renderStaleBody
+	// BuildScanCommands / ScanFrontmatter expose the fleet scan's task builder
+	// and envelope so pkg_test can assert the published shape (spec 012).
+	BuildScanCommands = buildScanCommands
+	ScanFrontmatter   = scanFrontmatter
 )
 
 // GhSubprocessEnvForTest exposes the gh subprocess env allowlist so pkg_test

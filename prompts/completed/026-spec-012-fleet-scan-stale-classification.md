@@ -1,8 +1,10 @@
 ---
-status: approved
+status: completed
 spec: [012-nightly-fleet-scan]
 created: "2026-11-26T08:42:49Z"
 queued: "2026-11-26T12:50:35Z"
+completed: "2026-11-26T16:17:40Z"
+pr-url: https://github.com/bborbe/github-update-go-agent/pull/117
 ---
 
 # Fleet scan: withdrawn-only stale-ignore classification

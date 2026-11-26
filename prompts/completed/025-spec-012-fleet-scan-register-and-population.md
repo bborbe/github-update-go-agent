@@ -1,8 +1,10 @@
 ---
-status: approved
+status: completed
 spec: [012-nightly-fleet-scan]
 created: "2026-11-26T08:42:49Z"
 queued: "2026-11-26T12:50:35Z"
+completed: "2026-11-26T16:10:51Z"
+pr-url: https://github.com/bborbe/github-update-go-agent/pull/116
 ---
 
 # Fleet scan: register the task type, gate the population, scan the vuln family

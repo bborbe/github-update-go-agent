@@ -21,4 +21,7 @@ var (
 	UpdaterPhases = updaterPhases
 	// BuildFixPhases is the build-fixer's counterpart to UpdaterPhases.
 	BuildFixPhases = buildFixPhases
+	// FleetScanPhases exposes the fleet scan's phase assembly so the
+	// composition test can assert it carries one LLM-free step.
+	FleetScanPhases = fleetScanPhases
 )
