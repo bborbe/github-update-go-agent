@@ -33,7 +33,7 @@ func recheckStale(
 			"event=osv_recheck_graph_error err=%v",
 			errors.Wrapf(ctx, err, "load module graph for recheck"),
 		)
-		return withdrawnOnly(stale)
+		return withdrawnClassifications(stale)
 	}
 
 	kept := make([]IgnoreClassification, 0, len(stale))
@@ -50,7 +50,9 @@ func recheckStale(
 	return kept
 }
 
-func withdrawnOnly(stale []IgnoreClassification) []IgnoreClassification {
+// withdrawnClassifications returns only the withdrawn verdicts. It is the
+// graph-failure fallback: a withdrawn advisory needs no local re-check.
+func withdrawnClassifications(stale []IgnoreClassification) []IgnoreClassification {
 	kept := make([]IgnoreClassification, 0, len(stale))
 	for _, c := range stale {
 		if c.Reason == IgnoreReasonWithdrawn {
