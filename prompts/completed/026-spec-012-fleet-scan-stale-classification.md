@@ -1,8 +1,13 @@
 ---
-status: approved
+status: completed
 spec: [012-nightly-fleet-scan]
+summary: Added withdrawn-only stale-ignore classification to the nightly fleet scan, wiring the existing IgnoreClassifier into the per-repo loop and reporting stale_ids
+execution_id: github-update-go-agent-nightly-scan-exec-026-spec-012-fleet-scan-stale-classification
+dark-factory-version: v0.198.17
 created: "2026-11-26T08:42:49Z"
 queued: "2026-11-26T12:50:35Z"
+started: "2026-11-26T16:10:56Z"
+completed: "2026-11-26T16:17:39Z"
 ---
 
 # Fleet scan: withdrawn-only stale-ignore classification
