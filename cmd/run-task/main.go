@@ -26,11 +26,13 @@ import (
 	"github.com/bborbe/errors"
 	libsentry "github.com/bborbe/sentry"
 	"github.com/bborbe/service"
+	libtime "github.com/bborbe/time"
 	"github.com/bborbe/vault-cli/pkg/domain"
 	"github.com/golang/glog"
 
 	updatepkg "github.com/bborbe/github-update-go-agent/pkg"
 	"github.com/bborbe/github-update-go-agent/pkg/factory"
+	"github.com/bborbe/github-update-go-agent/pkg/maintainerconfig"
 )
 
 func main() {
@@ -97,6 +99,11 @@ type application struct {
 	// or build-fix. Mirrors the Kafka entry point's TASK_TYPE dispatch.
 	TaskType string `required:"false" arg:"task-type" env:"TASK_TYPE" usage:"Task type: github-update-go (default) | build-fix" default:"github-update-go"`
 
+	// Fleet scan scope (task_type github-fleet-scan).
+	Owner         string `required:"false" arg:"owner"          env:"OWNER"          usage:"GitHub owner whose repositories the fleet scan enumerates"`
+	RepoAllowlist string `required:"false" arg:"repo-allowlist" env:"REPO_ALLOWLIST" usage:"Comma-separated host/owner/repo allowlist; '*' wildcard, '!' prefix excludes"`
+	Stage         string `required:"false" arg:"stage"          env:"STAGE"          usage:"Stage stamped on every task the fleet scan files"`
+
 	// HumanReviewOwner is the GitHub login stamped as the assignee on every record
 	// routed into human_review. Empty disables the stamp — the local replay then
 	// behaves exactly as before this change.
@@ -124,6 +131,26 @@ func (a *application) runDryRun(ctx context.Context) error {
 		headSHA,
 	)
 	return nil
+}
+
+// buildFleetScanDeps assembles the nightly scan's dependency struct for the
+// local CLI path, using the operator's raw token.
+func (a *application) buildFleetScanDeps() updatepkg.FleetScanDeps {
+	return updatepkg.FleetScanDeps{
+		Config: updatepkg.FleetScanConfig{
+			Owner:     a.Owner,
+			Allowlist: updatepkg.ParseRepoAllowlist(a.RepoAllowlist),
+			Stage:     a.Stage,
+		},
+		GhToken:         a.GhToken,
+		Lister:          updatepkg.NewGitHubRepoLister(a.GhToken),
+		Files:           updatepkg.NewGitHubRepoFileFetcher(a.GhToken),
+		Consent:         maintainerconfig.NewHTTPFetcher(a.GhToken),
+		GitOps:          factory.CreateGitOps(),
+		Gate:            factory.CreateGateRunner(),
+		Classifier:      updatepkg.NewOSVIgnoreClassifier(updatepkg.NewOSVHTTPFetcher()),
+		CurrentDateTime: libtime.NewCurrentDateTime(),
+	}
 }
 
 func (a *application) Run(ctx context.Context, _ libsentry.Client) error {
@@ -200,6 +227,7 @@ func (a *application) Run(ctx context.Context, _ libsentry.Client) error {
 		factory.ResolveHumanReviewOwner(map[string]string{
 			factory.HumanReviewOwnerEnv: a.HumanReviewOwner,
 		}),
+		a.buildFleetScanDeps(),
 	)
 	agent, err := provider.Get(ctx, agentlib.TaskType(a.TaskType))
 	if err != nil {

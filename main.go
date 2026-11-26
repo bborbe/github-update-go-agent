@@ -35,6 +35,7 @@ import (
 	updatepkg "github.com/bborbe/github-update-go-agent/pkg"
 	"github.com/bborbe/github-update-go-agent/pkg/factory"
 	"github.com/bborbe/github-update-go-agent/pkg/githubauth"
+	"github.com/bborbe/github-update-go-agent/pkg/maintainerconfig"
 )
 
 // agentName is the identity string used for Prometheus metric grouping and logging.
@@ -100,6 +101,11 @@ type application struct {
 	// golang, or deps. The per-task frontmatter `update_scope` field overrides
 	// this deployment default. Unset behaves exactly as the previous release.
 	UpdateScope string `required:"false" arg:"update-scope" env:"UPDATE_SCOPE" usage:"Update scope: both (default) | golang | deps"`
+
+	// Fleet scan scope (task_type github-fleet-scan).
+	Owner         string `required:"false" arg:"owner"          env:"OWNER"          usage:"GitHub owner whose repositories the fleet scan enumerates"`
+	RepoAllowlist string `required:"false" arg:"repo-allowlist" env:"REPO_ALLOWLIST" usage:"Comma-separated host/owner/repo allowlist; '*' wildcard, '!' prefix excludes"`
+	Stage         string `required:"false" arg:"stage"          env:"STAGE"          usage:"Stage stamped on every task the fleet scan files"`
 
 	// HumanReviewOwner is the GitHub login stamped as the assignee on every record
 	// this agent routes into human_review. Empty (the default) disables the stamp,
@@ -210,6 +216,51 @@ func (a *application) buildChainEmitter(
 	return factory.CreateBuildFixChainEmitter(chainProducer, a.TopicPrefix), closer, nil
 }
 
+// buildFleetScanDeps assembles the nightly scan's dependency struct from the
+// deployment config and the resolved GitHub token.
+func (a *application) buildFleetScanDeps(
+	resolvedToken string,
+	store updatepkg.ScanTaskStore,
+) updatepkg.FleetScanDeps {
+	return updatepkg.FleetScanDeps{
+		Config: updatepkg.FleetScanConfig{
+			Owner:     a.Owner,
+			Allowlist: updatepkg.ParseRepoAllowlist(a.RepoAllowlist),
+			Stage:     a.Stage,
+		},
+		GhToken:         resolvedToken,
+		Lister:          updatepkg.NewGitHubRepoLister(resolvedToken),
+		Files:           updatepkg.NewGitHubRepoFileFetcher(resolvedToken),
+		Consent:         maintainerconfig.NewHTTPFetcher(resolvedToken),
+		GitOps:          factory.CreateGitOps(),
+		Gate:            factory.CreateGateRunner(),
+		Classifier:      updatepkg.NewOSVIgnoreClassifier(updatepkg.NewOSVHTTPFetcher()),
+		CurrentDateTime: libtime.NewCurrentDateTime(),
+		Store:           store,
+	}
+}
+
+// buildScanTaskStore wires the fleet scan's publish path. Returns a nil store
+// and a no-op closer when no brokers are configured (local CLI mode — the scan
+// logs the intended commands instead of publishing).
+func (a *application) buildScanTaskStore(
+	ctx context.Context,
+) (updatepkg.ScanTaskStore, func(), error) {
+	if len(a.KafkaBrokers) == 0 {
+		return nil, func() {}, nil
+	}
+	scanProducer, err := factory.CreateSyncProducer(ctx, a.KafkaBrokers)
+	if err != nil {
+		return nil, func() {}, errors.Wrap(ctx, err, "create scan sync producer")
+	}
+	closer := func() {
+		if err := scanProducer.Close(); err != nil {
+			glog.Warningf("close scan sync producer failed: %v", err)
+		}
+	}
+	return factory.CreateKafkaScanTaskStore(scanProducer, a.TopicPrefix), closer, nil
+}
+
 // buildRun wires everything the agent needs to execute one task: the
 // credential, the result deliverer, the chain emitter, and the provider.
 // Returns the deliverer, provider, and a single cleanup func (closes the
@@ -231,6 +282,11 @@ func (a *application) buildRun(
 	}
 
 	createCmd, closeChainProducer, err := a.buildChainEmitter(ctx)
+	if err != nil {
+		return nil, nil, func() {}, err
+	}
+
+	scanStore, closeScanStore, err := a.buildScanTaskStore(ctx)
 	if err != nil {
 		return nil, nil, func() {}, err
 	}
@@ -259,12 +315,16 @@ func (a *application) buildRun(
 		updateScope,
 		createCmd,
 		factory.ResolveHumanReviewOwner(humanReviewEnv),
+		a.buildFleetScanDeps(resolvedToken, scanStore),
 	)
 
 	cleanup := func() {
 		closeDeliverer()
 		if closeChainProducer != nil {
 			closeChainProducer()
+		}
+		if closeScanStore != nil {
+			closeScanStore()
 		}
 	}
 	return deliverer, provider, cleanup, nil

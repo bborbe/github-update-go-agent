@@ -47,6 +47,11 @@ var taskTypeGithubUpdateGo = agentlib.TaskType("github-update-go")
 // must match.
 var taskTypeBuildFix = agentlib.TaskType("build-fix")
 
+// taskTypeFleetScan is the agent-lib TaskType literal for the nightly fleet
+// scan (the fifth task type this binary hosts). Keep the literal exactly
+// "github-fleet-scan" — the CRD trigger.task_type field must match.
+var taskTypeFleetScan = agentlib.TaskType("github-fleet-scan")
+
 // readOnlyShellTools are the read-only text utilities both phases may shell
 // out to. They exist because the model reaches for shell pipelines even when
 // told to prefer the Grep/Read tools, and a denied Bash call is not a cheap
@@ -517,6 +522,7 @@ func CreateAgentProvider(
 	updateScope updatepkg.UpdateScope,
 	createCmd updatepkg.CreateCommandFunc,
 	humanReviewOwner string,
+	fleetScanDeps updatepkg.FleetScanDeps,
 ) agentlib.AgentProvider {
 	domainAgent := CreateAgent(
 		claudeConfigDir,
@@ -556,6 +562,7 @@ func CreateAgentProvider(
 	return agentlib.NewAgentProvider(serviceName, map[agentlib.TaskType]*agentlib.Agent{
 		taskTypeGithubUpdateGo:       domainAgent,
 		taskTypeBuildFix:             fixAgent,
+		taskTypeFleetScan:            CreateFleetScanAgent(fleetScanDeps),
 		agentlib.TaskTypeHealthcheck: livenessAgent,
 		agentlib.TaskTypeOAuthProbe:  livenessAgent,
 	})
