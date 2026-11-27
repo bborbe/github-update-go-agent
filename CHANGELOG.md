@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- chore: update github.com/bborbe/agent to v0.149.0, github.com/bborbe/cqrs to v0.6.18, github.com/bborbe/errors to v1.7.1, github.com/bborbe/kafka to v1.30.4, github.com/bborbe/log to v1.7.10, github.com/bborbe/maintainer to v0.52.1, github.com/bborbe/sentry to v1.11.1, github.com/bborbe/service to v1.12.2, github.com/bborbe/time to v1.27.30, github.com/bborbe/vault-cli to v0.200.6
+
 ## v0.28.0
 
 - feat: add the `github-fleet-scan` task type and the first half of the nightly fleet scan — a deterministic, LLM-free step enumerates the allowlisted repositories through a paginated GitHub lister, gates each on `repoallowlist` membership, `go.mod` presence/parsability and `goUpdate.autoUpdate` consent, clones each survivor, runs its gate targets, records the firing (unsuppressed) advisory IDs, and writes a `## Fleet Scan` report carrying `scanned_at` and `scanned`; rate limits fail the run naming the repo and count, per-repo clone/gate failures are skips, and the new task type is registered alongside the existing four without changing their behaviour
