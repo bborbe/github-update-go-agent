@@ -313,6 +313,7 @@ var _ = Describe("ReviewStep", func() {
 		}
 		ops.ResolveDefaultBranchReturns("master", "0cafebabe1234567890abcdef1234567890abcdef", nil)
 		ops.ShowFileReturns([]byte(changelogMaster), nil)
+		ops.FileExistsAtRefReturns(true, nil)
 		gate.RunTargetReturns("", 0, nil)
 		ops.RevListReturns([]string{"deadbeef1", "deadbeef2"}, nil)
 		ops.LsRemoteTagsReturns([]string{"1111111", "2222222"}, nil)
@@ -650,6 +651,39 @@ var _ = Describe("ReviewStep", func() {
 			Expect(err).To(BeNil())
 			Expect(review.Checks.ChangelogUnreleased).To(BeFalse())
 			Expect(review.Notes).To(ContainSubstring("v1.3.0"))
+		})
+	})
+
+	Describe("base CHANGELOG absent", func() {
+		BeforeEach(func() {
+			ops.FileExistsAtRefReturns(false, nil)
+		})
+
+		It("proceeds — a repo with no base CHANGELOG.md is not a failure", func() {
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusDone))
+			review, err := agentlib.ExtractSection[pkg.ReviewOutput](ctx, md, "## Review")
+			Expect(err).To(BeNil())
+			Expect(review.Checks.ChangelogUnreleased).To(BeTrue())
+			Expect(review.Approved).To(BeTrue())
+		})
+	})
+
+	Describe("base CHANGELOG read fails for a real reason", func() {
+		BeforeEach(func() {
+			ops.FileExistsAtRefReturns(true, nil)
+			ops.ShowFileReturns(nil, stderrors.New("git show boom"))
+		})
+
+		It("rejects fail-closed with the wrapped error", func() {
+			result, err := step.Run(ctx, md)
+			Expect(err).To(BeNil())
+			Expect(result.Status).To(Equal(agentlib.AgentStatusFailed))
+			review, err := agentlib.ExtractSection[pkg.ReviewOutput](ctx, md, "## Review")
+			Expect(err).To(BeNil())
+			Expect(review.Checks.ChangelogUnreleased).To(BeFalse())
+			Expect(review.Notes).To(ContainSubstring("read base CHANGELOG failed"))
 		})
 	})
 

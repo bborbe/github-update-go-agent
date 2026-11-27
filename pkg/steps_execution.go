@@ -532,7 +532,7 @@ func (s *executionStep) openPRFromPushedBranch(
 
 	prURL, err := s.gh.CreatePR(
 		ctx, workdir, defaultBranch, branch, prTitle,
-		buildPRBody(plan, &executionReport{}, nil, nil),
+		buildPRBody(taskIdentifier(md), plan, &executionReport{}, nil, nil),
 		s.prTarget,
 		s.autoMergeLabel,
 	)
@@ -978,7 +978,7 @@ func (s *executionStep) commitPushAndOpenPR(
 	vulnsFixed := intersectFixVulns(plan, report)
 	prURL, err := s.gh.CreatePR(
 		ctx, workdir, defaultBranch, branch, prTitle,
-		buildPRBody(plan, report, vulnsFixed, removedIgnores),
+		buildPRBody(taskIdentifier(md), plan, report, vulnsFixed, removedIgnores),
 		s.prTarget,
 		s.autoMergeLabel,
 	)
@@ -1262,6 +1262,7 @@ func intersectFixVulns(plan *PlanOutput, report *executionReport) []string {
 // green gate evidence, and the release-agent handoff note. No secrets, no
 // attribution.
 func buildPRBody(
+	taskID string,
 	plan *PlanOutput,
 	report *executionReport,
 	vulnsFixed, removedIgnores []string,
@@ -1287,5 +1288,21 @@ func buildPRBody(
 	b.WriteString(
 		"\nCHANGELOG entry stays under `## Unreleased` — the release agent versions and tags on merge.\n",
 	)
+	if taskID != "" {
+		fmt.Fprintf(&b, "\nTask: %s\n", taskID)
+	}
 	return b.String()
+}
+
+// taskIdentifier returns the vault task UUID from the task frontmatter, or ""
+// when absent. It is emitted as the `Task: <uuid>` line the required
+// task-link check parses.
+func taskIdentifier(md *agentlib.Markdown) string {
+	if md == nil {
+		return ""
+	}
+	if s, ok := md.Frontmatter["task_identifier"].(string); ok {
+		return s
+	}
+	return ""
 }

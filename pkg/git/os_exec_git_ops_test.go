@@ -103,16 +103,16 @@ var _ = Describe("osExecGitOps boundary contracts", func() {
 		Expect(branch).To(Equal("fix/update-go-1234567"))
 	})
 
-	It("ChangedFiles reports staged, unstaged, and untracked paths", func() {
+	It("ChangedFiles excludes an untracked build artifact but keeps tracked edits", func() {
 		dest := filepath.Join(tmp, "cloned-changed")
 		Expect(ops.CloneAtRef(ctx, source, "master", dest)).To(Succeed())
 		Expect(os.WriteFile(filepath.Join(dest, "MARKER.txt"), []byte("edit\n"), 0o600)).
 			To(Succeed())
-		Expect(os.WriteFile(filepath.Join(dest, "NEW.txt"), []byte("new\n"), 0o600)).
+		Expect(os.WriteFile(filepath.Join(dest, "demo-binary"), []byte("\x7fELF"), 0o755)).
 			To(Succeed())
 		files, err := ops.ChangedFiles(ctx, dest)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(files).To(ConsistOf("MARKER.txt", "NEW.txt"))
+		Expect(files).To(ConsistOf("MARKER.txt"))
 	})
 
 	It(

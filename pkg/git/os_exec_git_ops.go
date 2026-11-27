@@ -7,6 +7,7 @@ package git
 import (
 	"bytes"
 	"context"
+	stderrors "errors"
 	"os"
 	"os/exec"
 	"regexp"
@@ -207,17 +208,39 @@ func (g *osExecGitOps) ChangedFiles(ctx context.Context, workdir string) ([]stri
 			continue
 		}
 		// Porcelain format: XY <path> (or XY <old> -> <new> for renames).
+		status := line[:2]
 		path := strings.TrimSpace(line[3:])
 		if idx := strings.Index(path, " -> "); idx >= 0 {
 			path = path[idx+4:]
 		}
 		path = strings.Trim(path, `"`)
-		if path != "" {
-			files = append(files, path)
+		if path == "" {
+			continue
 		}
+		if status == "??" && !isCommittableUntracked(path) {
+			// An untracked build artifact at the repo root (a repo with no
+			// .gitignore) must never enter the commit: it makes the PR
+			// unreviewable and bloats the repo. Only files the update
+			// legitimately creates may be committed untracked.
+			glog.V(2).Infof("git status --porcelain: skipping untracked artifact %q", path)
+			continue
+		}
+		files = append(files, path)
 	}
 	glog.V(2).Infof("git status --porcelain: files=%v", files)
 	return files, nil
+}
+
+// isCommittableUntracked reports whether an untracked path is a file the
+// update legitimately creates and must commit. Everything else untracked
+// (notably a built binary at the repo root) is excluded from the commit set.
+func isCommittableUntracked(path string) bool {
+	switch path {
+	case "CHANGELOG.md", "go.mod", "go.sum":
+		return true
+	default:
+		return false
+	}
 }
 
 func (g *osExecGitOps) Commit(
@@ -400,6 +423,33 @@ func (g *osExecGitOps) ShowFile(
 		)
 	}
 	return out, nil
+}
+
+// FileExistsAtRef reports whether path exists at ref.
+func (g *osExecGitOps) FileExistsAtRef(
+	ctx context.Context,
+	workdir, ref, path string,
+) (bool, error) {
+	// git -C <workdir> cat-file -e <ref>:<path>
+	// #nosec G204 -- workdir is os.TempDir-rooted; ref/path come from the review step's constants
+	cmd := exec.CommandContext(ctx, "git", "-C", workdir, "cat-file", "-e", ref+":"+path)
+	cmd.Env = g.cmdEnv()
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		var exitErr *exec.ExitError
+		if stderrors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			// Exit 1 from `cat-file -e` means the object is absent — a
+			// legitimate "no", not a failure.
+			return false, nil
+		}
+		return false, errors.Errorf(
+			ctx,
+			"git cat-file -e %s:%s: %s",
+			ref, path, strings.TrimSpace(stderr.String()),
+		)
+	}
+	return true, nil
 }
 
 // redactToken strips x-access-token:<TOK>@ patterns from stderr to prevent

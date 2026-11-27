@@ -353,9 +353,21 @@ func (s *reviewStep) checkChangelog(
 		*notes = append(*notes, "CHANGELOG has no bullet under ## Unreleased")
 		return
 	}
-	masterContent, err := s.ops.ShowFile(
-		ctx, workdir, "origin/"+defaultBranch, changelogFileName,
-	)
+	baseRef := "origin/" + defaultBranch
+	exists, err := s.ops.FileExistsAtRef(ctx, workdir, baseRef, changelogFileName)
+	if err != nil {
+		*notes = append(*notes, "read base CHANGELOG failed: "+err.Error())
+		return
+	}
+	if !exists {
+		// A repo with no base CHANGELOG.md (e.g. a main-default repo the
+		// writer creates one for) has an empty base header set; every branch
+		// header is legitimate. Do not fail the review for a file this agent
+		// creates by design.
+		checks.ChangelogUnreleased = true
+		return
+	}
+	masterContent, err := s.ops.ShowFile(ctx, workdir, baseRef, changelogFileName)
 	if err != nil {
 		*notes = append(*notes, "read base CHANGELOG failed: "+err.Error())
 		return

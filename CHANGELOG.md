@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- fix: emit the vault task UUID as a `Task: <uuid>` line in every PR body so the required `task-link` check passes on lane-opened PRs
+- fix: treat an absent base `CHANGELOG.md` as an empty base header set in `ai_review` (probe with a new `FileExistsAtRef` / `git cat-file -e` seam) so a main-default repo with no CHANGELOG is not rejected for a file the agent creates by design, while a genuine git read failure still fails closed
+- fix: exclude untracked build artifacts from the commit set (`ChangedFiles` now skips untracked files that are not `CHANGELOG.md`, `go.mod` or `go.sum`) so a repo with no `.gitignore` yields a source-only diff instead of committing a compiled binary
+
 ## v0.28.0
 
 - feat: add the `github-fleet-scan` task type and the first half of the nightly fleet scan — a deterministic, LLM-free step enumerates the allowlisted repositories through a paginated GitHub lister, gates each on `repoallowlist` membership, `go.mod` presence/parsability and `goUpdate.autoUpdate` consent, clones each survivor, runs its gate targets, records the firing (unsuppressed) advisory IDs, and writes a `## Fleet Scan` report carrying `scanned_at` and `scanned`; rate limits fail the run naming the repo and count, per-repo clone/gate failures are skips, and the new task type is registered alongside the existing four without changing their behaviour
