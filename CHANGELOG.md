@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.28.1
 
 - fix: emit the vault task UUID as a `Task: <uuid>` line in every PR body so the required `task-link` check passes on lane-opened PRs
 - fix: treat an absent base `CHANGELOG.md` as an empty base header set in `ai_review` (probe with a new `FileExistsAtRef` / `git cat-file -e` seam) so a main-default repo with no CHANGELOG is not rejected for a file the agent creates by design, while a genuine git read failure still fails closed
