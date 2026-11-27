@@ -91,4 +91,11 @@ type GitOps interface {
 	// ShowFile returns the content of path at the given ref
 	// (git show <ref>:<path>) — e.g. origin/<default>:CHANGELOG.md.
 	ShowFile(ctx context.Context, workdir, ref, path string) ([]byte, error)
+
+	// FileExistsAtRef reports whether path exists at ref
+	// (git cat-file -e <ref>:<path>). A missing path returns (false, nil) so
+	// the review step can treat an absent base CHANGELOG.md as an empty base
+	// header set; any other git failure returns an error so the caller stays
+	// fail-closed on a genuine error.
+	FileExistsAtRef(ctx context.Context, workdir, ref, path string) (bool, error)
 }

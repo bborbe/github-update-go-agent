@@ -67,6 +67,22 @@ type GitOps struct {
 		result1 []string
 		result2 error
 	}
+	FileExistsAtRefStub        func(context.Context, string, string, string) (bool, error)
+	fileExistsAtRefMutex       sync.RWMutex
+	fileExistsAtRefArgsForCall []struct {
+		arg1 context.Context
+		arg2 string
+		arg3 string
+		arg4 string
+	}
+	fileExistsAtRefReturns struct {
+		result1 bool
+		result2 error
+	}
+	fileExistsAtRefReturnsOnCall map[int]struct {
+		result1 bool
+		result2 error
+	}
 	LsRemoteTagsStub        func(context.Context, string) ([]string, error)
 	lsRemoteTagsMutex       sync.RWMutex
 	lsRemoteTagsArgsForCall []struct {
@@ -430,6 +446,73 @@ func (fake *GitOps) CommittedFilesReturnsOnCall(i int, result1 []string, result2
 	}
 	fake.committedFilesReturnsOnCall[i] = struct {
 		result1 []string
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *GitOps) FileExistsAtRef(arg1 context.Context, arg2 string, arg3 string, arg4 string) (bool, error) {
+	fake.fileExistsAtRefMutex.Lock()
+	ret, specificReturn := fake.fileExistsAtRefReturnsOnCall[len(fake.fileExistsAtRefArgsForCall)]
+	fake.fileExistsAtRefArgsForCall = append(fake.fileExistsAtRefArgsForCall, struct {
+		arg1 context.Context
+		arg2 string
+		arg3 string
+		arg4 string
+	}{arg1, arg2, arg3, arg4})
+	stub := fake.FileExistsAtRefStub
+	fakeReturns := fake.fileExistsAtRefReturns
+	fake.recordInvocation("FileExistsAtRef", []interface{}{arg1, arg2, arg3, arg4})
+	fake.fileExistsAtRefMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2, arg3, arg4)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *GitOps) FileExistsAtRefCallCount() int {
+	fake.fileExistsAtRefMutex.RLock()
+	defer fake.fileExistsAtRefMutex.RUnlock()
+	return len(fake.fileExistsAtRefArgsForCall)
+}
+
+func (fake *GitOps) FileExistsAtRefCalls(stub func(context.Context, string, string, string) (bool, error)) {
+	fake.fileExistsAtRefMutex.Lock()
+	defer fake.fileExistsAtRefMutex.Unlock()
+	fake.FileExistsAtRefStub = stub
+}
+
+func (fake *GitOps) FileExistsAtRefArgsForCall(i int) (context.Context, string, string, string) {
+	fake.fileExistsAtRefMutex.RLock()
+	defer fake.fileExistsAtRefMutex.RUnlock()
+	argsForCall := fake.fileExistsAtRefArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3, argsForCall.arg4
+}
+
+func (fake *GitOps) FileExistsAtRefReturns(result1 bool, result2 error) {
+	fake.fileExistsAtRefMutex.Lock()
+	defer fake.fileExistsAtRefMutex.Unlock()
+	fake.FileExistsAtRefStub = nil
+	fake.fileExistsAtRefReturns = struct {
+		result1 bool
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *GitOps) FileExistsAtRefReturnsOnCall(i int, result1 bool, result2 error) {
+	fake.fileExistsAtRefMutex.Lock()
+	defer fake.fileExistsAtRefMutex.Unlock()
+	fake.FileExistsAtRefStub = nil
+	if fake.fileExistsAtRefReturnsOnCall == nil {
+		fake.fileExistsAtRefReturnsOnCall = make(map[int]struct {
+			result1 bool
+			result2 error
+		})
+	}
+	fake.fileExistsAtRefReturnsOnCall[i] = struct {
+		result1 bool
 		result2 error
 	}{result1, result2}
 }

@@ -9,6 +9,7 @@ import (
 	stderrors "errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -20,6 +21,22 @@ import (
 	"github.com/bborbe/github-update-go-agent/mocks"
 	pkg "github.com/bborbe/github-update-go-agent/pkg"
 )
+
+var _ = Describe("buildPRBody task link", func() {
+	taskLinkLine := regexp.MustCompile(
+		`(?m)^Task: [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`,
+	)
+
+	It("emits a Task: line matching the vault task UUID", func() {
+		body := pkg.BuildPRBodyForTest("45cc6f18-5262-458a-aa4f-c88a2b34efd9")
+		Expect(taskLinkLine.MatchString(body)).To(BeTrue(), body)
+	})
+
+	It("omits the Task: line when the task has no identifier", func() {
+		body := pkg.BuildPRBodyForTest("")
+		Expect(body).NotTo(ContainSubstring("Task:"))
+	})
+})
 
 const executionTaskMD = `---
 task_type: github-update-go

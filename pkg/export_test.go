@@ -55,6 +55,17 @@ var (
 	RefuteEnvironmentClaim  = refuteEnvironmentClaim
 	BuildYourMoveBody       = buildYourMoveBody
 	WriteYourMoveSection    = writeYourMoveSection
+	// BuildPRBodyForTest exposes buildPRBody so pkg_test can assert the PR body
+	// carries the `Task: <uuid>` line the required task-link check parses.
+	BuildPRBodyForTest = func(taskID string) string {
+		return buildPRBody(
+			taskID,
+			&PlanOutput{GateTargets: []string{"test"}},
+			&executionReport{},
+			nil,
+			nil,
+		)
+	}
 	// HasWorkForScope / AppliesScope expose the scope-aware plan predicates so
 	// pkg_test can assert the close decision is driven by the plan's structured
 	// fields rather than the model's `outcome` label.
