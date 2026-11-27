@@ -10,11 +10,5 @@ CVE-2026-33997
 # x/crypto/openpgp unmaintained (no fix); transitive, not imported
 GO-2026-5932
 
-# GO-2026-5064: no-fix advisory (unmaintained/deprecated package)
-GO-2026-5064
 
-# GO-2026-5338: no-fix advisory (unmaintained/deprecated package)
-GO-2026-5338
 
-# GO-2026-5622: no-fix advisory (unmaintained/deprecated package)
-GO-2026-5622

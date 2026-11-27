@@ -5,9 +5,10 @@
 package pkg
 
 import (
+	libtime "github.com/bborbe/time"
+
 	"github.com/bborbe/github-update-go-agent/pkg/git"
 	"github.com/bborbe/github-update-go-agent/pkg/maintainerconfig"
-	libtime "github.com/bborbe/time"
 )
 
 // FleetScanDeps is the injected surface of the nightly fleet scan.
