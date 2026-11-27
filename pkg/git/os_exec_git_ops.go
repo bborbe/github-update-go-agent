@@ -441,6 +441,7 @@ func (g *osExecGitOps) FileExistsAtRef(
 		if stderrors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
 			// Exit 1 from `cat-file -e` means the object is absent — a
 			// legitimate "no", not a failure.
+			glog.V(2).Infof("git cat-file -e %s:%s: absent", ref, path)
 			return false, nil
 		}
 		return false, errors.Errorf(
@@ -449,6 +450,7 @@ func (g *osExecGitOps) FileExistsAtRef(
 			ref, path, strings.TrimSpace(stderr.String()),
 		)
 	}
+	glog.V(2).Infof("git cat-file -e %s:%s: present", ref, path)
 	return true, nil
 }
 
