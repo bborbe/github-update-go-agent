@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/bborbe/errors"
+	libhttp "github.com/bborbe/http"
 	"github.com/golang/glog"
 )
 
@@ -100,10 +101,31 @@ type fleetHTTPClient struct {
 
 func newFleetHTTPClient(token, apiBase string) *fleetHTTPClient {
 	return &fleetHTTPClient{
-		client:  &http.Client{Timeout: fleetRequestTimeout},
+		client: &http.Client{
+			Timeout:   fleetRequestTimeout,
+			Transport: retryTransportFor(apiBase),
+		},
 		token:   token,
 		apiBase: apiBase,
 	}
+}
+
+// retryTransportFor wraps the default transport with the shared rate-limit
+// retry round tripper. api.github.com is always retried; the host of apiBase
+// is added too when it differs, so a test seam pointing at a stub server is
+// covered. MaxWait bounds one wait, not the call: MaxAttempts (default 5)
+// multiplies it, so one second keeps the worst case at five seconds, inside
+// the client timeouts.
+func retryTransportFor(apiBase string) http.RoundTripper {
+	hosts := []string{"api.github.com"}
+	u, err := url.Parse(apiBase)
+	if err == nil && u.Hostname() != "" && u.Hostname() != "api.github.com" {
+		hosts = append(hosts, u.Hostname())
+	}
+	return libhttp.NewRoundTripperRetryWithBackoff(
+		http.DefaultTransport,
+		libhttp.RetryBackoffOptions{RetryHosts: hosts, MaxWait: 1 * time.Second},
+	)
 }
 
 // reposResponse is the slim JSON shape read from /installation/repositories.

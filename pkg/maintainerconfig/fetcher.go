@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/bborbe/errors"
+	libhttp "github.com/bborbe/http"
 	libmaintainerconfig "github.com/bborbe/maintainer/maintainerconfig"
 	"github.com/golang/glog"
 )
@@ -88,7 +89,10 @@ var ErrFileNotFound = stderrors.New("maintainerconfig: .maintainer.yaml not foun
 // context-deadline-exceeded error.
 func NewHTTPFetcher(token string) Fetcher {
 	return &httpFetcher{
-		client:  &http.Client{Timeout: fetchTimeout},
+		client: &http.Client{
+			Timeout:   fetchTimeout,
+			Transport: retryTransportFor("https://api.github.com"),
+		},
 		token:   token,
 		apiBase: "https://api.github.com",
 	}
@@ -98,10 +102,31 @@ func NewHTTPFetcher(token string) Fetcher {
 // point the fetcher at a test server. Not exported.
 func newHTTPFetcherWithBase(token, apiBase string) Fetcher {
 	return &httpFetcher{
-		client:  &http.Client{Timeout: fetchTimeout},
+		client: &http.Client{
+			Timeout:   fetchTimeout,
+			Transport: retryTransportFor(apiBase),
+		},
 		token:   token,
 		apiBase: apiBase,
 	}
+}
+
+// retryTransportFor wraps the default transport with the shared rate-limit
+// retry round tripper. api.github.com is always retried; the host of apiBase
+// is added too when it differs, so a test seam pointing at a stub server is
+// covered. MaxWait bounds one wait, not the call: MaxAttempts (default 5)
+// multiplies it, so one second keeps the worst case at five seconds, inside
+// the client timeouts.
+func retryTransportFor(apiBase string) http.RoundTripper {
+	hosts := []string{"api.github.com"}
+	u, err := url.Parse(apiBase)
+	if err == nil && u.Hostname() != "" && u.Hostname() != "api.github.com" {
+		hosts = append(hosts, u.Hostname())
+	}
+	return libhttp.NewRoundTripperRetryWithBackoff(
+		http.DefaultTransport,
+		libhttp.RetryBackoffOptions{RetryHosts: hosts, MaxWait: 1 * time.Second},
+	)
 }
 
 type httpFetcher struct {

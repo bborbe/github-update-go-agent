@@ -10,6 +10,7 @@ require (
 	github.com/bborbe/agent v0.141.0
 	github.com/bborbe/cqrs v0.6.15
 	github.com/bborbe/errors v1.6.6
+	github.com/bborbe/http v1.28.1
 	github.com/bborbe/kafka v1.29.13
 	github.com/bborbe/log v1.7.8
 	github.com/bborbe/maintainer v0.51.2
@@ -30,11 +31,10 @@ require (
 	github.com/IBM/sarama v1.61.1 // indirect
 	github.com/Masterminds/semver/v3 v3.5.0 // indirect
 	github.com/bborbe/argument/v2 v2.13.10 // indirect
-	github.com/bborbe/collection v1.21.6 // indirect
-	github.com/bborbe/http v1.26.33 // indirect
+	github.com/bborbe/collection v1.21.7 // indirect
 	github.com/bborbe/k8s v1.14.33 // indirect
 	github.com/bborbe/kv v1.21.29 // indirect
-	github.com/bborbe/math v1.4.19 // indirect
+	github.com/bborbe/math v1.4.20 // indirect
 	github.com/bborbe/metrics v0.6.11 // indirect
 	github.com/bborbe/parse v1.12.7 // indirect
 	github.com/bborbe/run v1.11.11 // indirect
@@ -60,7 +60,7 @@ require (
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/go-github/v88 v88.0.0 // indirect
 	github.com/google/go-querystring v1.2.0 // indirect
-	github.com/google/pprof v0.0.0-20261111052341-ff4d60411e21 // indirect
+	github.com/google/pprof v0.0.0-20261111065629-49901cbc7227 // indirect
 	github.com/gorilla/mux v1.8.1 // indirect
 	github.com/hashicorp/go-uuid v1.0.4 // indirect
 	github.com/jcmturner/aescts/v2 v2.0.0 // indirect

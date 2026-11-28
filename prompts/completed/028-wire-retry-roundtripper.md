@@ -1,5 +1,9 @@
 ---
-status: draft
+status: completed
+created: "2026-11-28T09:34:13Z"
+queued: "2026-11-28T09:34:13Z"
+completed: "2026-11-28T09:43:01Z"
+pr-url: https://github.com/bborbe/github-update-go-agent/pull/127
 ---
 
 <summary>
