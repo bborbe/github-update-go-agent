@@ -438,11 +438,17 @@ func (g *osExecGitOps) FileExistsAtRef(
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		var exitErr *exec.ExitError
-		if stderrors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
-			// Exit 1 from `cat-file -e` means the object is absent — a
-			// legitimate "no", not a failure.
-			glog.V(2).Infof("git cat-file -e %s:%s: absent", ref, path)
-			return false, nil
+		if stderrors.As(err, &exitErr) {
+			// `git cat-file -e` exits 0 when the object is present and 128
+			// when it is absent. 128 is also git's code for a broken ref or a
+			// non-repo, so only the absence-shaped message may be read as
+			// "no" — mapping every 128 would turn a corrupt ref into "no
+			// CHANGELOG" and silently skip the base line.
+			code := exitErr.ExitCode()
+			if code == 1 || (code == 128 && isAbsentPathMessage(stderr.String())) {
+				glog.V(2).Infof("git cat-file -e %s:%s: absent", ref, path)
+				return false, nil
+			}
 		}
 		return false, errors.Errorf(
 			ctx,
@@ -452,6 +458,17 @@ func (g *osExecGitOps) FileExistsAtRef(
 	}
 	glog.V(2).Infof("git cat-file -e %s:%s: present", ref, path)
 	return true, nil
+}
+
+// isAbsentPathMessage reports whether git's stderr describes a path that is
+// missing at the given ref, as opposed to a broken ref or a directory that is
+// not a repo. Both shapes appear across git versions:
+//
+//	fatal: path 'X' does not exist in 'REF'
+//	fatal: path 'X' exists on disk, but not in 'REF'
+func isAbsentPathMessage(stderr string) bool {
+	return strings.Contains(stderr, "does not exist in") ||
+		strings.Contains(stderr, "exists on disk, but not in")
 }
 
 // redactToken strips x-access-token:<TOK>@ patterns from stderr to prevent

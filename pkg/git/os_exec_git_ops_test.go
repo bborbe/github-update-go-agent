@@ -115,6 +115,28 @@ var _ = Describe("osExecGitOps boundary contracts", func() {
 		Expect(files).To(ConsistOf("MARKER.txt"))
 	})
 
+	It("FileExistsAtRef reports present for a tracked path and absent for a missing one", func() {
+		// Real `git cat-file -e` exit codes: 0 = present, 128 = absent.
+		// The shipped v0.28.1 code only accepted exit 1 — a code the binary
+		// never returns — so an absent base CHANGELOG aborted ai_review.
+		present, err := ops.FileExistsAtRef(ctx, source, "master", "MARKER.txt")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(present).To(BeTrue())
+
+		absent, err := ops.FileExistsAtRef(ctx, source, "master", "CHANGELOG.md")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(absent).To(BeFalse())
+	})
+
+	It("FileExistsAtRef keeps a bad ref an error, not a silent absence", func() {
+		// 128 is also git's code for a broken ref or a non-repo. Mapping
+		// every 128 to "absent" would read a corrupt ref as "no CHANGELOG"
+		// and silently skip the base line — the same failure one step over.
+		exists, err := ops.FileExistsAtRef(ctx, source, "no-such-ref", "MARKER.txt")
+		Expect(err).To(HaveOccurred())
+		Expect(exists).To(BeFalse())
+	})
+
 	It(
 		"Commit stages the explicit pathspec with the bot identity and CommittedFiles matches",
 		func() {
