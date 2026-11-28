@@ -13,6 +13,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sort"
+	"sync/atomic"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -148,5 +150,57 @@ var _ = Describe("FleetScanSource", func() {
 			_, err := fetcher.FetchFile(ctx, "bborbe/ip", "go.mod")
 			Expect(stderrors.Is(err, pkg.ErrFleetRateLimited)).To(BeTrue())
 		})
+	})
+})
+
+var _ = Describe("FleetScanSource rate-limit retry", func() {
+	var ctx context.Context
+
+	BeforeEach(func() {
+		ctx = context.Background()
+	})
+
+	It("retries a rate-limited request after Retry-After", func() {
+		var requests int32
+		server := httptest.NewServer(
+			http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				if atomic.AddInt32(&requests, 1) == 1 {
+					w.Header().Set("Retry-After", "1")
+					w.WriteHeader(http.StatusTooManyRequests)
+					return
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{"repositories": []any{}})
+			}),
+		)
+		defer server.Close()
+
+		lister := pkg.NewGitHubRepoListerForTest("token", server.URL)
+		repos, err := lister.ListRepos(ctx, "bborbe")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(repos).To(BeEmpty())
+		Expect(atomic.LoadInt32(&requests)).To(Equal(int32(2)))
+	})
+
+	It("defers a wait longer than the one-second budget", func() {
+		var requests int32
+		server := httptest.NewServer(
+			http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				atomic.AddInt32(&requests, 1)
+				w.Header().Set("Retry-After", "4")
+				w.WriteHeader(http.StatusTooManyRequests)
+			}),
+		)
+		defer server.Close()
+
+		lister := pkg.NewGitHubRepoListerForTest("token", server.URL)
+		start := time.Now()
+		_, err := lister.ListRepos(ctx, "bborbe")
+		elapsed := time.Since(start)
+
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("status 429"))
+		Expect(err.Error()).NotTo(ContainSubstring("context deadline exceeded"))
+		Expect(atomic.LoadInt32(&requests)).To(Equal(int32(1)))
+		Expect(elapsed).To(BeNumerically("<", 5*time.Second))
 	})
 })

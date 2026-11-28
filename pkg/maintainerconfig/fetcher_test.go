@@ -10,6 +10,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
+	"time"
 
 	"github.com/bborbe/errors"
 	. "github.com/onsi/ginkgo/v2"
@@ -305,5 +307,54 @@ var _ = Describe("httpFetcher", func() {
 		_, err := fetcher.Fetch(ctx, "bborbe", "maintainer", "master")
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring(`unsupported encoding ""`))
+	})
+})
+
+var _ = Describe("httpFetcher rate-limit retry", func() {
+	ctx := context.Background()
+
+	It("retries a rate-limited request after Retry-After", func() {
+		yamlBytes := []byte("goUpdate:\n  autoUpdate: true\n")
+		encoded := base64.StdEncoding.EncodeToString(yamlBytes)
+		var requests int32
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			if atomic.AddInt32(&requests, 1) == 1 {
+				w.Header().Set("Retry-After", "1")
+				w.WriteHeader(http.StatusTooManyRequests)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"encoding": "base64",
+				"content":  encoded,
+			})
+		}))
+		defer server.Close()
+
+		fetcher := maintainerconfig.NewHTTPFetcherForTest("", server.URL)
+		data, err := fetcher.Fetch(ctx, "bborbe", "maintainer", "master")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(data).To(Equal(yamlBytes))
+		Expect(atomic.LoadInt32(&requests)).To(Equal(int32(2)))
+	})
+
+	It("defers a wait longer than the one-second budget", func() {
+		var requests int32
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			atomic.AddInt32(&requests, 1)
+			w.Header().Set("Retry-After", "4")
+			w.WriteHeader(http.StatusTooManyRequests)
+		}))
+		defer server.Close()
+
+		fetcher := maintainerconfig.NewHTTPFetcherForTest("", server.URL)
+		start := time.Now()
+		_, err := fetcher.Fetch(ctx, "bborbe", "maintainer", "master")
+		elapsed := time.Since(start)
+
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("status 429"))
+		Expect(err.Error()).NotTo(ContainSubstring("context deadline exceeded"))
+		Expect(atomic.LoadInt32(&requests)).To(Equal(int32(1)))
+		Expect(elapsed).To(BeNumerically("<", 5*time.Second))
 	})
 })

@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- fix: route the four GitHub HTTP clients (fleet lister/file fetcher, maintainer-config fetcher and its test seam, and the GH token preflight) through `bborbe/http`'s rate-limit-aware retry round tripper so a throttled 403/429 is retried with the response's `Retry-After`/`X-RateLimit-Reset` delay instead of ending the work item, bounding each wait at one second so the five default attempts stay inside the 10- and 15-second client timeouts
+
 ## v0.28.2
 
 - fix: read `git cat-file -e`'s real absent signal in `FileExistsAtRef` — it exits **128** (not 1) for a missing path, so v0.28.1 still aborted `ai_review` with `read base CHANGELOG failed` on a base with no `CHANGELOG.md`; 128 now maps to "absent" only when stderr is absence-shaped (`does not exist in` / `exists on disk, but not in`), so a broken ref or non-repo stays an error instead of silently reading as "no CHANGELOG"
